@@ -1,12 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! EP-001 to EP-004: the structural pass, end to end.
-//!
-//! Every proof here starts at `inspect` or at the built binary, because the
-//! question these epics answer is not whether a detector fires but whether what
-//! it finds reaches the score, the gate, the render and the baseline on the
-//! path the native detectors already take.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -29,12 +22,9 @@ fn repository() -> &'static Path {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    repository().join("tests/fixtures/structure").join(name)
+    support::fixture_dir(&format!("structure/{name}"))
 }
 
-/// Scratch workspace of a test, with its own Cargo target directory: without
-/// one, Cargo's artifact garbage collection deletes rlibs a running test binary
-/// still references.
 fn scratch(label: &str) -> PathBuf {
     let root = repository()
         .join("target/structure-kernel")
@@ -70,7 +60,6 @@ fn published(request: InspectRequest) -> Value {
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
 
-/// Diagnostics the catalog knows about, in published order.
 fn curated(report: &Value) -> Vec<&Value> {
     report["diagnostics"]
         .as_array()
@@ -91,11 +80,6 @@ fn rule_findings<'a>(report: &'a Value, rule: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-/// US-001, US-002, US-004: one diagnostic per family, on the published path.
-///
-/// This is the trigger `tests/rule_evidence.json` names for the rule: the
-/// fixture is scanned through the same `inspect` a user runs, and the category,
-/// the tier and the help are read back off the shipped policy.
 #[test]
 fn the_structural_pass_publishes_one_diagnostic_per_family() {
     let report = published(InspectRequest::new(fixture("unreasoned-allow")));
@@ -124,8 +108,6 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         );
     }
 
-    // A family whose members share a file: the diagnostic points at the first
-    // in sorted order and names the rest.
     let within = findings[0];
     assert_eq!(within["path"], "src/lib.rs");
     assert_eq!(within["occurrences"], 2);
@@ -142,8 +124,6 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         }])
     );
 
-    // A family whose members straddle two files: `related` crosses the file
-    // boundary, because the rule reports what the codebase silences.
     let across = findings[1];
     assert_eq!(across["path"], "src/lib.rs");
     assert_eq!(across["occurrences"], 2);
@@ -156,8 +136,6 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         1
     );
 
-    // A family of one publishes no `related` key at all, rather than an empty
-    // array, so a per-site diagnostic serializes as it did under schema 10.
     let alone = findings[2];
     assert_eq!(alone["occurrences"], 1);
     assert!(
@@ -165,15 +143,10 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         "a single-site finding published an empty related array"
     );
 
-    // The exemption inside `#[cfg(test)]` is marked, so it stays published and
-    // counted while it stops weighing on the score.
     assert_eq!(alone["context"], "tests");
     assert!(within.get("context").is_none());
     assert!(across.get("context").is_none());
 
-    // US-014: the crate-level form is counted like the item-level one, and the
-    // integration test crate that carries it is named by a Cargo target kind,
-    // so the finding is marked without any path being read as a context.
     let crate_level = findings[3];
     assert_eq!(crate_level["path"], "tests/crate_level.rs");
     assert_eq!(crate_level["context"], "tests");
@@ -183,16 +156,6 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         "#![allow(dead_code)] switches a lint off without a stated reason."
     );
 
-    // The findings are scored: the dimension the category maps to leaves 100.
-    // The marked families are excluded from that arithmetic, the two others are
-    // not, which is what makes the mark observable rather than declarative.
-    // Since EP-001 of the suppression PRD, the crate-level exemption of the
-    // test crate is also reported under its own rule, so the category list is
-    // looked up by name rather than by position.
-    //
-    // Under core-v3 the number the exclusion produces is 72, not 99: this fixture is a handful
-    // of lines, so it divides by the two-kiloline floor, and two weighing sites are a density of
-    // one. What the mark buys is the distance to 51, which is what the four would have scored.
     assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 72);
     let maintainability = report["audit"]["categories"]
         .as_array()
@@ -202,7 +165,6 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         .expect("the maintainability tally is published");
     assert_eq!(maintainability["distinct"]["total"], 4);
 
-    // Nothing published names a path outside the workspace.
     let rendered = serde_json::to_string(&report).unwrap();
     assert!(!rendered.contains(repository().to_str().unwrap()));
     for finding in &findings {
@@ -220,12 +182,6 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
     }
 }
 
-/// US-014: an exemption that states its reason is not an unreasoned finding.
-///
-/// Since EP-001 of the suppression PRD, the reason answers the census and not
-/// the reach: the same attribute is still reported by `crate_level_allow`,
-/// because its scope is the whole file, and that P2 finding is what now costs
-/// the fixture its perfect score.
 #[test]
 fn a_stated_reason_leaves_the_census_with_nothing_to_report() {
     let report = published(InspectRequest::new(fixture("reasoned-allow")));
@@ -237,11 +193,6 @@ fn a_stated_reason_leaves_the_census_with_nothing_to_report() {
     assert_eq!(report["audit"]["score"]["authoritative"], true);
 }
 
-/// US-001: an empty structural result costs the report nothing.
-///
-/// The same workspace scanned with the rule active and with it switched off
-/// produces the same bytes, which is what "the pass returns an empty vector and
-/// the report is unchanged" means once it is observable.
 #[test]
 fn an_empty_structural_result_changes_no_byte_of_the_report() {
     let active = published(InspectRequest::new(fixture("reasoned-allow")));
@@ -252,8 +203,6 @@ fn an_empty_structural_result_changes_no_byte_of_the_report() {
 
     let mut inactive_without_policy = inactive.clone();
     let mut active_without_policy = active.clone();
-    // The published policy names the level of every rule, so it is the one
-    // place the two runs legitimately differ.
     inactive_without_policy["policy"] = Value::Null;
     active_without_policy["policy"] = Value::Null;
     assert_eq!(
@@ -262,7 +211,6 @@ fn an_empty_structural_result_changes_no_byte_of_the_report() {
     );
 }
 
-/// US-004: `--rule` and `--category` reach a structural rule like any other.
 #[test]
 fn the_policy_switches_a_structural_rule_off_and_raises_it_to_error() {
     let off = published(
@@ -287,12 +235,9 @@ fn the_policy_switches_a_structural_rule_off_and_raises_it_to_error() {
         assert_eq!(finding["base_severity"], "warning");
     }
     assert_eq!(raised["gate"]["status"], "failed");
-    // The marked families stay published and stop blocking, exactly as a
-    // `println!` in a build script does.
     assert_eq!(raised["gate"]["blocking_diagnostics"], 2);
 }
 
-/// US-002: `--verbose` names every other site of a family.
 #[test]
 fn the_verbose_render_names_the_related_locations() {
     let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
@@ -315,7 +260,6 @@ fn the_verbose_render_names_the_related_locations() {
     assert!(!rendered.contains(repository().to_str().unwrap()));
 }
 
-/// US-003: the identity of a structural finding excludes its position.
 #[test]
 fn a_structural_fingerprint_survives_an_insertion_and_moves_with_its_content() {
     let root = scratch("fingerprint");
@@ -345,8 +289,6 @@ fn a_structural_fingerprint_survives_an_insertion_and_moves_with_its_content() {
         "a structural fingerprint moved with an unrelated insertion"
     );
 
-    // Rewriting the exemption itself is a change of normalized content, so the
-    // family it formed is a different family and carries a different identity.
     let rewritten_source = original.replace("#[allow(dead_code)]", "#[allow(unused_mut)]");
     assert_ne!(rewritten_source, original);
     fs::write(&source, rewritten_source).unwrap();
@@ -362,7 +304,6 @@ fn a_structural_fingerprint_survives_an_insertion_and_moves_with_its_content() {
     );
 }
 
-/// US-003: the baseline classifies a shifted structural finding as pre-existing.
 #[test]
 fn a_shifted_structural_finding_is_pre_existing_against_its_baseline() {
     let root = scratch("baseline");
@@ -404,14 +345,6 @@ fn a_shifted_structural_finding_is_pre_existing_against_its_baseline() {
     }
 }
 
-/// US-001: a unit the parser cannot read is skipped, named under the `structure`
-/// stage, and never stops the pass on the rest of the workspace.
-///
-/// The crate is built here rather than committed as a fixture: a file that
-/// fails to parse also fails to compile, so a committed one would turn every
-/// scan of the surrounding directory incomplete. A second member compiles,
-/// so the workspace keeps a score for the error to qualify: one with every
-/// member unlinted publishes none (EP-002 US-009).
 #[test]
 fn an_unparseable_unit_is_reported_under_the_structure_stage() {
     let root = scratch("parse-error");
@@ -468,14 +401,9 @@ fn an_unparseable_unit_is_reported_under_the_structure_stage() {
     assert!(message.contains("src/broken.rs"), "{message}");
     assert!(!message.contains(repository().to_str().unwrap()), "{message}");
 
-    // FR-10, FR-11: what the pass could not cover takes the authoritative flag
-    // off the score rather than being reported as a complete answer. The time
-    // budget stops the pass through this same error path.
     assert_eq!(report["status"], "incomplete");
     assert_eq!(report["audit"]["score"]["authoritative"], false);
 
-    // The unreadable unit is the only one dropped: the exemption in the file
-    // next to it still reaches the report.
     assert_eq!(
         structural(&report)
             .iter()
@@ -487,16 +415,6 @@ fn an_unparseable_unit_is_reported_under_the_structure_stage() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// EP-002: duplicate function detection
-// ---------------------------------------------------------------------------
-
-/// US-006, US-007, US-008: the two duplication rules, end to end.
-///
-/// This is the trigger `tests/rule_evidence.json` names for both of them. The
-/// fixture is scanned through the same `inspect` a user runs, so the category,
-/// the tier and the help are read back off the shipped policy, and the forms
-/// the rules must leave alone are in the same crate as the forms they report.
 #[test]
 fn the_duplication_pass_publishes_one_family_per_shape() {
     let report = published(InspectRequest::new(fixture("duplicate-function")));
@@ -513,11 +431,6 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
         assert_eq!(published["level"], "warn");
     }
 
-    // US-006: the two exact copies are one finding of two occurrences, pointing
-    // at the first in sorted order and naming the second. The pair of one-line
-    // predicates below the node floor and the function of comparable size doing
-    // something else are both left alone, which is what proves the rule was
-    // checked for over-reach.
     let exact = rule_findings(&report, DUPLICATE);
     let shipped = exact
         .iter()
@@ -544,8 +457,6 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
         "an exact family published a similarity it did not measure"
     );
 
-    // US-007: the copy edited after the fact is a near family, scored, and the
-    // pair already published as an exact family is not published again here.
     let near = rule_findings(&report, NEAR_DUPLICATE);
     assert_eq!(near.len(), 1, "{near:#?}");
     assert_eq!(near[0]["occurrences"], 2);
@@ -556,13 +467,6 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     assert_eq!(near[0]["path"], "src/edited.rs");
     assert_eq!(near[0]["related"][0]["path"], "src/lib.rs");
 
-    // US-008: the family inside `#[cfg(test)]` and the one inside the build
-    // script are marked, stay published, and stay counted. Only the two shipped
-    // families weigh, which is what leaves maintainability at 84 with four findings published:
-    // two weighing sites over the two-kiloline floor this fixture is far below, discounted by the
-    // rate the corpus adjudicated the rule wrong (85 until the core-v6 replay measured it at 6 of
-    // 18 rather than 8 of 20). Four would have scored lower, and that gap is the mark being
-    // observable rather than declarative.
     let marks: Vec<&str> = exact
         .iter()
         .map(|finding| finding["context"].as_str().unwrap_or("shipped"))
@@ -573,21 +477,10 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     assert_eq!(report["audit"]["score"]["value"], 98);
     assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 84);
 
-    // Nothing published names a path outside the workspace.
     let rendered = serde_json::to_string(&report).unwrap();
     assert!(!rendered.contains(repository().to_str().unwrap()));
 }
 
-/// US-017: a family whose every member is non-production stops being published
-/// as production.
-///
-/// The fixture holds exactly one family, and its two members sit in two
-/// different non-production targets: one in the bench, one in the integration
-/// test. Unanimity on the mark itself would answer `None` there, since
-/// `benchmark` and `tests` are not the same value, and the family would be
-/// published unmarked and charged against the eleven production lines the crate
-/// really ships. The mark the family takes is the anchor's, so the pass answers
-/// `benchmark` and the score stays at 100.
 #[test]
 fn a_family_split_across_two_non_production_targets_is_not_charged_to_production() {
     let report = published(InspectRequest::new(fixture("duplicate-across-non-production")));
@@ -599,8 +492,6 @@ fn a_family_split_across_two_non_production_targets_is_not_charged_to_production
     assert_eq!(exact[0]["related"][0]["path"], "tests/probe.rs");
     assert_eq!(exact[0]["occurrences"], 2);
 
-    // The family is published and counted, and it weighs nothing: the crate
-    // ships one function and no copy of it.
     assert_eq!(report["audit"]["categories"][0]["occurrences"]["total"], 2);
     assert_eq!(report["audit"]["production_lines"], 11);
     assert_eq!(report["audit"]["score"]["value"], 100);
@@ -608,8 +499,6 @@ fn a_family_split_across_two_non_production_targets_is_not_charged_to_production
     assert_eq!(report["audit"]["score"]["authoritative"], true);
 }
 
-/// US-006, US-007: switching a duplication rule off removes its findings and
-/// leaves the other one untouched.
 #[test]
 fn each_duplication_rule_is_switched_off_on_its_own() {
     let without_exact = published(
@@ -626,8 +515,6 @@ fn each_duplication_rule_is_switched_off_on_its_own() {
     assert_eq!(rule_findings(&without_near, DUPLICATE).len(), 3);
     assert!(rule_findings(&without_near, NEAR_DUPLICATE).is_empty());
 
-    // With both off the score is computed without them, and the dimension they
-    // were the only occupants of returns to its untouched value.
     let neither = published(
         InspectRequest::new(fixture("duplicate-function"))
             .with_rule_override(RuleOverride::new(DUPLICATE, RuleLevel::Off))
@@ -638,8 +525,6 @@ fn each_duplication_rule_is_switched_off_on_its_own() {
     assert_eq!(neither["audit"]["score"]["dimensions"]["maintainability"], 100);
 }
 
-/// US-003, US-006: a clone family keeps its identity when unrelated code moves
-/// above it, and loses it when the shape itself is edited.
 #[test]
 fn a_clone_family_keeps_its_identity_across_an_insertion() {
     let root = scratch("duplication-fingerprint");
@@ -669,7 +554,6 @@ fn a_clone_family_keeps_its_identity_across_an_insertion() {
         "a clone family was renamed by an unrelated insertion"
     );
 
-    // Editing one member out of the shape dissolves the family it belonged to.
     fs::write(&source, original.replace("sum -= bound;", "sum -= bound + 1;")).unwrap();
     let edited = published(InspectRequest::new(&project));
     assert_eq!(
@@ -682,19 +566,9 @@ fn a_clone_family_keeps_its_identity_across_an_insertion() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// EP-003: complexity and size hotspots
-// ---------------------------------------------------------------------------
-
 const COMPLEX: &str = "rust_doctor::structure::complex_function";
 const OVERSIZED: &str = "rust_doctor::structure::oversized_unit";
 
-/// US-010: the complexity rule, end to end.
-///
-/// This is the trigger `tests/rule_evidence.json` names for the rule. The
-/// fixture is scanned through the same `inspect` a user runs, and the quiet
-/// function next to the dense one is the recorded silence that proves the rule
-/// was checked for over-reach.
 #[test]
 fn the_complexity_pass_names_the_functions_too_tangled_to_review() {
     let report = published(InspectRequest::new(fixture("complex-function")));
@@ -718,8 +592,6 @@ fn the_complexity_pass_names_the_functions_too_tangled_to_review() {
     assert_eq!(hotspot["occurrences"], 1);
     assert!(hotspot.get("related").is_none());
 
-    // US-010: both figures appear in --json, on the diagnostic, and the
-    // message states them for the terminal reader.
     assert_eq!(
         hotspot["complexity"],
         serde_json::json!({ "cyclomatic": 11, "cognitive": 30 })
@@ -732,7 +604,6 @@ fn the_complexity_pass_names_the_functions_too_tangled_to_review() {
         "{message}"
     );
 
-    // A diagnostic that is not a hotspot carries no complexity key at all.
     for diagnostic in curated(&report) {
         if diagnostic["code"] != COMPLEX {
             assert!(diagnostic.get("complexity").is_none(), "{diagnostic:#?}");
@@ -740,15 +611,12 @@ fn the_complexity_pass_names_the_functions_too_tangled_to_review() {
     }
 }
 
-/// US-010: the thresholds are read from `rust-doctor.toml`, in both
-/// directions, and `--rule` switches the rule off entirely.
 #[test]
 fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
     let root = scratch("complexity-thresholds");
     let project = root.join("project");
     copy_fixture("complex-function", &project);
 
-    // Raised above what the fixture measures: nothing is reported.
     fs::write(
         project.join("rust-doctor.toml"),
         "[structure]\ncyclomatic-threshold = 12\ncognitive-threshold = 31\n",
@@ -757,7 +625,6 @@ fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
     let raised = published(InspectRequest::new(&project));
     assert!(rule_findings(&raised, COMPLEX).is_empty(), "{raised:#?}");
 
-    // Lowered under the calm function: both functions are reported.
     fs::write(
         project.join("rust-doctor.toml"),
         "[structure]\ncognitive-threshold = 2\n",
@@ -766,7 +633,6 @@ fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
     let lowered = published(InspectRequest::new(&project));
     assert_eq!(rule_findings(&lowered, COMPLEX).len(), 2, "{lowered:#?}");
 
-    // The existing --rule mechanism reaches the rule like any other.
     let off = published(
         InspectRequest::new(fixture("complex-function"))
             .with_rule_override(RuleOverride::new(COMPLEX, RuleLevel::Off)),
@@ -774,11 +640,6 @@ fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
     assert!(rule_findings(&off, COMPLEX).is_empty(), "{off:#?}");
 }
 
-/// US-011: the oversized units, end to end, one diagnostic each.
-///
-/// This is the trigger `tests/rule_evidence.json` names for the rule. The
-/// workspace is generated rather than committed: a thousand committed filler
-/// lines would say nothing to a reader of this repository.
 #[test]
 fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
     let root = scratch("oversized");
@@ -798,8 +659,6 @@ fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
     )
     .unwrap();
 
-    // One long function, one long impl block, one long module, in a file long
-    // enough to be a unit of its own.
     let mut source = String::from("pub mod produced;\n\npub struct Wide;\n\n");
     source.push_str("pub fn stretched() -> u64 {\n    let mut total: u64 = 0;\n");
     for _ in 0..150 {
@@ -816,7 +675,6 @@ fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
     source.push_str("}\n");
     fs::write(project.join("src/lib.rs"), &source).unwrap();
 
-    // The same size under a recognized generator header: excluded whole.
     let mut produced = String::from("// @generated by a code generator. DO NOT EDIT.\n");
     produced.push_str(&source.replace("pub mod produced;\n\n", "").replace("Wide", "Tall"));
     fs::write(project.join("src/produced.rs"), produced).unwrap();
@@ -840,8 +698,6 @@ fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
             )
         })
         .collect();
-    // One diagnostic per unit: the file, the function, the impl block and the
-    // module, and nothing from the generated file next to them.
     assert_eq!(findings.len(), 4, "{named:#?}");
     assert!(named.iter().all(|(path, _)| *path == "src/lib.rs"), "{named:#?}");
     assert!(
@@ -865,16 +721,6 @@ fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// EP-004: Rust-native slop signals
-// ---------------------------------------------------------------------------
-
-/// US-013: the orphan module rule, end to end.
-///
-/// This is the trigger `tests/rule_evidence.json` names for the rule. The
-/// fixture is scanned through the same `inspect` a user runs, and every other
-/// way of reaching a file sits in the same crate as the unreached one, which is
-/// what proves the rule was checked for over-reach.
 #[test]
 fn the_orphan_rule_names_the_file_cargo_never_compiles() {
     let report = published(InspectRequest::new(fixture("orphan-module")));
@@ -889,11 +735,6 @@ fn the_orphan_rule_names_the_file_cargo_never_compiles() {
     assert_eq!(rule["tier"], "P3");
     assert_eq!(rule["level"], "warn");
 
-    // One finding, and only one: the ordinary `mod`, the `#[path]` attribute,
-    // the `mod` gated on another platform, the `include!`, the build script,
-    // the file that build script names, and the integration test root are all
-    // ways of reaching a file, and the generated file next to the orphan is
-    // read by no structural detector.
     let findings = rule_findings(&report, ORPHAN);
     assert_eq!(
         findings
@@ -916,8 +757,6 @@ fn the_orphan_rule_names_the_file_cargo_never_compiles() {
         "{message}"
     );
 
-    // The rule is reached by the policy like any other, and the score is
-    // computed without it once it is off.
     let off = published(
         InspectRequest::new(fixture("orphan-module"))
             .with_rule_override(RuleOverride::new(ORPHAN, RuleLevel::Off)),
@@ -929,8 +768,6 @@ fn the_orphan_rule_names_the_file_cargo_never_compiles() {
     assert!(!rendered.contains(repository().to_str().unwrap()));
 }
 
-/// US-013: a file the module tree stops reaching becomes an orphan, and the
-/// finding keeps its identity while the file keeps its name.
 #[test]
 fn a_file_becomes_an_orphan_when_its_declaration_goes() {
     let root = scratch("orphan-declaration");
@@ -952,15 +789,11 @@ fn a_file_becomes_an_orphan_when_its_declaration_goes() {
     let before = published(InspectRequest::new(&project));
     let original = fs::read_to_string(&source).unwrap();
 
-    // Dropping the declaration of a reached module makes its file an orphan.
     fs::write(&source, original.replace("pub mod reached;", "")).unwrap();
     let after = published(InspectRequest::new(&project));
     let paths: Vec<String> = orphans(&after).into_iter().map(|(path, _)| path).collect();
     assert_eq!(paths, ["src/orphan.rs", "src/reached.rs"], "{paths:?}");
 
-    // US-003: the identity of the file that was already an orphan is unchanged
-    // by an edit elsewhere, because a structural fingerprint carries no
-    // position.
     let unchanged = orphans(&before)[0].clone();
     assert!(
         orphans(&after).contains(&unchanged),
@@ -968,13 +801,6 @@ fn a_file_becomes_an_orphan_when_its_declaration_goes() {
     );
 }
 
-/// US-013: reachability is answered per package, and being compiled is not.
-///
-/// A member reaching into its neighbour with `#[path]` compiles a file the
-/// module tree of the package holding it never names. The walk stays per
-/// package, so the finding names the package whose directory holds the file,
-/// but what exempts a candidate is the reach of the whole workspace: a file
-/// Cargo compiles must never be published as compiled by nothing.
 #[test]
 fn a_file_another_package_compiles_is_not_an_orphan() {
     let report = published(InspectRequest::new(fixture("orphan-across-packages")));
@@ -997,12 +823,6 @@ fn a_file_another_package_compiles_is_not_an_orphan() {
     );
 }
 
-/// US-020: the orphan rule tells the reader to delete a file, so it holds
-/// only where the module tree is provably whole. A module chosen per platform
-/// by `cfg_attr(.., path = ..)` is compiled, with or without a default file,
-/// and a package whose modules a macro declares, `cfg_if!` among them, is
-/// withheld whole. A file nothing declares, in a package whose tree is
-/// complete, is still reported.
 #[test]
 fn conditional_module_layouts_are_reached_and_a_stray_file_is_still_an_orphan() {
     let report = published(InspectRequest::new(fixture("orphan-conditional")));
@@ -1018,13 +838,6 @@ fn conditional_module_layouts_are_reached_and_a_stray_file_is_still_an_orphan() 
     assert!(report["errors"].as_array().is_some_and(Vec::is_empty), "{report:#?}");
 }
 
-/// US-015: the feature inventory, end to end.
-///
-/// This is the trigger `tests/rule_evidence.json` names for the rule. The
-/// fixture is a workspace of two packages, because the question the rule
-/// answers is per package: the same feature name is declared by one member and
-/// read by the other, and only the reader that does not declare it is a
-/// finding.
 #[test]
 fn the_feature_inventory_reports_both_sides_of_the_disagreement() {
     let report = published(InspectRequest::new(fixture("feature-inventory")));
@@ -1052,9 +865,6 @@ fn the_feature_inventory_reports_both_sides_of_the_disagreement() {
         .collect();
     assert_eq!(findings.len(), 3, "{named:#?}");
 
-    // A feature nothing reads and that activates nothing, pointed at the line
-    // of the manifest that declares it. `default`, the feature a gate reads
-    // through an `all(...)`, and the one that activates another are silent.
     assert_eq!(named[0].0, "app/Cargo.toml");
     assert_eq!(named[0].1, 18);
     assert!(
@@ -1063,7 +873,6 @@ fn the_feature_inventory_reports_both_sides_of_the_disagreement() {
         named[0]
     );
 
-    // A gate naming a feature no manifest declares, pointed at the gate.
     assert_eq!(named[1].0, "app/src/lib.rs");
     assert!(
         named[1].2.contains("cfg(feature = \"absent\")"),
@@ -1071,8 +880,6 @@ fn the_feature_inventory_reports_both_sides_of_the_disagreement() {
         named[1]
     );
 
-    // A gate naming a feature the neighbouring package declares and this one
-    // does not: resolution is per package, not over the workspace.
     assert_eq!(named[2].0, "app/src/lib.rs");
     assert!(
         named[2].2.contains("cfg(feature = \"engine-only\")"),

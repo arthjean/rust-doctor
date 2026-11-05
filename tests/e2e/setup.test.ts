@@ -1,7 +1,3 @@
-// SU-01 to SU-19 of `tasks/e2e-catalog/subcommands.md` section 9: `setup`,
-// which detects the agents through the fake PATH profiles of `fakes.ts` and
-// the workspace's agent directories, then installs the skill, the git hook
-// and the agent Stop hooks in one pass.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -32,7 +28,6 @@ function setup(repo: Repo, args: string[], profile: Profile = "none", options: D
   return runDoctor(["setup", ...args, repo.path], { sandbox: repo.sandbox, env: fakeEnv(repo.sandbox, profile), ...options });
 }
 
-// Every file of the workspace, `.git` left out but for the hook setup writes.
 function files(root: string): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {

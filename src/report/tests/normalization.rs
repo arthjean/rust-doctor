@@ -1,9 +1,3 @@
-//! Tests for what a producer's finding becomes once it is a diagnostic:
-//! identity, severity, spans, ordering, deduplication and everything the
-//! published text has taken out of it.
-//!
-//! The fixtures come from the parent module, which carries the pipeline half.
-
 use std::path::Path;
 
 use serde_json::Value;
@@ -414,10 +408,6 @@ fn missing_exit_and_build_finished_have_explicit_causes() {
     }));
 }
 
-/// US-011: a repository-pass failure degrades the scan, never aborts it.
-/// The error surfaces at stage `repo`, the diagnostics of every other
-/// producer stay published, and the incomplete status drops the
-/// authoritative flag.
 #[test]
 fn repo_errors_surface_at_stage_repo_and_make_the_scan_incomplete() {
     let metadata = cargo_health_metadata(&[]);
@@ -519,9 +509,6 @@ fn sanitizes_workspace_and_both_home_forms_from_errors() {
     assert_eq!(sanitized, ". failed in <home> and <home>\n");
 }
 
-/// EP-001 US-004: what Cargo and rustup print under `RUSTUP_HOME` and
-/// `CARGO_HOME` is named by the variable, and any other absolute path keeps
-/// its last directory and file name under `<external>`.
 #[test]
 fn toolchain_homes_and_external_paths_leave_no_absolute_path() {
     let home = HomePaths {
@@ -552,14 +539,10 @@ fn toolchain_homes_and_external_paths_leave_no_absolute_path() {
         ),
         "failed to read `<external>/gone/Cargo.toml` (from <external>/gone/lib.rs:3)"
     );
-    // Cargo's stderr reaches here with its home already spelled `~`.
     assert_eq!(
         sanitize_text("failed to read `~/dev/scratch/gone/Cargo.toml`", None, &home),
         "failed to read `<external>/gone/Cargo.toml`"
     );
-    // failures/BUG-16: a name that only starts with a replaced path's is not
-    // under it. `/work/project-member` used to read `.-member`, and a home's
-    // `.cargo-target` `$CARGO_HOME-target`.
     assert_eq!(
         sanitize_text(
             "failed to read `/work/project-member/Cargo.toml` and `/home/someone/.cargo-target/x/Cargo.toml`",
@@ -570,11 +553,6 @@ fn toolchain_homes_and_external_paths_leave_no_absolute_path() {
     );
 }
 
-/// EP-003 US-012: a path Cargo quotes with backticks or rustup with
-/// apostrophes ends at its closing quote, a space or an apostrophe inside it
-/// included; Windows verbatim and UNC roots are paths; an unquoted path runs
-/// across a blank the next word continues with a separator; and each keeps
-/// no more than its last two components.
 #[test]
 fn quoted_spaced_and_windows_rooted_paths_publish_their_last_two_components() {
     let home = HomePaths::default();
@@ -608,11 +586,8 @@ fn quoted_spaced_and_windows_rooted_paths_publish_their_last_two_components() {
             "could not open <external>/team/Cargo.toml",
         ),
         ("failed in C:\\Users\\First Last\\x", "failed in <external>/First Last/x"),
-        // A relative path after an unquoted one folds into it, and the result
-        // still keeps two components; an absolute one opens a path of its own.
         ("failed in /srv/ext/member src/main.rs", "failed in <external>/member src/main.rs"),
         ("from /srv/a/b /opt/c/d", "from <external>/a/b <external>/c/d"),
-        // A quote that never closes runs to the end of its line.
         (
             "unclosed `/a/b/Jane Doe/c and more words /d/e/f",
             "unclosed `<external>/e/f",
@@ -626,8 +601,6 @@ fn quoted_spaced_and_windows_rooted_paths_publish_their_last_two_components() {
     }
 }
 
-/// EP-003 US-012: a Windows shell sets `USERPROFILE` and no `HOME`, and the
-/// profile is then the home a report names `<home>`.
 #[test]
 fn the_profile_directory_stands_in_for_an_unset_home() {
     let profile = std::ffi::OsString::from("C:\\Users\\Jane Doe");
@@ -638,8 +611,6 @@ fn the_profile_directory_stands_in_for_an_unset_home() {
     );
 }
 
-/// EP-001 US-004: relative paths, URLs, the replacements already made and
-/// arithmetic in a message are not paths to rewrite.
 #[test]
 fn relative_paths_urls_and_operators_are_left_unchanged() {
     let home = HomePaths::default();
@@ -750,7 +721,6 @@ fn control_characters_in_internal_paths_are_encoded_before_rendering() {
     );
 }
 
-/// One sub-diagnostic carrying a replacement for `path`, rated as rustc rates it.
 fn child(path: &str, replacement: &str, applicability: &str) -> CapturedDiagnostic {
     CapturedDiagnostic {
         message: "try".to_owned(),
@@ -771,9 +741,6 @@ fn child(path: &str, replacement: &str, applicability: &str) -> CapturedDiagnost
     }
 }
 
-/// The toolchain's replacement travels with the finding: the best rated one on the finding's
-/// own file, first among equals, and never one the toolchain rated under a name this crate does
-/// not know or one past the budget a reader could paste.
 #[test]
 fn the_best_rated_replacement_on_the_site_travels_with_the_finding() {
     let workspace = fixture("clean").canonicalize().unwrap();
@@ -828,8 +795,6 @@ fn the_best_rated_replacement_on_the_site_travels_with_the_finding() {
     assert_eq!(diagnostics[0].suggestion, None, "an unknown rating is refused, not guessed");
 }
 
-/// A print in a binary target is the program's output: published at `Info`, so it is shown and
-/// charged nothing, while the same lint in a library keeps its warning.
 #[test]
 fn a_print_in_a_binary_target_is_published_at_info() {
     let workspace = fixture("clean").canonicalize().unwrap();
@@ -880,11 +845,6 @@ fn a_print_in_a_binary_target_is_published_at_info() {
     );
 }
 
-/// The convention is Cargo's, and the outermost directory that matches decides:
-/// a file under `benches/` is bench material whatever it is named, and the
-/// `tests.rs` spelling only answers for a file no directory above it claims.
-/// Everything else is unmarked, because a file this reader does not recognize
-/// has to keep weighing on the score.
 #[test]
 fn a_conventional_path_names_the_target_it_belongs_to() {
     use crate::report::DiagnosticContext;
@@ -896,14 +856,10 @@ fn a_conventional_path_names_the_target_it_belongs_to() {
     assert_eq!(context("benches/tests.rs"), Some(DiagnosticContext::Benchmark));
     assert_eq!(context("examples/demo.rs"), Some(DiagnosticContext::Example));
     assert_eq!(context("src/lib.rs"), None);
-    // A directory, not a stem: `tests_util` is a package name, and
-    // `src/latest.rs` merely ends in the four letters the file name is read on.
     assert_eq!(context("tests_util/src/lib.rs"), None);
     assert_eq!(context("src/latest.rs"), None);
 }
 
-/// EP-002 US-009: a run a signal stopped publishes no score, even over a
-/// workspace the walk had measured, and still serializes.
 #[test]
 fn an_interrupted_report_publishes_no_score() {
     let report = report_with_diagnostics(Vec::new());
@@ -918,8 +874,6 @@ fn an_interrupted_report_publishes_no_score() {
     assert_eq!(wire["errors"][0]["code"], "interrupted");
 }
 
-/// EP-002 US-009: a workspace whose every member went unlinted carries no
-/// score; one linted member among them keeps today's numeric score.
 #[test]
 fn a_workspace_with_no_linted_member_publishes_no_score() {
     use std::collections::BTreeSet;

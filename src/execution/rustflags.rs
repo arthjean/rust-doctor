@@ -1,19 +1,3 @@
-//! The caller's rustflags, minus what would change the scan's lint levels.
-//!
-//! A CI job that exports `RUSTFLAGS=-Dwarnings` used to hand it to the Clippy
-//! child unchanged, and every catalogued warning the scan asked for with `-W`
-//! became a build failure: the report went incomplete over findings it exists
-//! to publish. The workspace's own `[build] rustflags = ["-D", "warnings"]`
-//! does the same, measured on 1.97.1 on 2026-09-25: the build fails at the
-//! first catalogued warning.
-//!
-//! Lint-level tokens are therefore removed, and only they: every other flag is
-//! passed on through `CARGO_ENCODED_RUSTFLAGS`, which Cargo reads before
-//! `RUSTFLAGS` and before any configuration. When there is nothing to remove,
-//! the environment is left exactly as the caller set it, because a changed
-//! rustflags value is a changed fingerprint and would recompile every crate
-//! the user's own builds had already compiled.
-
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
@@ -22,19 +6,13 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-/// What the Clippy child is started with instead of the caller's rustflags.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RustflagsOverride {
-    /// The value of `CARGO_ENCODED_RUSTFLAGS`, when something was removed.
     encoded: Option<String>,
-    /// Each removed flag, as `-D warnings`, `--cap-lints warn`.
     pub(crate) removed: Vec<String>,
 }
 
 impl RustflagsOverride {
-    /// Reads the caller's environment, then the workspace's configuration
-    /// when the environment sets neither variable, which is Cargo's own
-    /// precedence.
     pub(crate) fn resolve(workspace_root: &Path) -> Self {
         let encoded = std::env::var("CARGO_ENCODED_RUSTFLAGS").ok();
         let spaced = std::env::var("RUSTFLAGS").ok();
@@ -72,11 +50,6 @@ fn split_encoded(encoded: &str) -> Vec<String> {
     encoded.split('\u{1f}').map(str::to_owned).collect()
 }
 
-/// Splits `flags` into what is passed on and what is removed.
-///
-/// The five lint-level spellings rustc accepts are matched in their separated
-/// and joined forms: `-D x`, `-Dx`, `--deny x`, `--deny=x`, and the same for
-/// `-F`/`--forbid` and `--cap-lints`.
 fn strip(flags: &[String]) -> (Vec<String>, Vec<String>) {
     let mut kept = Vec::new();
     let mut removed = Vec::new();
@@ -100,8 +73,6 @@ fn strip(flags: &[String]) -> (Vec<String>, Vec<String>) {
     (kept, removed)
 }
 
-/// The canonical spelling of a lint-level flag, and its value when it is
-/// joined to it.
 fn lint_level(flag: &str) -> Option<(&'static str, Option<&str>)> {
     for (canonical, short, long) in [
         ("-D", Some("-D"), "--deny"),
@@ -135,10 +106,6 @@ struct ConfigTable {
     rustflags: Option<toml::Value>,
 }
 
-/// `[build] rustflags` of the workspace's `.cargo/config.toml`, when nothing
-/// overrides it. A `[target.*] rustflags` takes precedence over it in Cargo,
-/// so the build table is not what Cargo would pass and is left alone; an
-/// unreadable or invalid file is the dependency pass's to report.
 fn configured(workspace_root: &Path) -> Vec<String> {
     let path = workspace_root.join(".cargo").join("config.toml");
     let Some(document) = fs::read_to_string(path)

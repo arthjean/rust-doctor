@@ -1,0 +1,4 @@
+rule = "rust_doctor::repo::hardcoded_credential"
+weakness = "placeholder-credential"
+source = "US-019, a template slot for the password"
+verdict = "quiet"

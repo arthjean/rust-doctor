@@ -1,8 +1,3 @@
-// Two real external codebases through the path a user takes: hexyl (one
-// binary and library crate) and ripgrep (a ten-member workspace), both with a
-// committed lockfile, scanned through the installed npm launcher and through
-// the direct binary. The two must publish the same report and the same exit
-// code: the launcher forwards, it never judges. Runs in the corpus job only.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { BIN, doctorArgs, hermeticEnv, scratchDir, spawnTracked } from "./e2e-helpers";

@@ -1,7 +1,3 @@
-// RL-01 to RL-33 of `tasks/e2e-catalog/subcommands.md` section 2: `rules
-// list` and `rules explain`. Nothing here compiles: the catalog numbers are
-// read from `rules list --json`, never restated, so a rule added to the
-// catalog moves every assertion with it.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -60,7 +56,6 @@ function prefixOf(id: string): string {
   return prefix;
 }
 
-// `rules explain` against a directory, asserting it wrote nothing there.
 async function explain(args: string[], dir: string, options: DoctorOptions = {}): Promise<DoctorRun> {
   const before = treeFingerprint(dir);
   const run = await runDoctor(["rules", "explain", ...args], { sandbox: box, cwd: dir, ...options });
@@ -72,7 +67,6 @@ function effectiveLines(stdout: string): string[] {
   return stdout.split("\n").filter((line) => line.startsWith("Effective level:") || line.startsWith("Override:"));
 }
 
-// A one-crate workspace whose root holds `config`, for the refusals.
 function crateWith(label: string, config?: string | Uint8Array): string {
   const dir = writeTree(join(scratchDir(label), "crate"), {
     "Cargo.toml": '[package]\nname = "c"\nversion = "0.1.0"\nedition = "2024"\n\n[workspace]\n',
@@ -117,8 +111,6 @@ describe("rules list", () => {
         "category", "default_level", "diff_scope", "help", "id", "not_a_defect_when", "producer", "requires", "tier", "title",
       ]);
       expect(["P0", "P1", "P2", "P3"]).toContain(entry.tier);
-      // A rule defaults to warn, or to off when the corpus made it opt-in
-      // (docs/catalog-and-corpus.md, "Opt-in rules").
       expect(["warn", "off"]).toContain(entry.default_level);
       expect(["line", "item", "file"]).toContain(entry.diff_scope);
       expect(Object.values(PRODUCERS)).toContain(entry.producer);
@@ -271,8 +263,6 @@ describe("rules explain against a workspace", () => {
     expect(effectiveLines(run.stdout)).toEqual(["Effective level: warn (default)"]);
   });
 
-  // US-008 fixed subcommands/F4: a member path reads its workspace root's
-  // configuration, as the scan does.
   test("RL-20 a member path answers with the workspace root's configuration", async () => {
     const root = await explain(["todo", "."], workspace);
     const member = await explain(["todo", "a"], workspace);
@@ -289,7 +279,6 @@ describe("rules explain against a workspace", () => {
     expect(effectiveLines(run.stdout)[0]).toBe("Effective level: error (config-rule)");
   });
 
-  // US-007 fixed subcommands/F5: a PATH that does not exist is refused.
   test("RL-22 a PATH that does not exist is refused with one line naming it", async () => {
     const run = await explain(["todo", "/nonexistent/path"], workspace);
     expect(run.exitCode).toBe(2);
@@ -299,8 +288,6 @@ describe("rules explain against a workspace", () => {
     expect(run.stderr).toContain("does not exist");
   });
 
-  // US-008 resolves PATH through discovery, so a manifest names its workspace
-  // and no longer fails to read `Cargo.toml/rust-doctor.toml`.
   test("RL-23 a manifest as PATH answers for its workspace", async () => {
     const run = await explain(["todo", "Cargo.toml"], workspace);
     expect(run.exitCode).toBe(0);

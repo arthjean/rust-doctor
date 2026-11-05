@@ -255,8 +255,6 @@ fn report(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-/// The private parent every scan of this suite snapshots under, so a snapshot
-/// left behind is one this listing sees. `/tmp` is refused as a parent.
 fn snapshot_parent() -> &'static Path {
     static PARENT: OnceLock<PathBuf> = OnceLock::new();
     PARENT.get_or_init(|| {
@@ -389,8 +387,6 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
         .iter()
         .map(|id| id.as_str().unwrap())
         .collect();
-    // No introduced diagnostic disappears from the categories, including the
-    // one no catalog category covers: it falls into `Other`.
     let introduced_diagnostics: Vec<_> = baseline["diagnostics"]
         .as_array()
         .unwrap()
@@ -463,8 +459,6 @@ fn baseline_runs_two_identical_sides_without_mutation_or_leak() {
     assert_eq!(Path::new(metadata[0][1]), fixture.project);
     assert_eq!(Path::new(metadata[0][2]), fixture.target);
     assert!(metadata[1][1].contains("rust-doctor-baseline-"));
-    // The base side builds under the workspace's own target directory, which
-    // outlives the snapshot, so its dependencies stay compiled between runs.
     let persistent = fixture.target.join("rust-doctor").join("baseline");
     assert_eq!(Path::new(metadata[1][2]), persistent);
     assert_eq!(Path::new(clippy[0][2]), persistent);
@@ -529,8 +523,6 @@ fn baseline_gate_counts_only_introduced_diagnostics() {
     assert_eq!(report["delta"]["summary"]["introduced"], 4);
     assert_eq!(report["delta"]["summary"]["pre_existing"], 4);
     assert_eq!(report["gate"]["status"], "failed");
-    // The fourth introduced diagnostic is rustc's `dead_code` on the untracked
-    // module: a compiler note, published and blocking nothing (US-004).
     let introduced = report["delta"]["introduced"].as_array().unwrap();
     let notes: Vec<&Value> = report["diagnostics"]
         .as_array()
@@ -569,8 +561,6 @@ fn invalid_baseline_metadata_fails_closed_before_any_scan() {
         events.iter().filter(|event| *event == "metadata").count(),
         2
     );
-    // The versions are probed before the base side: the side cache keys on
-    // them. Nothing is linted on either side.
     assert!(!events.iter().any(|event| event == "clippy"));
     assert_eq!(temporary_snapshots(), before_temp);
 }
@@ -711,8 +701,6 @@ fn disabled_clippy_producer_starts_no_scan_on_either_side() {
             "baseline",
             "--base",
             SELECTOR,
-            // Turning off every category turns off every producer, without
-            // tying the test to the catalog volume.
             "--category",
             "correctness=off",
             "--category",
@@ -733,8 +721,6 @@ fn disabled_clippy_producer_starts_no_scan_on_either_side() {
     let report = report(&output);
     assert_eq!(report["status"], "complete");
     assert!(report["scan"]["command"].is_null());
-    // A plan with no Clippy rule probes no version (US-004): a probe would
-    // run a workspace `[alias] clippy` or a path toolchain.
     assert!(report["toolchain"]["clippy"].is_null());
     assert_eq!(
         fixture
@@ -868,10 +854,6 @@ mod delta;
 #[path = "baseline_kernel/write_confinement.rs"]
 mod write_confinement;
 
-/// The second baseline run on an unchanged base reads the base side from the
-/// side cache: the same bytes, and no Cargo process for the base side. A
-/// policy edit, a corrupt cache file and `RUST_DOCTOR_NO_CACHE=1` each make it
-/// scan the base again.
 #[test]
 fn an_unchanged_base_is_judged_once_and_read_back_from_the_side_cache() {
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());

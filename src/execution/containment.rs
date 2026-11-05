@@ -1,31 +1,9 @@
-//! A pass that panics degrades into an error at its stage, as a pass that
-//! returns an error does, instead of taking the run down with it.
-//!
-//! Every producer runs under `catch_unwind`. What a contained pass leaves
-//! behind is dropped whole: its scan is `None`, and the report carries one
-//! `pass-panicked` error at its stage with a fixed sentence, so the score
-//! stops calling itself authoritative and every other pass's findings stay.
-//! The panic's own message never reaches the report or stderr, since it can
-//! quote any text the pass was reading.
-//!
-//! The process keeps a single panic hook, installed on the first contained
-//! pass. It stays silent for a panic raised on a thread inside a contained
-//! pass and hands every other panic to the hook it replaced, so a library
-//! embedding `inspect` keeps its own reporting outside the passes.
-//!
-//! A debug build panics on request at the end of the pass that
-//! `RUST_DOCTOR_INJECT_PANIC` names, which is how the tests prove containment
-//! from the binary a user runs. A release build never reads the variable.
-
 use std::cell::Cell;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Mutex, Once, PoisonError};
 
-/// The code of the error a contained panic publishes.
 pub(crate) const PASS_PANICKED: &str = "pass-panicked";
 
-/// One pass that runs contained: the stage its error is published at, the
-/// sentence that error carries, and the name fault injection selects it by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Pass {
     pub(crate) stage: &'static str,
@@ -73,23 +51,18 @@ pub(crate) const CLIPPY: Pass = Pass {
     site: "clippy",
 };
 
-/// The injection site inside the Clippy stream reader, at Cargo's last
-/// message, while the `cargo clippy` child and its process group still run.
 const CLIPPY_STREAM: &str = "clippy_stream";
 
-/// The stream reader's injection point, handed every message it reads.
 pub(crate) fn observe_stream(message: &cargo_metadata::Message) {
     if matches!(message, cargo_metadata::Message::BuildFinished(_)) {
         inject(CLIPPY_STREAM);
     }
 }
 
-/// The passes of one run that panicked, gathered from every thread it uses.
 #[derive(Debug, Default)]
 pub(crate) struct Panicked(Mutex<Vec<Pass>>);
 
 impl Panicked {
-    /// Runs `pass`, and `None` when it panicked, which is then recorded.
     pub(crate) fn contain<T>(&self, pass: Pass, run: impl FnOnce() -> T) -> Option<T> {
         install_hook();
         let outcome = {
@@ -100,11 +73,9 @@ impl Panicked {
                 value
             }))
         };
-        // The payload is dropped unread: it can quote what the pass read.
         outcome.map_err(|_| self.record(pass)).ok()
     }
 
-    /// Records a pass whose thread ended in a panic outside `contain`.
     pub(crate) fn record(&self, pass: Pass) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).push(pass);
     }
@@ -115,14 +86,11 @@ impl Panicked {
 }
 
 thread_local! {
-    /// How many contained passes this thread is inside of.
     static INSIDE: Cell<usize> = const { Cell::new(0) };
 }
 
 static HOOK: Once = Once::new();
 
-/// Marks the current thread as inside a contained pass until dropped, which
-/// unwinding does only after the hook has run.
 struct Inside;
 
 impl Inside {
@@ -149,11 +117,9 @@ fn install_hook() {
     });
 }
 
-/// The variable a debug build reads to panic at one injection site.
 #[cfg(debug_assertions)]
 pub(crate) const INJECT_PANIC: &str = "RUST_DOCTOR_INJECT_PANIC";
 
-/// Panics when a debug build was asked to at `site`.
 #[cfg(debug_assertions)]
 pub fn inject(site: &str) {
     if std::env::var_os(INJECT_PANIC).is_some_and(|value| value == site) {
@@ -191,7 +157,6 @@ mod tests {
         manifest
     }
 
-    /// `catch_unwind` cannot stop a panic a profile turns into an abort.
     #[test]
     fn no_profile_aborts_on_panic() {
         let manifest = manifest();
@@ -204,9 +169,6 @@ mod tests {
             );
         }
     }
-    /// The panics containment exists for are kept out at the source too:
-    /// CI's `-D warnings` turns this lint into a refusal of any unchecked
-    /// string slice in production code.
     #[test]
     fn the_crate_lints_its_own_string_slices() {
         let lint = manifest()

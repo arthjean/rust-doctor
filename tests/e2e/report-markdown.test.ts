@@ -1,7 +1,3 @@
-// RM-01 to RM-22 of `tasks/e2e-catalog/subcommands.md` section 4: `report
-// markdown`. One scan of `twoMember` saves the report every row renders; the
-// failed, baseline, hostile and foreign documents are derived from it or
-// written by hand, so nothing else compiles.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, truncateSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -56,7 +52,6 @@ function derived(change: (report: Report) => void): Report {
   return copy;
 }
 
-// `report markdown` reads, and never writes, the documents or the workspace.
 async function render(args: string[], options: DoctorOptions = {}): Promise<DoctorRun> {
   const before = [treeFingerprint(docs), treeFingerprint(repo.path)];
   const run = await runDoctor(["report", "markdown", ...args], { sandbox: repo.sandbox, cwd: docs, ...options });
@@ -70,7 +65,6 @@ function refused(run: DoctorRun, message: string): void {
   expect(run.stderr).toBe(`rust-doctor: ${message}\n`);
 }
 
-// The refusals RM-22 replays, each built when it runs.
 const REFUSALS: Record<string, () => string[]> = {
   "RM-04": () => [report, "--limit", "1001"],
   "RM-05": () => [report, "--limit", "-1"],
@@ -182,8 +176,6 @@ describe("report markdown", () => {
     refused(await render(["-"], { stdin: readFileSync(report, "utf8") }), "-: the report could not be read (entity not found).");
   });
 
-  // Through a shell pipe: Bun hands a child's stdin over a socket, which
-  // `/dev/stdin` cannot be opened on.
   test("RM-15 /dev/stdin renders a piped report", async () => {
     const before = treeFingerprint(docs);
     const run = await runCommand(["bash", "-c", 'cat "$0" | rust-doctor report markdown /dev/stdin', report], { sandbox: repo.sandbox });

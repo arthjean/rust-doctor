@@ -14,8 +14,6 @@ mod discovery;
 pub(crate) struct ResolvedScanTarget {
     pub(crate) manifest_path: PathBuf,
     pub(crate) metadata: Metadata,
-    /// The directory discovery found the workspace in below the requested
-    /// path, relative to it, when none was above it.
     pub(crate) discovered: Option<String>,
 }
 
@@ -31,14 +29,6 @@ pub(crate) struct ResolutionFailure {
     pub(crate) error: InternalError,
 }
 
-/// Finds the workspace `path` names and asks Cargo for its metadata, killed
-/// at `deadline` when one is set.
-///
-/// `name_only` is set by a scan that compiles nothing: Cargo then runs under
-/// a toolchain pinned by name, so a `rust-toolchain.toml` path toolchain the
-/// tree ships never runs, and a workspace that can only be read through one
-/// is refused. A scan that runs Clippy compiles the workspace by design, and
-/// asks Cargo as the workspace configures it.
 pub(crate) fn resolve(
     path: &Path,
     cargo: &Path,
@@ -102,14 +92,6 @@ fn resolve_with(
     })
 }
 
-/// The manifest a path names, found at it or above it, or else the one
-/// workspace below it, with the directory it was found in.
-///
-/// The upward walk stops at the first directory holding `.git`, a file in a
-/// worktree or a submodule and a directory otherwise, or at the tree of a
-/// baseline or staged snapshot, which holds no `.git`: a manifest above the
-/// repository belongs to another project, and scanning it would judge code
-/// the reader never pointed at.
 fn discover_manifest(
     path: &Path,
     deadline: Option<RunDeadline>,
@@ -143,8 +125,6 @@ fn discover_manifest(
 
     match discovery::workspaces_below(&directory, deadline).as_slice() {
         [] => Err(no_manifest_error(NO_MANIFEST)),
-        // The candidate is resolved, then held to the requested directory: a
-        // manifest reached through a link out of it never qualifies.
         [only] => resolve_manifest_boundary(&directory.join(only).join("Cargo.toml"))
             .and_then(|manifest| {
                 manifest
@@ -156,15 +136,6 @@ fn discover_manifest(
     }
 }
 
-/// The root of the workspace `path` names, found by reading manifests alone:
-/// the manifest a scan would start from, then the nearest manifest at or
-/// above its directory that declares a `[workspace]` table, within the same
-/// repository boundary, else that manifest's own directory.
-///
-/// It starts no toolchain process, which is the point: `cargo metadata` runs
-/// whatever a `rust-toolchain.toml` path toolchain names, and a command that
-/// only reads a configuration file must not. A scan still asks Cargo, since
-/// it needs the members Cargo resolves and not only the root.
 pub(crate) fn manifest_workspace_root(path: &Path) -> Option<PathBuf> {
     let (manifest, _) = discover_manifest(path, None).ok()?;
     let directory = manifest.parent()?;
@@ -179,13 +150,10 @@ pub(crate) fn manifest_workspace_root(path: &Path) -> Option<PathBuf> {
     Some(directory.to_path_buf())
 }
 
-/// Whether an upward walk for a manifest stops at `ancestor`.
 fn repository_boundary(ancestor: &Path) -> bool {
     ancestor.join(".git").symlink_metadata().is_ok() || crate::baseline::is_snapshot_tree(ancestor)
 }
 
-/// What a manifest read for its `[workspace]` table may weigh. Far past any
-/// real manifest, and a bound on what a tree can make this process parse.
 const MANIFEST_LIMIT: u64 = 1024 * 1024;
 
 fn declares_workspace(manifest: &Path) -> bool {
@@ -214,8 +182,6 @@ fn resolve_manifest_boundary(path: &Path) -> Result<PathBuf, InternalError> {
 
 const NO_MANIFEST: &str = "no Cargo.toml found in this path or its ancestors";
 
-/// The path is the reader's own, so the message does not repeat it: a report
-/// names no absolute path, and a relative one would only echo the argument.
 fn no_manifest_error(detail: impl Into<String>) -> InternalError {
     InternalError::new("discovery", "no-manifest", detail)
 }
@@ -268,8 +234,6 @@ fn load_metadata(
         .status
         .map_err(|error| failed(format!("its exit status could not be read: {error}")))?;
     if !status.success() {
-        // Cargo says why on stderr, a manifest it could not parse or a member
-        // it could not find, and that sentence is the whole remedy.
         return Err(failed(
             cargo_stderr::excerpt(&finished.stderr, manifest_directory, target_dir).map_or_else(
                 || "cargo metadata exited with an error".to_owned(),
@@ -292,9 +256,6 @@ fn load_metadata(
     MetadataCommand::parse(text).map_err(|error| failed(error.to_string()))
 }
 
-/// What `cargo metadata --no-deps` may print. It is a few kilobytes per
-/// member, so this holds workspaces far past the two hundred members the scan
-/// is sized for.
 const METADATA_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
 fn metadata_command(
@@ -358,8 +319,6 @@ mod tests {
         }
     }
 
-    /// EP-005 US-018: a snapshot tree holds no `.git`, so the walk stops at
-    /// it instead of reaching a manifest planted beside the snapshot root.
     #[test]
     fn discovery_inside_a_snapshot_stops_at_its_tree() {
         let base = Path::new(env!("CARGO_MANIFEST_DIR"))

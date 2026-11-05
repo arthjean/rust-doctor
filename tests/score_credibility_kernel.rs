@@ -1,8 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! End-to-end proofs of the `core-v3` model: tier capping, the density penalty,
-//! reconciled counts and schema contract.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,7 +22,6 @@ fn json_report(path: &Path) -> Value {
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
 
-/// US-064: a single `P0` finding caps the score, whatever the average.
 #[test]
 fn the_adversarial_fixture_cannot_reach_the_top_label() {
     let report = inspect(InspectRequest::new(adversarial()));
@@ -44,8 +40,6 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
     assert_eq!(score.applied_ceiling, Some(40));
     assert_eq!(score.model, "core-v6");
 
-    // The dimension of the P0 finding is capped, so is the P1 one, and the
-    // dimension carrying only a P3 keeps its additive score.
     assert_eq!(score.dimensions.security, 20);
     assert_eq!(score.dimensions.reliability, 50);
     assert!(score.dimensions.maintainability > 75);
@@ -69,8 +63,6 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
     assert!(terminal.contains("40 / 100 Critical"), "{terminal}");
 }
 
-/// US-063: the tier is published per rule and stays distinct from the effective
-/// level.
 #[test]
 fn every_published_rule_carries_a_closed_tier() {
     let report = json_report(&adversarial());
@@ -86,8 +78,6 @@ fn every_published_rule_carries_a_closed_tier() {
             ["P0", "P1", "P2", "P3"].contains(&tier),
             "unexpected tier {tier}"
         );
-        // Two rules the corpus adjudicated wrong on every reviewed site are
-        // catalogued opt-in; every other one is on at warn.
         let opt_in = ["clippy::indexing_slicing", "clippy::string_slice"]
             .contains(&rule["id"].as_str().unwrap());
         assert_eq!(rule["level"], if opt_in { "off" } else { "warn" }, "{}", rule["id"]);
@@ -104,21 +94,12 @@ fn every_published_rule_carries_a_closed_tier() {
         ]
     );
 
-    // The published severities do not move with the tier: every catalog rule
-    // stays at `warn` by default, hence at effective `warning`.
     for diagnostic in report["diagnostics"].as_array().unwrap() {
         assert_eq!(diagnostic["base_severity"], "warning", "{diagnostic}");
         assert_eq!(diagnostic["severity"], "warning", "{diagnostic}");
     }
 }
 
-/// US-065: the score of every dimension recomputes from the report alone.
-///
-/// The recomputation is written out here rather than called: `src/audit/density.rs` is the
-/// implementation, and a test that asks it for the answer proves only that it agrees with
-/// itself. Everything this needs is published, which is the claim: the distinct sites are the
-/// diagnostics, their weight is their severity, their denominator is named by the prefix of
-/// their rule id, and the line count they divide by is `audit.production_lines`.
 #[test]
 fn the_score_is_reproducible_from_the_published_report() {
     let report = json_report(&adversarial());
@@ -136,8 +117,6 @@ fn the_score_is_reproducible_from_the_published_report() {
         .collect();
 
     let production_lines = report["audit"]["production_lines"].as_u64().unwrap();
-    // The kiloline floor: below two kilolines a workspace is scored on what it holds rather
-    // than on how little of it there is.
     let kilolines = (production_lines as f64 / 1000.0).max(2.0);
 
     let mut densities: BTreeMap<&str, (f64, Option<&str>)> = BTreeMap::new();
@@ -151,11 +130,8 @@ fn the_score_is_reproducible_from_the_published_report() {
         let Some(weight) = severity_weight(diagnostic["severity"].as_str().unwrap()) else {
             continue;
         };
-        // One diagnostic is one distinct site, whatever it counts in `occurrences`.
         let entry = densities.entry(dimension).or_insert((0.0, None));
         entry.0 += weight / denominator(code, kilolines);
-        // The worst tier of a dimension is the smallest published name, `P0`
-        // first. A rule outside the catalog carries none and caps nothing.
         if let Some(tier) = tiers.get(code).map(String::as_str)
             && entry.1.is_none_or(|current| tier < current)
         {
@@ -215,8 +191,6 @@ fn dimension_of(category: Option<&str>) -> Option<&'static str> {
     }
 }
 
-/// What one distinct site of this severity adds to its dimension's numerator. `unknown` weighs
-/// nothing at all: it is the absence of a measurement, not a small one.
 fn severity_weight(severity: &str) -> Option<f64> {
     match severity {
         "error" => Some(2.0),
@@ -225,9 +199,6 @@ fn severity_weight(severity: &str) -> Option<f64> {
     }
 }
 
-/// What a finding is divided by, named by the prefix of the rule that raised it. A per-site
-/// producer divides by production kilolines; a producer speaking about the workspace itself
-/// divides by one, because a missing lockfile is not less serious in a large repository.
 fn denominator(code: &str, kilolines: f64) -> f64 {
     if code.starts_with("rust_doctor::cargo::") || code.starts_with("rust_doctor::repo::") {
         1.0
@@ -236,7 +207,6 @@ fn denominator(code: &str, kilolines: f64) -> f64 {
     }
 }
 
-/// The density that costs a dimension 63 points, in sites per denominator.
 fn lambda(dimension: &str) -> f64 {
     match dimension {
         "security" => 1.0,
@@ -263,7 +233,6 @@ fn overall_ceiling(tier: &str) -> Option<u64> {
     }
 }
 
-/// US-066: both quantities are named and agree across the surfaces.
 #[test]
 fn both_magnitudes_are_named_and_reconciled() {
     let report = json_report(&adversarial());
@@ -293,25 +262,11 @@ fn both_magnitudes_are_named_and_reconciled() {
         }
     }
 
-    // The historical flat fields stay the alias of the quantity they already
-    // published: distinct diagnostics for `summary`, occurrences for the
-    // categories.
     assert_eq!(summary["total"], summary["distinct"]["total"]);
     for category in categories {
         assert_eq!(category["warnings"], category["occurrences"]["warnings"]);
     }
 
-    // Occurrences always cover the distinct ones, and every published
-    // diagnostic carries at least one.
-    //
-    // Multiplicity itself, a diagnostic reported twice that counts as one
-    // distinct and two occurrences, is proven in unit tests on two identical
-    // compiler messages, in
-    // `report::tests::normalizes_text_paths_severity_and_deduplicates`. There
-    // it is independent of the compilation scope, whereas here it would depend
-    // on what Cargo chooses to compile: under the default targets a library is
-    // no longer linted twice, and the invariant would stop being observable
-    // without ceasing to be true.
     assert!(
         summary["occurrences"]["total"].as_u64() >= summary["distinct"]["total"].as_u64()
     );
@@ -320,7 +275,6 @@ fn both_magnitudes_are_named_and_reconciled() {
     }
 }
 
-/// US-066: a report whose counts diverge is not publishable.
 #[test]
 fn diverging_counts_fail_to_serialize() {
     let mut report = inspect(InspectRequest::new(adversarial()));
@@ -334,7 +288,6 @@ fn diverging_counts_fail_to_serialize() {
     assert!(rendered.is_empty());
 }
 
-/// US-067: the published model must stay consistent with the published value.
 #[test]
 fn an_inconsistent_model_is_rejected_before_publication() {
     let mut report = inspect(InspectRequest::new(adversarial()));
@@ -353,9 +306,6 @@ fn an_inconsistent_model_is_rejected_before_publication() {
     assert!(!report.audit.is_valid());
     assert!(serde_json::to_vec(&report).is_err());
 
-    // A stored report from a previous model is refused rather than reinterpreted. There is no
-    // dual-model path: the value beside the name was computed by a penalty this binary no longer
-    // has, so reading it as core-v6 would publish a number nothing here can reproduce.
     for previous in ["core-v2", "core-v3", "core-v4", "core-v5"] {
         let score = report.audit.score.as_mut().unwrap();
         score.model = previous.to_owned();
@@ -369,18 +319,6 @@ fn an_inconsistent_model_is_rejected_before_publication() {
     assert!(report.is_valid());
 }
 
-/// US-067: no historical field of the score contract disappeared or changed
-/// type between `core-v1` and the model shipping today.
-///
-/// The chain is checked against the live oracle rather than against the previous archive.
-/// `audit-core-v2.json` is kept beside it as the record of what the middle model published, and
-/// diffing the two is how a regeneration is read; it is not what guards the contract, since an
-/// archive compared only to another archive stops saying anything about the binary.
-///
-/// One section of the v1 oracle has no successor. `rounding_cases` was keyed on
-/// `penalty_quarters`, the unit of the retired additive penalty, so it named an input of the
-/// model rather than a field of the report: `density_cases` is what replaced it. Every section
-/// that describes the published shape is still here, and still equal.
 #[test]
 fn the_current_oracle_preserves_every_historical_field() {
     let previous: Value = serde_json::from_str(include_str!(
@@ -408,10 +346,6 @@ fn the_current_oracle_preserves_every_historical_field() {
         "the retired rounding table has no successor"
     );
     assert_eq!(previous["score_boundaries"], current["score_boundaries"]);
-    // The share cases name the same counts and refuse the same payloads. What
-    // moved is that the query now names the model it is a reading of, right
-    // after the score, so the archive is compared with that one key inserted
-    // rather than dropped from the comparison.
     let archived_cases = previous["share_cases"].as_array().unwrap();
     let published_cases = current["share_cases"].as_array().unwrap();
     assert_eq!(archived_cases.len(), published_cases.len());

@@ -1,34 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
-//! Which delta pairing removes refactor noise without hiding new findings.
-//!
-//! The harness replays three pairing policies on real commit pairs: the last
-//! 50 of this repository touching `src/`, and the last 10 touching a `.rs`
-//! file of each agent-population repository the corpus clone cache holds.
-//!
-//! - (a) today's evidence pairing, run through the library itself;
-//! - (b) (a), then the leftovers of one rule paired when the Git-renamed path
-//!   and the `git diff --unified=0 --find-renames` hunk map make their lines
-//!   correspond: the same line moved by the hunks above it, or a current line
-//!   inside a modified hunk and a base line inside that hunk's old range;
-//! - (c) react-doctor's count per (renamed path, rule).
-//!
-//! Every finding (a) introduces and (b) or (c) does not is a candidate, and a
-//! candidate is classified false (the base already had it: a refactor moved or
-//! touched the line) or true (the diff wrote it) by reading the diff. The
-//! verdicts live in `tests/fixtures/delta-pairing/verdicts.json`, the result in
-//! `docs/delta-pairing-2026-10.md`. It scans hundreds of commits, so it runs
-//! only when asked:
-//!
-//! ```text
-//! cargo test --release --test delta_pairing -- --ignored --nocapture
-//! ```
-//!
-//! Reports are read back from `target/delta-pairing/reports/<repo>/<sha>.json`
-//! (`RUST_DOCTOR_PAIRING_DIR` moves the whole directory), and a missing one is
-//! scanned with `RUST_DOCTOR_PAIRING_BINARY`, else the binary this build made.
-
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::fs;
@@ -38,7 +10,6 @@ use std::process::Command;
 use rust_doctor::Diagnostic;
 use serde_json::{Value, json};
 
-/// The commit of this repository the measurement was taken at.
 const OWN_TIP: &str = "1f5d913";
 
 struct Subject {
@@ -57,15 +28,12 @@ struct Hunk {
     new_len: usize,
 }
 
-/// What the diff did to one current path.
 #[derive(Default)]
 struct FileDiff {
     old: Option<String>,
     hunks: Vec<Hunk>,
 }
 
-/// Every current path the diff touched, keyed by its current name, and the
-/// base path every renamed current path came from.
 #[derive(Default)]
 struct DiffMap {
     files: HashMap<String, FileDiff>,
@@ -100,7 +68,6 @@ impl DiffMap {
         map
     }
 
-    /// The base path a current path came from.
     fn base_path<'a>(&'a self, current: &'a str) -> &'a str {
         self.files
             .get(current)
@@ -108,7 +75,6 @@ impl DiffMap {
             .unwrap_or(current)
     }
 
-    /// Whether a base line and a current line of one file correspond.
     fn corresponds(&self, current_path: &str, base_line: usize, current_line: usize) -> bool {
         let Some(diff) = self.files.get(current_path) else {
             return base_line == current_line;
@@ -123,7 +89,6 @@ impl DiffMap {
     }
 }
 
-/// `-a[,b] +c[,d] @@`, where an omitted length is one.
 fn hunk(header: &str) -> Hunk {
     let mut ranges = header.split(' ');
     let range = |text: Option<&str>| -> (usize, usize) {
@@ -141,7 +106,6 @@ fn hunk(header: &str) -> Hunk {
     }
 }
 
-/// Where an unchanged base line lands, `None` when a hunk rewrote it.
 fn mapped(hunks: &[Hunk], line: usize) -> Option<usize> {
     let mut offset = 0isize;
     for hunk in hunks {
@@ -150,8 +114,6 @@ fn mapped(hunks: &[Hunk], line: usize) -> Option<usize> {
         if rewritten {
             return None;
         }
-        // A pure insertion follows `old_start`; any other hunk ends before
-        // `old_start + old_len`.
         let before = if hunk.old_len == 0 {
             hunk.old_start < line
         } else {
@@ -214,7 +176,6 @@ fn subjects() -> Option<Vec<Subject>> {
     Some(subjects)
 }
 
-/// The name and pinned commit of every agent-population repository.
 fn agent_population() -> Vec<(String, String)> {
     let corpus: Value = serde_json::from_str(include_str!("corpus.json")).unwrap();
     corpus["agent_population"]["repositories"]
@@ -230,7 +191,6 @@ fn agent_population() -> Vec<(String, String)> {
         .collect()
 }
 
-/// The report of one commit, scanned when no earlier run left it.
 fn report(subject: &Subject, tree: &Path, output: &Path, sha: &str) -> Value {
     let path = output.join("reports").join(&subject.name).join(format!("{sha}.json"));
     if !path.exists() {
@@ -250,8 +210,6 @@ fn report(subject: &Subject, tree: &Path, output: &Path, sha: &str) -> Value {
     serde_json::from_slice(&fs::read(&path).unwrap()).unwrap()
 }
 
-/// The stage and code of every error a report carries: two sides whose
-/// passes did not cover the same ground measure that, not their pairing.
 fn coverage(report: &Value) -> BTreeSet<(String, String)> {
     report["errors"]
         .as_array()
@@ -305,7 +263,6 @@ fn text(root: &Path, diagnostic: &Diagnostic) -> String {
 
 type Group = (Option<String>, Option<String>);
 
-/// One commit pair measured under the three policies.
 fn measure(
     base: &[Diagnostic],
     base_root: &Path,
@@ -314,7 +271,6 @@ fn measure(
     diff: &DiffMap,
 ) -> Value {
     let delta = rust_doctor::delta_harness::pair(base, base_root, current, current_root).unwrap();
-    // (a): the current findings the library introduces, the base ones it fixes.
     let mut by_id: HashMap<&str, Vec<usize>> = HashMap::new();
     for (index, diagnostic) in current.iter().enumerate() {
         by_id.entry(diagnostic.id.as_str()).or_default().push(index);
@@ -326,7 +282,6 @@ fn measure(
         .collect();
     let mut leftovers: Vec<Option<&Diagnostic>> = delta.fixed.iter().map(Some).collect();
 
-    // (b): a leftover of the same rule whose line corresponds.
     let mut paired_b = BTreeSet::new();
     for &index in &introduced_a {
         let finding = &current[index];
@@ -351,7 +306,6 @@ fn measure(
         }
     }
 
-    // (c): counts per (renamed path, rule) over every finding of both sides.
     let mut counts: BTreeMap<Group, (usize, usize)> = BTreeMap::new();
     for finding in base {
         let path = finding.path.as_deref().map(|path| {
@@ -386,8 +340,6 @@ fn measure(
         *fixed_by_group.entry((path, finding.code.clone())).or_default() += 1;
     }
     let introduced_c: usize = counts.values().map(|(base, current)| current.saturating_sub(*base)).sum();
-    // What (c) introduces over (a): a finding (a) paired across files by its
-    // stable identity, which a count per file cannot follow without a rename.
     let added_c: Vec<Value> = counts
         .iter()
         .filter_map(|(group, (base_count, current_count))| {
@@ -457,7 +409,6 @@ fn measure(
     })
 }
 
-/// The pairs of one subject, each measured or excluded with its reason.
 fn replay(subject: &Subject, output: &Path) -> Vec<Value> {
     let work = output.join("work").join(&subject.name);
     let tree = work.join("tree");
@@ -502,7 +453,6 @@ fn replay(subject: &Subject, output: &Path) -> Vec<Value> {
     pairs
 }
 
-/// One candidate's verdict key: repository, commit, path, rule, line.
 fn key(subject: &str, pair: &Value, group: &Value, candidate: &Value) -> String {
     format!(
         "{subject} {} {} {} {}",

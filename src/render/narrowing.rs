@@ -1,15 +1,9 @@
-//! What the configuration and the reader took out of the report, and the
-//! score of each member: the lines that say the report is narrower than the
-//! workspace, and by how much.
-
 use std::io::Write;
 
 use crate::{InspectReport, SuppressionStatus};
 
 use super::{RenderError, Style, TerminalOptions, line};
 
-/// One line for what left the report, one for the directives, and under
-/// `--verbose` one line per scanned member.
 pub(super) fn render_narrowing<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -58,8 +52,6 @@ fn findings(count: usize) -> String {
     }
 }
 
-/// `Suppressions: 3 applied, 1 unused, 1 missing-reason`, statuses in their
-/// declared order, absent ones left out.
 fn suppression_summary(report: &InspectReport) -> Option<String> {
     if report.suppressions.is_empty() {
         return None;

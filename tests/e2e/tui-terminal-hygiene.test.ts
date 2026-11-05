@@ -1,5 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.11: the bytes on the wire, read from
-// the pipe-pane byte log, never from a dead pane's cursor flag.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,8 +12,6 @@ const HIDE = "\x1b[?25l";
 const SHOW = "\x1b[?25h";
 const CLEAR = "\x1b[J";
 
-// A crate whose `todo!()` line carries an OSC 8 link, a title change, a color
-// and a bell in a comment, so the frame under the finding quotes them.
 function hostileCrate(): string {
   const workspace = join(scratchDir("hostile"), "hostile");
   mkdirSync(join(workspace, "src"), { recursive: true });
@@ -94,7 +90,6 @@ describe.skipIf(!requireTmux())("interactive report terminal hygiene", () => {
       const drawn = frames.slice(0, -1);
       expect(drawn.length).toBeGreaterThanOrEqual(5);
       drawn.forEach((frame, index) => {
-        // Every line feed closes a row erased to its end; the pane's tty adds a carriage return.
         expect(frame.match(/\x1b\[K\r+\n/g)?.length).toBe(count(frame, "\n"));
         if (index > 0) {
           expect(frame.startsWith(`\x1b[${count(drawn[index - 1]!, "\n")}A`)).toBe(true);
@@ -174,13 +169,8 @@ describe.skipIf(!requireTmux())("interactive report terminal hygiene", () => {
       await session.waitForStable(300);
       expect(session.byteLog()).toContain(HIDE);
       process.kill(session.panePid(), "SIGTERM");
-      // 130 even when the report's own exit wins the race with the signal
-      // watcher (tui/BUG-14).
       expect(await session.waitForExit()).toBe(130);
-      // pipe-pane writes the log asynchronously: wait for its last bytes.
       const log = await settledLog(session);
-      // The cursor's final state is shown. The log need not end on the show:
-      // a repaint racing the signal can land after it, without hiding again.
       expect(log.lastIndexOf(SHOW)).toBeGreaterThan(log.lastIndexOf(HIDE));
     } finally {
       session.kill();

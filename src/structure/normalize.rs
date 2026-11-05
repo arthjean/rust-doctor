@@ -1,27 +1,3 @@
-//! Canonical form of a function.
-//!
-//! Two functions are the same function when they do the same thing under
-//! different names, and the only way to compare them without resolving names is
-//! to erase everything a rename can touch and keep everything it cannot. So an
-//! identifier becomes a positional placeholder, numbered by first appearance so
-//! that `a + a` and `x + y` stay apart; a literal is erased down to its type,
-//! because the value is what an agent varies between two copies; and a macro is
-//! never expanded, because that would need a second compilation, but the
-//! tokens it is called with are code the author wrote and are read the same
-//! way: an identifier is a placeholder, a literal its type, punctuation stays.
-//!
-//! Everything else is kept exactly: the node kinds, the operators, the
-//! keywords, the arity. `if/else` and `match` are different kinds and stay
-//! different, `+` and `*` are different tokens and stay different. The contract
-//! is a set of equalities and inequalities, and the tests below are that set.
-//!
-//! The walk produces two things at once. The canonical text is hashed whole
-//! into the identity of the function, with `blake3`, because that identity is
-//! also what a baseline comparison matches on and a collision there is a wrong
-//! verdict. The subtree hashes are the multiset a near-duplicate score is
-//! computed over, and a collision there costs one mistaken percentage point,
-//! so they are 64 bits wide and cheap.
-
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -32,41 +8,21 @@ use crate::source_text::compact;
 
 const FINGERPRINT_DOMAIN: &str = "rust-doctor-structure-normalized-v2";
 
-/// Seed of the subtree hashes. Any odd constant works; this one is the FNV
-/// offset basis, kept for no reason other than being a published one.
 const SEED: u64 = 0xcbf2_9ce4_8422_2325;
 
-/// The canonical form of one function.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Normalized {
-    /// Identity of the canonical text, as a raw `blake3` digest. Two functions
-    /// share it exactly when their canonical forms are equal.
-    ///
-    /// It is kept in its 32 bytes rather than in the 64 characters of its
-    /// hexadecimal rendering: the digest is held for every function of the
-    /// workspace at once, and the pass publishes what it holds.
     pub(super) digest: [u8; 32],
-    /// Hash of every subtree, sorted, duplicates kept. Duplicates matter: a
-    /// function repeating one statement three times is not the same shape as
-    /// one stating it once.
     pub(super) shingles: Vec<u64>,
-    /// Top-level statements of the body, tail expression included. A one- or
-    /// two-statement body is a delegation whose meaning lives in the erased
-    /// names, and the admission floor reads this count to keep it out.
     pub(super) statements: usize,
 }
 
 impl Normalized {
-    /// Nodes the canonical form kept, which is one per subtree hash by
-    /// construction. This is the size a minimum threshold reads, and it counts
-    /// normalized nodes rather than source lines, so reformatting cannot move
-    /// it.
     pub(super) const fn nodes(&self) -> usize {
         self.shingles.len()
     }
 }
 
-/// Hexadecimal rendering of a digest, for the keys a family is published under.
 pub(super) fn hex(digest: &[u8; 32]) -> String {
     let mut rendered = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -75,12 +31,6 @@ pub(super) fn hex(digest: &[u8; 32]) -> String {
     rendered
 }
 
-/// Canonical form of a function, or nothing when it has no body to compare or
-/// when the parser recovered inside it.
-///
-/// A recovered region describes the recovery, not the code, so a function
-/// containing one is skipped whole rather than compared against a shape the
-/// author never wrote.
 pub(super) fn normalize(function: &ast::Fn) -> Option<Normalized> {
     let body = function.body()?;
     let statements = body
@@ -92,10 +42,6 @@ pub(super) fn normalize(function: &ast::Fn) -> Option<Normalized> {
     (!canonical.poisoned).then(|| canonical.finish(statements))
 }
 
-/// Sørensen-Dice similarity of two shingle multisets, in basis points.
-///
-/// Both inputs are sorted, so the intersection is one merge and the whole
-/// comparison is linear in their length.
 pub(super) fn similarity(left: &[u64], right: &[u64]) -> u16 {
     let total = left.len().saturating_add(right.len());
     if total == 0 {
@@ -121,12 +67,6 @@ pub(super) fn similarity(left: &[u64], right: &[u64]) -> u16 {
     u16::try_from(score).unwrap_or(u16::MAX)
 }
 
-/// Largest shingle count that can still reach `threshold` against `size`.
-///
-/// Dice is bounded above by `2 * min / (min + max)`, so a candidate whose size
-/// exceeds this cannot reach the threshold whatever it contains. That is what
-/// makes this half of the nomination exact: it drops only pairs already proven
-/// to fail, and never a pair that would have been reported.
 pub(super) fn largest_comparable(size: usize, threshold: u16) -> usize {
     if threshold == 0 {
         return usize::MAX;
@@ -140,40 +80,23 @@ pub(super) fn largest_comparable(size: usize, threshold: u16) -> usize {
 #[derive(Debug, Default)]
 struct Canonical {
     text: String,
-    /// Identifier to its position of first appearance, per function. This is
-    /// what makes two renamed copies equal while keeping `a + a` apart from
-    /// `x + y`.
     placeholders: HashMap<String, usize>,
     shingles: Vec<u64>,
     poisoned: bool,
-    /// Has the walk passed the function it started from? Every item met after
-    /// that is nested in its body.
     entered: bool,
 }
 
 impl Canonical {
-    /// Canonical form of one node, appended to the text, with the hash of its
-    /// subtree returned and recorded. Nothing is returned for a node the form
-    /// erases.
     fn node(&mut self, node: &SyntaxNode) -> Option<u64> {
         let kind = node.kind();
         match kind {
-            // A recovered region poisons the whole function: comparing it
-            // would compare the parser's guess.
             SyntaxKind::ERROR => {
                 self.poisoned = true;
                 return None;
             }
-            // An attribute is not the code. Two copies that differ only by an
-            // `#[inline]` are the same two copies.
             SyntaxKind::ATTR => return None,
             _ => {}
         }
-        // An item nested in the body is a unit the pass compares on its own,
-        // so it stands here as one node of its kind. Walking it would make two
-        // functions alike for holding the same helper, and report the helper's
-        // pair a second time through the functions that hold it. `asm!` and a
-        // macro call parse as items too, but in a body they are expressions.
         let nested = self.entered
             && ast::Item::can_cast(kind)
             && !matches!(kind, SyntaxKind::MACRO_CALL | SyntaxKind::ASM_EXPR);
@@ -199,10 +122,6 @@ impl Canonical {
         ) {
             hash = self.placeholder(&compact(node), hash);
         } else if let Some(call) = ast::MacroCall::cast(node.clone()) {
-            // The name, then the arguments as tokens: `println!("a")` and
-            // `println!("b")` are the same invocation, `println!` and
-            // `unreachable!` are not, and neither are `assert!(a == b)` and
-            // `assert!(a != b)`.
             let path = call.path().map(|path| compact(path.syntax()));
             let path = path.as_deref().unwrap_or("?");
             self.text.push(' ');
@@ -239,10 +158,6 @@ impl Canonical {
         Some(hash)
     }
 
-    /// Canonical form of a macro's token tree, with its hash returned and
-    /// recorded. The tokens are unparsed, so each nested tree stands for the
-    /// node a parse would have made, and adds the one shingle that keeps a
-    /// macro's arguments weighing on a near-duplicate score.
     fn token_tree(&mut self, tree: &SyntaxNode) -> u64 {
         self.text.push('(');
         let _ = write!(self.text, "{:?}", tree.kind());
@@ -296,8 +211,6 @@ impl Canonical {
     }
 }
 
-/// Type of a literal, which is what survives its erasure. The value does not:
-/// varying it is the cheapest way to write the same function twice.
 const fn literal_tag(kind: &LiteralKind) -> &'static str {
     match kind {
         LiteralKind::String(_) => "#str",
@@ -311,9 +224,6 @@ const fn literal_tag(kind: &LiteralKind) -> &'static str {
     }
 }
 
-/// Type of a literal token inside a macro's arguments, which the parser never
-/// turned into a literal node. The same tags as `literal_tag`, so `1` reads
-/// the same inside `assert_eq!` as outside it.
 const fn token_tag(kind: SyntaxKind) -> Option<&'static str> {
     match kind {
         SyntaxKind::STRING => Some("#str"),
@@ -345,7 +255,6 @@ mod tests {
 
     use super::*;
 
-    /// Canonical form of the first function of a snippet.
     fn form(source: &str) -> Option<Normalized> {
         let tree = SourceFile::parse(source, Edition::Edition2024).tree();
         let function = tree.syntax().descendants().find_map(ast::Fn::cast)?;
@@ -356,8 +265,6 @@ mod tests {
         form(source).expect("the function should normalize").digest
     }
 
-    /// US-005: names are what a copy varies first, so names are what the form
-    /// erases first.
     #[test]
     fn renaming_the_function_its_parameters_and_its_locals_changes_nothing() {
         assert_eq!(
@@ -366,8 +273,6 @@ mod tests {
         );
     }
 
-    /// The placeholder is positional, not blanket: reusing one name twice is a
-    /// different shape from using two.
     #[test]
     fn a_placeholder_keeps_which_identifier_repeats() {
         assert_ne!(
@@ -376,8 +281,6 @@ mod tests {
         );
     }
 
-    /// US-005: a literal is erased and its type is kept, so varying the value
-    /// hides nothing and changing the type still separates two functions.
     #[test]
     fn a_literal_is_erased_down_to_its_type() {
         assert_eq!(
@@ -394,7 +297,6 @@ mod tests {
         );
     }
 
-    /// US-005: control flow is structure, and structure is what is kept.
     #[test]
     fn a_branch_written_two_ways_stays_two_shapes() {
         assert_ne!(
@@ -403,7 +305,6 @@ mod tests {
         );
     }
 
-    /// US-005: operators are kept exactly, so a sum is never a product.
     #[test]
     fn two_operators_never_collapse_into_one() {
         assert_ne!(
@@ -412,9 +313,6 @@ mod tests {
         );
     }
 
-    /// US-005, US-022: a macro keeps its name and reads its arguments as the
-    /// rest of the function is read, names and literals erased, everything
-    /// else kept.
     #[test]
     fn a_macro_reads_its_arguments_and_keeps_its_name() {
         assert_eq!(
@@ -437,25 +335,19 @@ mod tests {
             digest("fn one(a: u32, b: u32) { assert!(a == b); }"),
             digest("fn two(a: u32, b: u32) { assert!(a != b); }")
         );
-        // A placeholder is shared with the body: the argument naming the
-        // binding is not the argument naming the parameter.
         assert_ne!(
             digest("fn one(a: u32) { let b = a; assert_eq!(a, 1); }"),
             digest("fn two(a: u32) { let b = a; assert_eq!(b, 1); }")
         );
-        // A literal reads the same inside the arguments as outside them.
         assert_ne!(
             digest("fn one() { assert!(true); }"),
             digest("fn two() { assert!(1); }")
         );
-        // Each nested tree is one more node of the form.
         let flat = form("fn one(a: u32) { assert!(a); }").expect("it should normalize");
         let nested = form("fn one(a: u32) { assert!((a)); }").expect("it should normalize");
         assert_eq!(nested.nodes(), flat.nodes() + 1);
     }
 
-    /// US-021: an item nested in a body is one node of its kind, so what it
-    /// holds never moves the function holding it, and its kind still does.
     #[test]
     fn a_nested_item_is_opaque_and_keeps_its_kind() {
         assert_eq!(
@@ -471,13 +363,6 @@ mod tests {
         assert_eq!(opaque.nodes(), empty.nodes());
     }
 
-    /// US-005: a recovered region is not code, so the function carrying it is
-    /// skipped, and the ones next to it are not.
-    ///
-    /// The pass ahead of this one already refuses a whole unit the parser
-    /// could not read, so in a scan no function of a broken file is ever
-    /// compared. This is the second guard, for the region a recovery leaves
-    /// inside an otherwise readable tree.
     #[test]
     fn a_recovered_region_skips_its_function_and_no_other() {
         let source = "fn broken() { let value = ; }\nfn sound(value: u32) -> u32 { value + 1 }";
@@ -499,8 +384,6 @@ mod tests {
         );
     }
 
-    /// An attribute is not the code, and a declaration with no body has no
-    /// code to compare.
     #[test]
     fn an_attribute_is_erased_and_a_bodyless_declaration_is_skipped() {
         assert_eq!(
@@ -516,8 +399,6 @@ mod tests {
         assert_eq!(normalize(&declared), None);
     }
 
-    /// US-006: the signature participates, so two bodies that agree under
-    /// signatures that do not are not the same function.
     #[test]
     fn the_signature_participates_in_the_form() {
         assert_ne!(
@@ -526,27 +407,20 @@ mod tests {
         );
     }
 
-    /// US-007: the score is a Sørensen-Dice over the subtree multisets, and
-    /// the size bound drops only pairs that cannot reach the threshold.
     #[test]
     fn the_similarity_reads_the_shape_and_its_bound_drops_only_the_impossible() {
         assert_eq!(similarity(&[], &[]), 0);
         assert_eq!(similarity(&[1, 2, 3], &[1, 2, 3]), 10_000);
         assert_eq!(similarity(&[1, 2, 3], &[4, 5, 6]), 0);
         assert_eq!(similarity(&[1, 2, 3, 4], &[1, 2, 3, 9]), 7_500);
-        // Duplicates count: three copies of one subtree are not one copy.
         assert_eq!(similarity(&[1, 1, 1], &[1]), 5_000);
 
-        // 2 * min / (min + max) >= threshold is exactly the admitted band.
         assert_eq!(largest_comparable(100, 10_000), 100);
         assert_eq!(largest_comparable(100, 8_500), 135);
         assert!(similarity(&(0..100).collect::<Vec<_>>(), &(0..136).collect::<Vec<_>>()) < 8_500);
         assert_eq!(largest_comparable(100, 0), usize::MAX);
     }
 
-    /// The identity is a `blake3` digest of the canonical text, one subtree
-    /// hash is kept per node, and the count of nodes is that of the hashes
-    /// rather than a second field that could disagree with it.
     #[test]
     fn the_form_publishes_one_shingle_per_node() {
         let normalized = form("fn one(a: u32) -> u32 { a + 1 }").expect("it should normalize");

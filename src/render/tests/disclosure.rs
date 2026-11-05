@@ -1,10 +1,3 @@
-//! EP-002: the linear report states what it measured. The withholding
-//! criterion, the five dimensions, the scan's scope, the rules it did not
-//! evaluate, and tallies that count only what weighs.
-//!
-//! Every proof renders through `render_terminal_with_options`, the entry point
-//! the CLI calls, over a report whose audit is rebuilt from its diagnostics.
-
 use super::*;
 use crate::report::{PolicyBlockingReport, PolicyReport, PolicyRuleReport};
 use crate::{BlockingLevelSource, DiagnosticContext, NotEvaluated, RuleLevel, RuleLevelSource};
@@ -23,10 +16,6 @@ fn in_context(diagnostic: Diagnostic, id: &str, context: DiagnosticContext) -> D
     }
 }
 
-/// US-007: a withheld rule still weighs, so the sentence naming it states the
-/// criterion and never claims its repair is worth nothing. `clippy::exit` is
-/// the self-scan's case: withheld for its measured noise, its tier caps
-/// nothing since core-v6, and its one site still costs reliability its charge.
 #[test]
 fn a_withheld_rule_that_moves_the_score_is_never_called_worthless() {
     let mut report = report();
@@ -52,7 +41,6 @@ fn a_withheld_rule_that_moves_the_score_is_never_called_worthless() {
     assert!(!output.contains("nothing worth"), "{output}");
 }
 
-/// US-007: no withheld rule, no withheld sentence.
 #[test]
 fn no_withheld_rule_prints_no_withheld_sentence() {
     let report = report();
@@ -61,8 +49,6 @@ fn no_withheld_rule_prints_no_withheld_sentence() {
     assert!(!output.contains("left out"), "{output}");
 }
 
-/// US-008: the five dimensions follow the block, in the published order, and
-/// only when the score is authoritative.
 #[test]
 fn the_dimensions_are_printed_for_an_authoritative_score_only() {
     let report = report();
@@ -98,8 +84,6 @@ fn the_dimensions_are_printed_for_an_authoritative_score_only() {
     assert!(!output.contains("Security "), "{output}");
 }
 
-/// US-009: the scope line says what was scored and what each producer read,
-/// and that Clippy did not run when it did not.
 #[test]
 fn the_scope_line_states_what_was_scored_and_what_clippy_read() {
     let mut report = report();
@@ -136,8 +120,6 @@ fn rule(id: &str, not_evaluated: Option<NotEvaluated>) -> PolicyRuleReport {
     }
 }
 
-/// US-009: a rule whose crate version is unsupported is named in the default
-/// output; a rule whose crate is absent is counted under `--verbose` only.
 #[test]
 fn unsupported_rules_are_named_and_absent_crates_counted_under_verbose() {
     let mut report = report();
@@ -171,7 +153,6 @@ fn unsupported_rules_are_named_and_absent_crates_counted_under_verbose() {
     assert!(output.contains(counted), "{output}");
 }
 
-/// US-010: a category counts what weighs, and sets the rest apart.
 #[test]
 fn a_category_tally_counts_what_weighs_and_sets_the_rest_apart() {
     let mut report = report();
@@ -196,7 +177,6 @@ fn a_category_tally_counts_what_weighs_and_sets_the_rest_apart() {
         "{output}"
     );
 
-    // Nothing set apart, nothing appended: the line reads as it always did.
     let output = rendered(&super::report(), 200, false, false);
     assert!(
         output.lines().any(|row| row == "Bugs: 0 errors, 1 warnings, 0 info, 0 unknown (occurrences)"),
@@ -204,7 +184,6 @@ fn a_category_tally_counts_what_weighs_and_sets_the_rest_apart() {
     );
 }
 
-/// US-010: a group heading counts its own severity, and names the rest.
 #[test]
 fn a_group_heading_counts_its_own_severity_and_names_the_rest() {
     let mut report = report();
@@ -224,8 +203,6 @@ fn a_group_heading_counts_its_own_severity_and_names_the_rest() {
     );
 }
 
-/// US-010: under a baseline comparison the split covers the introduced
-/// findings only, and a partial report still splits without a missing count.
 #[test]
 fn the_split_follows_the_delta_and_survives_a_partial_report() {
     let mut report = report();

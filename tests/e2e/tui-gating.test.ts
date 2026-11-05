@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.1: when the interactive report opens.
-// The report opens only when stdin and stdout are both terminals and nothing
-// says the run is unattended; every other run prints the linear report. The
-// rows that only ask that question run on a pseudo-terminal, the ones that
-// look at a screen or a signal under tmux.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +12,6 @@ let todo = "";
 
 beforeAll(async () => {
   todo = copyWorkspace("kernel-contract/todo");
-  // One cold build, so every later run of the same copy is warm.
   expect((await ptyReport(todo, { args: ["--yes"] })).exitCode).toBe(0);
 });
 

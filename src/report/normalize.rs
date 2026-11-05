@@ -1,12 +1,3 @@
-//! One diagnostic per finding, whichever producer raised it.
-//!
-//! The five producers publish five shapes and the report publishes one. Each
-//! `normalize_*` states what identity its producer's findings are paired on,
-//! since that is the only thing that separates them: a span-bearing
-//! diagnostic keeps its fingerprint while its line stays put, a manifest-level
-//! one keeps it whatever moves above the key, and a structural one keeps it
-//! whatever its message counts.
-
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -27,13 +18,6 @@ use crate::source_kernel;
 use crate::structure;
 use crate::workspace_path;
 
-/// Cargo's own stream, merged.
-///
-/// A catalogued rule the plan switched off is dropped here rather than by the
-/// producer: Clippy is asked for every catalogued lint under `-W`, and only
-/// the plan knows the reader turned one back off afterwards. An uncatalogued
-/// warning is kept and marked unscored, so it is shown and weighs nothing; an
-/// uncatalogued error is not, since it is the compilation failing.
 pub(super) fn merge_compiler_messages(
     merged: &mut BTreeMap<String, Diagnostic>,
     messages: &[CapturedMessage],
@@ -61,8 +45,6 @@ pub(super) fn merge_compiler_messages(
     }
 }
 
-/// The normalization of Cargo's stream alone, for the tests that exercise
-/// identity, merging and ordering without assembling a whole execution.
 #[cfg(test)]
 pub(super) fn normalize_diagnostics(
     messages: &[CapturedMessage],
@@ -96,9 +78,6 @@ pub(super) fn normalize_diagnostics(
     diagnostics
 }
 
-/// A dependency-pack candidate, on the manifest-level path: the identity
-/// deliberately ignores the span, so a finding keeps its baseline fingerprint
-/// when lines are inserted above the key that raised it.
 pub(super) fn normalize_cargo_health_candidate(
     candidate: &cargo_health::Candidate,
     workspace_root: &Path,
@@ -113,15 +92,11 @@ pub(super) fn normalize_cargo_health_candidate(
         .as_deref()
         .and_then(|path| workspace_path::normalize_relative(Path::new(path)));
     let severity = canonical_severity(definition.default_level);
-    // The identity hashes the rule's level, so a fact published at `Info`
-    // keeps the id, the baseline entry and the position proof it had when it
-    // was charged.
     let id = fingerprint(source, code.as_deref(), path.as_deref(), None, severity, &message);
 
     Diagnostic {
         id,
         source,
-        // Native diagnostic: no Cargo target carries it.
         context: None,
         code,
         base_severity: severity,
@@ -151,8 +126,6 @@ pub(super) fn normalize_cargo_health_candidate(
     }
 }
 
-/// A native detector's candidate, whose identity is its span and its message,
-/// exactly like a Clippy diagnostic's.
 pub(super) fn normalize_source_candidate(
     candidate: &source_kernel::Candidate,
     workspace_root: &Path,
@@ -200,10 +173,6 @@ pub(super) fn normalize_source_candidate(
     }
 }
 
-/// A structural finding, on the path the native detectors already take. What
-/// differs is its identity: `fingerprint_of` reads the structural hash the pass
-/// computed instead of the span and the message, so inserting fifty lines above
-/// a finding renames nothing.
 pub(super) fn normalize_structure_finding(
     finding: &structure::StructureFinding,
     workspace_root: &Path,
@@ -220,12 +189,6 @@ pub(super) fn normalize_structure_finding(
         column_end: finding.span.column_end,
     });
     let message = sanitize_text(&finding.message, Some(workspace_root), home);
-    // The identity of a structural finding is its family, and a family is not a
-    // file: `duplicate_function_body` gathers members across the workspace, and
-    // the path published beside it is only the first of them in sorted order.
-    // Feeding that path into the identity would retire the finding and publish a
-    // new one the day a member sorts ahead of it, while the normalized key of a
-    // per-file family already carries its path.
     let id = fingerprint_of(
         source,
         code.as_deref(),
@@ -270,9 +233,6 @@ pub(super) fn normalize_structure_finding(
     }
 }
 
-/// A repository finding, on the manifest-level path: its identity ignores the
-/// span exactly as the dependency pack's does, so a credential finding keeps
-/// its baseline fingerprint when lines are inserted above it.
 pub(super) fn normalize_repo_finding(
     finding: &crate::repo_hygiene::RepoFinding,
     workspace_root: &Path,
@@ -281,9 +241,6 @@ pub(super) fn normalize_repo_finding(
     let definition = finding.definition;
     let source = DiagnosticSource::RustDoctor;
     let code = Some(definition.id.to_owned());
-    // The pass publishes an already normalized path, so normalizing again
-    // would escape a `%` twice and hand the consumer a name that decodes back
-    // to a file that does not exist.
     let path = Some(finding.path.clone());
     let message = sanitize_text(&finding.message, Some(workspace_root), home);
     let id = fingerprint(
@@ -304,7 +261,6 @@ pub(super) fn normalize_repo_finding(
         category: Some(definition.category.to_owned()),
         message,
         help: Some(definition.help.to_owned()),
-        // No Cargo package owns a repository-level finding.
         package: None,
         target: None,
         path,
@@ -332,8 +288,6 @@ pub(super) fn merge_diagnostic(diagnostics: &mut BTreeMap<String, Diagnostic>, d
             merge_optional_context(&mut existing.context, diagnostic.context);
         }
         None => {
-            // The message was masked where `sanitize_text` read it; the help
-            // is catalog text, masked here so no field escapes the rule.
             let help = diagnostic.help.as_deref().map(repo_hygiene::mask_credentials);
             diagnostics.insert(diagnostic.id.clone(), Diagnostic { help, ..diagnostic });
         }
@@ -411,40 +365,15 @@ fn normalize_diagnostic(
     }
 }
 
-/// Whether the finding is `print_stdout` or `print_stderr` inside a `bin`
-/// target, where the two streams are the program's output rather than a
-/// logging shortcut.
-///
-/// The catalogued help says to write to a caller-provided writer, which is
-/// right in a library and wrong in the entry point that owns the terminal:
-/// the pinned corpus adjudicated `print_stderr` wrong on every site it
-/// showed, and the self-scan of this crate ranked its own `main.rs` second in
-/// what to repair. The site is published at `Info`, which the score charges
-/// nothing and the gate never blocks on, rather than dropped: a reader
-/// hardening a binary still wants to see where it prints. Cargo's target
-/// kind answers, not the file name, so a `println!` in a library the binary
-/// wraps stays a warning.
 fn is_the_channel_of_a_binary(code: Option<&str>, kinds: &[String]) -> bool {
     code.is_some_and(|code| BINARY_CHANNEL_RULES.contains(&code))
         && kinds.iter().any(|kind| kind == "bin")
 }
 
-/// The rules whose sites inside a `bin` target are published at `Info`.
 pub(crate) const BINARY_CHANNEL_RULES: [&str; 2] = ["clippy::print_stdout", "clippy::print_stderr"];
 
-/// What one replacement may carry. A suggestion past it is not a line a
-/// reader pastes, and a stream that carries one is a `RUSTC_WRAPPER` writing
-/// into Cargo's stdout; the budget bounds the report, not the meaning.
 const SUGGESTION_MAX_BYTES: usize = 1024;
 
-/// The replacement the toolchain proposed for the primary site, if any.
-///
-/// rustc attaches its proposals to the spans of its `children`, each rated by
-/// an `Applicability`. The one kept is the best rated on the file the finding
-/// itself points at, first among equals: a lint proposing two rewrites of two
-/// sites is reported at its primary site, so the rewrite of that site is the
-/// one beside it. A rating the toolchain does not publish under a known name
-/// is refused rather than mapped to the nearest one.
 fn select_suggestion(
     diagnostic: &CapturedDiagnostic,
     path: Option<&str>,
@@ -471,9 +400,6 @@ fn select_suggestion(
             if !on_the_site || replacement.len() > SUGGESTION_MAX_BYTES {
                 continue;
             }
-            // A fix that writes or replaces a credential is withheld whole:
-            // masked, a machine-applicable fix would write `<redacted>` into
-            // the source, and kept, it would republish the key.
             if repo_hygiene::carries_credential(replacement)
                 || span
                     .text
@@ -493,19 +419,12 @@ fn select_suggestion(
     })
 }
 
-/// Two occurrences of the same diagnostic that disagree on an optional field
-/// leave it empty: publishing either of the two values would assert a
-/// provenance the occurrences contradict.
 fn merge_optional_context<T: PartialEq>(existing: &mut Option<T>, incoming: Option<T>) {
     if existing.as_ref() != incoming.as_ref() {
         *existing = None;
     }
 }
 
-/// A `failure-note` is rustc's closing pointer, "For more information about
-/// this error, try `rustc --explain E0602`", and it follows a warning as well as
-/// an error: an older Clippy that does not know a catalogued lint warns E0602
-/// and appends one. Read as an error, it failed the gate of a scan that built.
 fn severity(level: &str) -> Severity {
     match level {
         "error" | "error: internal compiler error" => Severity::Error,
@@ -594,13 +513,6 @@ fn span_coordinates(span: Option<&DiagnosticSpan>) -> (usize, usize, usize, usiz
     })
 }
 
-/// What identifies a finding beyond its rule and its file.
-///
-/// A per-site diagnostic is identified by where it is and what it says. A
-/// structural finding cannot be: its position moves whenever anything above it
-/// moves, and it spans several sites at once, so it is identified by the
-/// normalized content the pass hashed. Both go through one definition, so there
-/// is one fingerprint to freeze in an oracle rather than two.
 enum FingerprintBody<'a> {
     Position {
         span: Option<&'a DiagnosticSpan>,
@@ -610,9 +522,6 @@ enum FingerprintBody<'a> {
 }
 
 impl FingerprintBody<'_> {
-    /// Fields the tuple carries after the path, severity included, so the
-    /// historical order `span, base_severity, message` stays byte for byte
-    /// what it was.
     fn render(&self, base_severity: Severity) -> String {
         let severity = json_string(base_severity.as_str());
         match self {

@@ -1,11 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! US-004: `--scope contextual` from the binary's entry point. A rule whose
-//! cause can sit above its site is judged by the function around it, so an
-//! `.await` an edit adds under a lock already held is the edit's finding,
-//! although Clippy reports it on the guard's `let`.
-
 mod support;
 
 use std::fs;
@@ -37,11 +32,9 @@ fn git(root: &Path, arguments: &[&str]) {
     );
 }
 
-/// The concurrency pack, committed with the guard held but not awaited on.
 fn repository() -> PathBuf {
     let root = support::fresh_workspace("contextual-scope", &NEXT_REPOSITORY);
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/score-credibility/packs/concurrency");
+    let fixture = support::fixture_dir("score-credibility/packs/concurrency");
     fs::create_dir_all(root.join("src")).unwrap();
     for file in ["Cargo.toml", "Cargo.lock", "src/lib.rs", "src/negatives.rs"] {
         fs::copy(fixture.join(file), root.join(file)).unwrap();
@@ -99,12 +92,9 @@ fn an_await_added_under_a_held_lock_is_the_changes_finding_under_a_contextual_sc
     assert_eq!(contextual["scope"]["mode"], "contextual", "{contextual}");
     assert_eq!(contextual["schema_version"], 24);
     assert_eq!(holding_lock(&contextual), 1, "{contextual}");
-    // The lines scope judges the guard's line alone, which the edit left as is.
     let lines = scan(&root, "lines");
     assert_eq!(holding_lock(&lines), 0, "{lines}");
 
-    // Committed, then a line of another function changes: the finding is
-    // legacy, and the contextual scope does not widen past its function.
     git(&root, &["commit", "--quiet", "--no-verify", "-m", "awaited"]);
     rewrite(
         &root,

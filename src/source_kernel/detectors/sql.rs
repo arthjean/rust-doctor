@@ -1,20 +1,3 @@
-//! SQL text assembled from a runtime value.
-//!
-//! Every driver the rule knows binds parameters: `sqlx` through `.bind()` and
-//! `query!`, `diesel` through `.bind::<T, _>()`, `rusqlite` and `postgres`
-//! through a parameter list. SQL built with `format!`, `+` or `push_str` from a
-//! value the program received is the one way to reach an injection through
-//! them, and the one shape a reader can see without types.
-//!
-//! The function forms name their crate in the path, the raw-SQL escape
-//! hatches of the builders included: `diesel::dsl::sql`,
-//! `sea_orm::Statement::from_string` and `sqlx::QueryBuilder::new`. A method
-//! form, `conn.execute(..)` or a query builder's `push(..)`, names only a
-//! method many types carry, so it is judged only when its receiver resolves,
-//! through the bindings it was stored in, to a constructor of a listed type;
-//! anywhere else the rule abstains. `push_bind` is the builder's parameter,
-//! and stays silent.
-
 use ra_ap_syntax::ast::{self, HasArgList};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -150,7 +133,6 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
 
 const MESSAGE: &str = "SQL text is assembled from a runtime value instead of bound as a parameter.";
 
-/// Functions taking SQL text, and the position of the argument that holds it.
 static QUERY_FUNCTIONS: [(&[&str], usize); 8] = [
     (&["sqlx", "query"], 0),
     (&["sqlx", "query_as"], 0),
@@ -162,18 +144,14 @@ static QUERY_FUNCTIONS: [(&[&str], usize); 8] = [
     (&["sea_orm", "Statement", "from_string"], 1),
 ];
 
-/// The query builder whose `push` appends raw SQL text.
 const QUERY_BUILDER: [&str; 3] = ["sqlx", "QueryBuilder", "new"];
 
-/// Connection types and the methods of theirs taking the SQL text first.
 static CONNECTIONS: [(&str, &str, &[&str]); 3] = [
     ("rusqlite", "Connection", &["execute", "prepare", "query_row"]),
     ("postgres", "Client", &["batch_execute", "execute", "query"]),
     ("tokio_postgres", "Client", &["batch_execute", "execute", "query"]),
 ];
 
-/// Methods that hand back the text they were called on, so the SQL argument is
-/// read through them: `sqlx::query(sql.as_str())` binds what `sql` holds.
 const TRANSPARENT_METHODS: [&str; 3] = ["as_ref", "as_str", "clone"];
 
 fn sql_call(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
@@ -188,8 +166,6 @@ fn sql_call(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
         .map(|(_, position)| *position);
     let position = match (listed, resolved.as_slice()) {
         (Some(position), _) => position,
-        // The path form of a connection method, `Connection::execute(&conn,
-        // sql, ..)`, carries the receiver first.
         (None, [krate, kind, method]) if connection_method(krate, kind, method) => 1,
         _ => return None,
     };
@@ -202,10 +178,6 @@ fn sql_method(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     let method = call.name_ref()?.text().to_string();
     let argument = call.arg_list()?.args().next()?;
     if method == "push" {
-        // `push` is `Vec::push` far more often than a builder's. An argument
-        // that is neither assembled where it is read nor a binding cannot be
-        // SQL text grown elsewhere, and is passed over before the receiver is
-        // resolved; the search for a `push_str` waits for a builder.
         let text = transparent(argument.clone());
         if !dynamic_text(context, &text) && identifier(&text).is_none() {
             return None;
@@ -222,8 +194,6 @@ fn sql_method(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     {
         return None;
     }
-    // The cheap test first: most calls named `execute` carry no assembled
-    // text, and those never pay for resolving their receiver.
     if !assembled(context, &argument) {
         return None;
     }
@@ -237,9 +207,6 @@ fn sql_method(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     report(context, call.syntax(), &argument)
 }
 
-/// The item that built a method call's receiver, read through the bindings
-/// and the chain it was stored in: `Connection::open(path)?` names
-/// `rusqlite::Connection::open`.
 fn constructor(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option<Vec<String>> {
     let ast::Expr::CallExpr(constructor) = context.chain_root(call.receiver()?)? else {
         return None;
@@ -266,10 +233,6 @@ fn report(context: &Context<'_>, call: &SyntaxNode, argument: &ast::Expr) -> Opt
     })
 }
 
-/// Was this SQL text assembled from a runtime value? A `format!` or a `+`
-/// with a non-constant operand, read through the bindings it was stored in,
-/// or a binding a `push_str` or a `write!` of a runtime value grew before the
-/// call.
 fn assembled(context: &Context<'_>, argument: &ast::Expr) -> bool {
     let text = transparent(argument.clone());
     dynamic_text(context, &text) || pushed(context, &text)
@@ -292,9 +255,6 @@ fn transparent(mut expression: ast::Expr) -> ast::Expr {
     }
 }
 
-/// Did a `push_str` or a `write!` of a runtime value grow the binding `text`
-/// names, before `text` is read? The binding itself has to resolve: one that
-/// is reassigned or shadowed is abstained on, like everywhere else.
 fn pushed(context: &Context<'_>, text: &ast::Expr) -> bool {
     let Some(name) = identifier(text) else {
         return false;

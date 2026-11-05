@@ -1,12 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! EP-001: a suppression is visible as a finding.
-//!
-//! Three rules make silencing the scanner as visible as the code it hides: an
-//! inner `#![allow]` covering a whole file or module, several `allow`
-//! attributes stacked on one item, and a `[lints]` table that switches a
-//! catalogued rule off from the manifest. Each test here scans a fixture
-//! through the same `inspect` a user runs, and is the pointer its rule's
-//! `tests/rule_evidence.json` entry names.
 
 use std::path::{Path, PathBuf};
 
@@ -33,7 +25,6 @@ fn report_of(name: &str, request: InspectRequest) -> Value {
     serde_json::to_value(&report).expect("a valid report should serialize")
 }
 
-/// The packages a rule's diagnostics are reported in.
 fn packages_of(report: &Value, code: &str) -> Vec<String> {
     diagnostics_of(report, code)
         .iter()
@@ -50,9 +41,6 @@ fn diagnostics_of<'a>(report: &'a Value, code: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-/// EP-001 Definition of Done: a workspace whose only defect is a blanket
-/// `#![allow(clippy::all)]` in `lib.rs` yields at least one diagnostic and a
-/// score below 100.
 #[test]
 fn a_blanket_crate_allow_costs_the_score_its_perfection() {
     let report = report("blanket-allow");
@@ -74,10 +62,6 @@ fn a_blanket_crate_allow_costs_the_score_its_perfection() {
     assert!(score < 100, "a blanket suppression left the score at {score}");
 }
 
-/// US-001: the inner attribute is reported at file and at inline-module scope,
-/// reasoned or not; an outer `#[allow]` on a single item is not this rule's
-/// subject; a finding inside a test target carries the mark and does not
-/// weigh.
 #[test]
 fn a_crate_level_allow_is_reported_with_its_scope() {
     let report = report("attribute-scope");
@@ -115,8 +99,6 @@ fn a_crate_level_allow_is_reported_with_its_scope() {
         );
     }
 
-    // US-024: the allow inside the test target is test code, which this rule
-    // leaves out, so it cannot join a production family either.
     assert!(
         observed
             .iter()
@@ -124,8 +106,6 @@ fn a_crate_level_allow_is_reported_with_its_scope() {
         "the allow inside the test target was reported: {subjects:?}"
     );
 
-    // The outer `#[allow]` items belong to the stacked and unreasoned rules:
-    // nothing here points at them.
     assert!(
         observed
             .iter()
@@ -134,8 +114,6 @@ fn a_crate_level_allow_is_reported_with_its_scope() {
     );
 }
 
-/// US-002: two separate attributes and one four-lint attribute are each one
-/// finding; a single narrow allow and a `cfg_attr` stay quiet.
 #[test]
 fn stacked_allow_attributes_are_reported_once_per_item() {
     let report = report("attribute-scope");
@@ -165,9 +143,6 @@ fn stacked_allow_attributes_are_reported_once_per_item() {
     }
 }
 
-/// US-003: a `[lints.clippy]` entry that sets a catalogued, active rule to
-/// `allow` is reported in both spellings, with a span pointing at the key; a
-/// `deny`, an uncatalogued lint and a `[lints.rust]` entry stay quiet.
 #[test]
 fn a_permissive_lint_table_entry_is_reported_with_its_span() {
     let report = report("lint-table");
@@ -200,8 +175,6 @@ fn a_permissive_lint_table_entry_is_reported_with_its_span() {
     }
 }
 
-/// US-023: the scan honors the manifest's allow, so the site it hides is not
-/// reported, and the allow is reported once, as a P3 choice that caps nothing.
 #[test]
 fn a_manifest_allow_hides_its_sites_and_is_charged_once_at_p3() {
     let report = report("lint-table");
@@ -236,8 +209,6 @@ fn a_manifest_allow_hides_its_sites_and_is_charged_once_at_p3() {
     );
 }
 
-/// US-023: a level the request sets wins over the manifest, so the reader who
-/// asks to see the sites sees them.
 #[test]
 fn a_requested_level_wins_over_a_manifest_allow() {
     let request = InspectRequest::new(fixture("lint-table"))
@@ -250,8 +221,6 @@ fn a_requested_level_wins_over_a_manifest_allow() {
     );
 }
 
-/// US-023: one member's allow is not another's, so the member that does not
-/// allow the lint keeps its sites.
 #[test]
 fn a_member_allow_hides_only_that_members_sites() {
     let report = report("member-lint-table");
@@ -263,8 +232,6 @@ fn a_member_allow_hides_only_that_members_sites() {
     assert_eq!(packages_of(&report, LINT_TABLE), ["suppression-member-allowing"]);
 }
 
-/// US-023: an allow inherited through `lints.workspace = true` hides the
-/// inheriting member's sites like its own would.
 #[test]
 fn an_inherited_workspace_allow_hides_the_members_sites() {
     let report = report("workspace-lint-table");
@@ -274,8 +241,6 @@ fn an_inherited_workspace_allow_hides_the_members_sites() {
     );
 }
 
-/// US-003: a member inheriting `[lints] workspace = true` points at the root
-/// table, which is judged once rather than once per member.
 #[test]
 fn a_workspace_lint_table_is_judged_once_at_the_root() {
     let report = report("workspace-lint-table");

@@ -1,7 +1,3 @@
-//! The version probes a scan runs before any producer: `cargo`, `rustc` and
-//! `cargo clippy`, each bounded and each failing with the remedy its reader
-//! needs.
-
 use std::io;
 use std::path::Path;
 use std::process::{Command, ExitStatus};
@@ -11,14 +7,6 @@ use crate::bounded_read::collect_bounded;
 use crate::internal_error::InternalError;
 use crate::terminal_text::{sanitize, truncate};
 
-/// One toolchain probe: what it is called, what it reports at, and what the
-/// reader is supposed to do when it fails.
-///
-/// The remedy belongs to the probe rather than to the message, because it
-/// differs per tool: a missing `clippy` is one rustup command away, and a
-/// missing cargo is a toolchain that is not installed at all. Every failure of
-/// a probe ends the scan before any producer runs, so every one of them carries
-/// it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Probe {
     code: &'static str,
@@ -51,15 +39,8 @@ impl Probe {
     }
 }
 
-/// What one probe may print before this process stops keeping it.
-///
-/// A version is one line. The rest of the budget is for what a failing probe
-/// wrote to stderr, which is the only text that says which of "the component is
-/// not installed" and "it crashed" happened, in the toolchain's own words.
 const PROBE_OUTPUT_LIMIT: usize = 4_096;
 
-/// How much of that text reaches the published message. The rest of the answer
-/// is one command away, and the reader is told which one.
 const PROBE_DETAIL_COLUMNS: usize = 200;
 
 pub(super) fn tool_version(
@@ -70,8 +51,6 @@ pub(super) fn tool_version(
     environment: &CommandEnvironment,
     deadline: Option<RunDeadline>,
 ) -> Result<String, InternalError> {
-    // The nearer of the probe's own ten seconds and the run's deadline: a
-    // toolchain that hangs never carries the scan past `--max-duration`.
     let (bound, run_bound) = RunDeadline::capped(lint_list::PROBE_TIMEOUT, deadline);
     let output = run_probe(program, arguments, working_directory, environment, bound)
         .map_err(|error| {
@@ -120,26 +99,14 @@ pub(super) fn tool_version(
     Ok(version.to_owned())
 }
 
-/// What a probe printed, bounded.
 struct ProbeOutput {
     status: ExitStatus,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
-    /// The version itself did not fit the budget, so what was kept is a prefix
-    /// of one rather than a version.
     truncated: bool,
-    /// The probe did not answer within its bound and was killed.
     expired: bool,
 }
 
-/// Runs one probe to its end and keeps a bounded amount of what it printed.
-///
-/// Both pipes are drained, and stderr on a thread of its own: a probe blocked
-/// on a stream this process has not read yet never exits, and draining one to
-/// its end before touching the other is what would turn that into a deadlock
-/// rather than a slow answer. Reading stderr at all is what lets the failure
-/// say why, since the toolchain writes that there and the report used to
-/// publish the exit status alone.
 fn run_probe(
     program: &Path,
     arguments: &[&str],
@@ -167,9 +134,6 @@ fn run_probe(
     })
 }
 
-/// The first thing a failing probe said, on one line and bounded.
-///
-/// Empty when it said nothing, so the message reads as a sentence either way.
 fn probe_detail(stderr: &[u8]) -> String {
     String::from_utf8_lossy(stderr)
         .lines()

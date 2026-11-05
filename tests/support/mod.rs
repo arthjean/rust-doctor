@@ -1,7 +1,10 @@
 #![allow(dead_code, reason = "each test crate uses its own subset of these helpers")]
 
 pub(crate) mod corpus;
+pub(crate) mod fixture_inputs;
 pub(crate) mod rule_scaling;
+
+pub(crate) use fixture_inputs::fixture_dir;
 
 use std::collections::BTreeMap;
 use std::env;
@@ -42,8 +45,6 @@ pub(crate) struct ProcessHarness {
     log: PathBuf,
 }
 
-/// Admissible categories of the catalog, in published order. Turning them all
-/// off turns off every producer, whatever the catalog volume.
 pub(crate) const CATEGORIES: [&str; 6] = [
     "correctness",
     "dependencies",
@@ -53,18 +54,6 @@ pub(crate) const CATEGORIES: [&str; 6] = [
     "security",
 ];
 
-/// Clippy command expected for a published policy.
-///
-/// The catalog grows from one slice to the next, so freezing the list in every
-/// test would make it wrong at each widening. The command nevertheless stays
-/// exactly constrained: base, single separator, the silencing of everything
-/// Clippy warns about by default, then one `-W` per active Clippy rule of
-/// `policy.rules`, in published order.
-///
-/// `-A clippy::all` opens the lint section: a `-W` that follows wins, so the
-/// raised rules are exactly the catalogued ones and no other lint reaches the
-/// report without a category, a tier and a help. `-W warnings` closes it, so
-/// an inherited `-D warnings` cannot fail the build on a catalogued warning.
 pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String> {
     let base = [
         "cargo",
@@ -101,15 +90,6 @@ pub(crate) fn expected_clippy_command(policy: &serde_json::Value) -> Vec<String>
         .collect()
 }
 
-/// Scratch directory of a test, under `target/` so build output lands on the
-/// disk the user chose for it and `cargo clean` still reaches it.
-///
-/// The base is resolved rather than spelled, because `target` may be a symlink
-/// to a build directory elsewhere. The product canonicalizes the paths it
-/// reports, so a fixture rooted at the symlinked spelling gets compared against
-/// its resolved form and never matches: a test then fails over the layout of
-/// the machine while the code under test is correct. Resolving here puts both
-/// sides on the same footing without moving anything.
 pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
     base.canonicalize()
@@ -122,23 +102,14 @@ pub(crate) fn temporary_target(scope: &str, counter: &AtomicUsize) -> PathBuf {
         ))
 }
 
-/// A fresh directory under `target/<scope>/`, created.
 pub(crate) fn fresh_workspace(scope: &str, counter: &AtomicUsize) -> PathBuf {
     let root = temporary_target(scope, counter);
     fs::create_dir_all(&root).expect("a scratch workspace should be creatable");
     root
 }
 
-/// The arguments that make a scan read no RustSec database. Without them the
-/// binary reads the one `cargo audit` left on the machine running the test, as
-/// `inspect` never does, so a CLI report compared against an API report or a
-/// frozen one would differ between a developer's machine and CI.
 pub(crate) const NO_ADVISORY_DB: [&str; 2] = ["--advisory-db", "/dev/null"];
 
-/// The binary under test, with the variables removed that would point its git
-/// at another repository, turn its Clippy's warnings into errors, or add the
-/// line an agent reads about its skill to stderr when the suite itself runs
-/// under an agent.
 pub(crate) fn rust_doctor() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
     command
@@ -151,31 +122,12 @@ pub(crate) fn rust_doctor() -> Command {
     command
 }
 
-/// One Cargo artifact cache per scanned workspace, keyed by its path.
-///
-/// A scan really runs `cargo clippy` inside the workspace it is given. A
-/// workspace already compiled under the harness's own inherited
-/// `CARGO_TARGET_DIR` can replay with no warning at all, and the assertion then
-/// reads as a scan that found nothing rather than as a cache hit: that is what
-/// `AGENTS.md` means by giving every test that runs Cargo a target directory of
-/// its own. Keying on the path rather than on the test means two tests scanning
-/// two fixtures never share a cache, and one test scanning one workspace twice
-/// always does, which is what a rescan test needs to see Cargo rebuild.
 pub(crate) fn scan_target(workspace: &Path) -> PathBuf {
     let key = blake3::hash(workspace.as_os_str().as_encoded_bytes()).to_hex();
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/scan-caches");
     base.canonicalize().unwrap_or(base).join(key.get(..16).unwrap_or_default())
 }
 
-/// A scan of this repository that judges the rules `keep` admits and switches
-/// every other catalogued rule off.
-///
-/// At its defaults a self-scan also runs the structure pass over the whole
-/// repository, which an unoptimized test build finished in about six of the
-/// ten wall-clock seconds `TIME_BUDGET` grants it on an idle sixteen-core
-/// machine. A loaded macOS runner crossed the budget, the report came back
-/// partial, and a test of Clippy lints failed on a clock. With no structure
-/// rule kept, the pass returns before it starts its deadline.
 pub(crate) fn self_scan(keep: impl Fn(&str) -> bool) -> rust_doctor::InspectReport {
     let mut request = rust_doctor::InspectRequest::new(Path::new(env!("CARGO_MANIFEST_DIR")));
     for entry in rust_doctor::catalog() {
@@ -189,37 +141,6 @@ pub(crate) fn self_scan(keep: impl Fn(&str) -> bool) -> rust_doctor::InspectRepo
     rust_doctor::inspect(request)
 }
 
-/// Projects a current report back onto the frozen bytes of v7.
-///
-/// v8 had added the `audit` block, v9 the `tier` of every policy rule and the
-/// two named quantities of `summary`, v10 the `context` of every diagnostic,
-/// v11 the `related` locations of a finding that spans several sites, v12 the
-/// `similarity_basis_points` of a near-duplicate family, v13 the `complexity`
-/// figures of a hotspot, v14 the `corpus_noise_basis_points` of a policy rule
-/// and the `withheld_rule_ids` of the score, v15 the `production_lines` the
-/// score's denominator is counted from, v16 the `corpus_reviewed_sites` a
-/// policy rule's rate rests on, v17 the `suggestion` the toolchain proposed
-/// for a diagnostic's span, v18 the `unscored` reason of a compiler note, the
-/// `reasons` of a partial score, the `rust_doctor` version of the toolchain,
-/// the `removed_lint_flags` it stripped, the `not_evaluated` reason of a
-/// policy rule, and the scope's `base_ref`, `staged` and
-/// `untracked_unreported`, v19 the policy's `ignore` and `overrides`, the
-/// `packages` of the audit, the report's `suppressions`, and the scan's
-/// `ignored` and `excluded_generated` counts, v20 the scan's `advisory_db`,
-/// v21 the `contextual` value of the scope's `mode`, which a v7 report never
-/// carries since its scan named no such scope, v22 the `timings` of a run that
-/// asks for them and the `unlinted` mark of an audited package, which live in
-/// a member the projection drops whole or that a v7 run never requests, and
-/// the `rule_count_matches` of a delta summary, v23 the `crate-absent` and
-/// `crate-version-unsupported` reasons of a rule gated on a crate, carried by
-/// the `not_evaluated` member v18 added, v24 the `ceilings` of the score and
-/// the `production` counts of a category, which live in the audit the
-/// projection drops whole. No historical field is removed
-/// or retyped, so the projection consists solely of removing the members added
-/// since.
-///
-/// This is the condition that makes a frozen archive durable: a schema that
-/// adds projects, a schema that moves the value of an existing field does not.
 pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     let prefix = format!(
         "{{\"schema_version\":{},\"audit\":",
@@ -289,15 +210,6 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     drop_scan_command(&projected)
 }
 
-/// Removes `scan.command` from a serialized report.
-///
-/// A frozen archive proves that no field read by a consumer of a past version
-/// disappeared or changed type. The command, however, is the record of what
-/// actually ran: it changes as soon as the catalog widens or the scope moves,
-/// two things this PRD does on purpose. Freezing it byte for byte would amount
-/// to swearing the policy will never move again, which contradicts the goal of
-/// going from 12 to 40 rules. The tests that care about the command assert it
-/// separately, on its shape and on what it deliberately lost.
 pub(crate) fn drop_scan_command(wire: &[u8]) -> Vec<u8> {
     match find(wire, 0, b"\"scan\":{") {
         Some(scan) => remove_member(wire, scan, "command"),
@@ -312,7 +224,6 @@ fn find(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
         .map(|position| from + position)
 }
 
-/// End of the first JSON document present at `from`, byte offsets included.
 fn value_end(wire: &[u8], from: usize) -> usize {
     let mut values =
         serde_json::Deserializer::from_slice(&wire[from..]).into_iter::<serde_json::Value>();
@@ -323,8 +234,6 @@ fn value_end(wire: &[u8], from: usize) -> usize {
     from + values.byte_offset()
 }
 
-/// Removes the first `member` encountered from `from` onwards, along with the
-/// comma that attaches it to its object.
 fn remove_member(wire: &[u8], from: usize, member: &str) -> Vec<u8> {
     let key = format!("\"{member}\":").into_bytes();
     let start = find(wire, from, &key).expect("the projected member should exist");
@@ -377,12 +286,6 @@ pub(crate) fn file_states(root: &Path) -> BTreeMap<String, FileState> {
             if path.is_dir() {
                 visit(root, &path, states);
             } else {
-                // A file listed a moment ago and gone by the time it is read
-                // was transient: git's own lock and temporary files come and
-                // go under `.git` while a walk runs, and the macOS runner
-                // caught one mid-flight. It is left out of the snapshot; a
-                // file that really disappeared is still caught, since the
-                // snapshot taken after the scan will not carry it either.
                 let Ok(metadata) = fs::symlink_metadata(&path) else {
                     continue;
                 };
@@ -448,22 +351,6 @@ fn hash_git_output(root: &Path, arguments: &[&str]) -> String {
         .to_string()
 }
 
-/// Whether a path is bookkeeping git owns rather than content a scan may touch.
-///
-/// Two of those exist. `.git/index` carries a stat cache that git rewrites on its own whenever the
-/// recorded mtimes are racy, which a scan reading the repository is enough to trigger and which
-/// this function's own git commands trigger too. And every `.lock` under `.git/` belongs to a git
-/// process that is writing beside the file it names: `git maintenance run --auto`, which git
-/// starts detached after a commit, holds `.git/objects/maintenance.lock` for as long as it runs,
-/// so whether a capture sees it depends on when that background process exits and on nothing the
-/// scan did.
-///
-/// Two captures taken around a scan that mutated nothing then disagree, and the comparison blames
-/// the scan for housekeeping it never asked for. What both files stand for is compared already:
-/// the index means its entries, which `tracked_files_hash` reads through `git ls-files -s`, and a
-/// lock means an update to a ref, an object or the index, which `refs_hash`, `objects_hash` and
-/// the same `tracked_files_hash` all read once it is released. The bytes around them are a cache
-/// and a mutex, so hashing them asserted a stability git does not offer.
 fn is_git_bookkeeping(path: &str) -> bool {
     let relative = Path::new(path);
     relative == Path::new(".git").join("index")

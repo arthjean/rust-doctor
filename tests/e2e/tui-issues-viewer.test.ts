@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.4: the issue viewer's content,
-// navigation and counters, on fixtures and on a clone of this repository. On
-// the clone every expectation is read from the report's own JSON or from the
-// list itself, never from this repository's score, counts or rules.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,8 +6,6 @@ import { credential, gitScenario } from "./git-scenario";
 import { MENU_HINT, openReport, requireTmux, VIEWER_HINT } from "./tmux-helpers";
 import { issueCount, open, openViewer, position, press, rows, unread, utf8, warm } from "./tui-geometry-support";
 
-// A binary whose only findings are three `println!` sites, which the report
-// grades as info, beside the two warnings a lockless binary gets.
 function infoBinary(): string {
   const workspace = join(scratchDir("info-binary"), "info-binary");
   mkdirSync(join(workspace, "src"), { recursive: true });
@@ -20,8 +14,6 @@ function infoBinary(): string {
   return workspace;
 }
 
-// A scored `todo!()` in the library and an interpolated shell command in an
-// integration test, the one finding whose representative site is test code.
 function testSiteCrate(): string {
   const workspace = join(scratchDir("test-site"), "test-site");
   mkdirSync(join(workspace, "src"), { recursive: true });
@@ -35,7 +27,6 @@ function testSiteCrate(): string {
   return workspace;
 }
 
-// The selected row of the list: the one the `›` marker opens.
 function selected(pane: string): string {
   return rows(pane).find((line) => line.startsWith("› ")) ?? "";
 }
@@ -106,7 +97,6 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
     const session = open(repo, { width: 120, height: 40 });
     try {
       const first = await openViewer(session);
-      // The split list is taller than the whole list, so one page reaches either end.
       expect(rows(first).filter((line) => /^[›• ] [⚠✖ℹ] |^[A-Z][a-z]/.test(line)).length).toBeLessThan(34);
       expect(position(await press(session, "PageDown")).index).toBe(total);
       expect(position(await press(session, "PageDown")).index).toBe(total);
@@ -155,7 +145,6 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
     const categories = (repo.report.audit.categories as Category[])
       .filter((category) => category.name !== "Other" && category.distinct.total > 0)
       .map((category) => category.name);
-    // A rule is listed as info when every one of its sites is.
     const codes = new Set(repo.report.diagnostics.map((d) => d.code));
     const info = [...codes].filter((code) => repo.report.diagnostics.every((d) => d.code !== code || d.severity === "info"));
     const session = open(repo, { width: 120, height: 40 });

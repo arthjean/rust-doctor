@@ -1,9 +1,3 @@
-// `tasks/e2e-catalog/failures.md` section SG: signals, deadlines and the
-// process lifecycle. A signal is sent once the sleeping build script has
-// written its pid, the moment Clippy is provably running, and `kill -0
-// -<pgid>` on the group that script ran in proves Cargo did not outlive the
-// scan. SIGINT, SIGTERM and SIGHUP end it with a report and exit 130 (US-010);
-// SIGKILL and SIGQUIT run no handler, so their group outlives the binary.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,7 +30,6 @@ type Report = {
 const SCHEMA_VERSION = Number(readFileSync(join(REPO_ROOT, "src/report.rs"), "utf8").match(/SCHEMA_VERSION: u8 = (\d+);/)![1]);
 const INTERRUPTED = "The scan was interrupted by a signal.";
 
-// stdout is one JSON document and one trailing newline.
 function oneDocument(stdout: string): Report {
   expect(stdout.endsWith("}\n")).toBe(true);
   expect(stdout.indexOf("\n")).toBe(stdout.length - 1);
@@ -58,7 +51,6 @@ type Sleeping = {
   group: number;
 };
 
-// A scan of the sleeping build, returned once its build script runs.
 async function sleeping(label: string, args: string[] = ["--json"], workspace = copyWorkspace("scan-failures/sleeping-build"), box = sandbox(label)): Promise<Sleeping> {
   const pidFile = join(box.dir, `${label}.pid`);
   const before = treeFingerprint(workspace);
@@ -67,8 +59,6 @@ async function sleeping(label: string, args: string[] = ["--json"], workspace = 
   return { workspace, box, before, spawned, sleeper, group: groupOf(sleeper) };
 }
 
-// What every handled signal leaves: exit 130 soon after the signal, Cargo's
-// group gone, the workspace and TMPDIR as found.
 async function expectHandled(started: Sleeping, signals: NodeJS.Signals[], gapMs = 0): Promise<DoctorRun> {
   const sent = performance.now();
   for (const [index, signal] of signals.entries()) {
@@ -85,15 +75,11 @@ async function expectHandled(started: Sleeping, signals: NodeJS.Signals[], gapMs
   return run;
 }
 
-// Every catalogued Clippy rule off: the scan runs the native passes only and
-// compiles nothing.
 async function clippyOff(): Promise<string> {
   const rules = JSON.parse((await runDoctor(["rules", "list", "--json"])).stdout) as Array<{ id: string }>;
   return `[rules]\n${rules.filter((rule) => rule.id.startsWith("clippy::")).map((rule) => `"${rule.id}" = "off"`).join("\n")}\n`;
 }
 
-// Enough source that the native passes run for seconds: 3000 modules of
-// distinct functions, so a signal lands while they work.
 async function bigNative(): Promise<string> {
   const workspace = join(scratchDir("bignative"), "bignative");
   mkdirSync(join(workspace, "src"), { recursive: true });
@@ -112,8 +98,6 @@ async function bigNative(): Promise<string> {
   return workspace;
 }
 
-// A PATH whose `rustc --version` hangs, recording its pid; every other rustc
-// call reaches the real one.
 function hangingRustc(box: Sandbox): { path: string; pidFile: string } {
   const dir = join(box.dir, "hanging-bin");
   mkdirSync(dir);
@@ -151,9 +135,6 @@ describe("signals during Clippy", () => {
     expect(run.stdout).toContain(`Scan failed: ${INTERRUPTED} (clippy/interrupted)`);
   });
 
-  // SIGKILL runs no handler: the binary dies, and Cargo's group, which it
-  // started apart, keeps running until someone kills it. Inherent, and the
-  // reason `timeout -s KILL` in CI leaks builds.
   test("SG-12 a SIGKILL ends the binary at once and leaves Cargo's group running", async () => {
     const started = await sleeping("sigkill");
     try {
@@ -170,10 +151,6 @@ describe("signals during Clippy", () => {
     expect(await groupGone(started.group)).toBe(true);
   });
 
-  // SIGQUIT is not one of the handled signals: its default action ends the
-  // binary without a report, and, as with SIGKILL, Cargo's group survives.
-  // Bun.spawn starts the child with the default disposition, which a shell's
-  // `&` would have replaced with "ignored".
   test("SG-13 a SIGQUIT takes the default action: no report, Cargo's group left running", async () => {
     const started = await sleeping("sigquit");
     try {
@@ -212,8 +189,6 @@ describe("signals during the native passes", () => {
 });
 
 describe("signals during a baseline", () => {
-  // The base side's build script sleeps, so the signal lands while the
-  // snapshot exists: SIGHUP removes it and ends Cargo as SIGINT does.
   test.each(["SIGHUP", "SIGINT"] as const)("SG-08 a %s during a baseline's base side leaves no snapshot and no orphan", async (signal) => {
     const repo = await gitScenario(`sg-08-${signal}`)
       .fixture("scan-failures/sleeping-build")
@@ -247,8 +222,6 @@ describe("signals during a baseline", () => {
 });
 
 describe("deadlines", () => {
-  // Scan A holds the build directory lock of a shared target; scan B waits
-  // on it until its own deadline, and says why.
   test("SG-09 a scan waiting on another Cargo's build lock names the lock at its deadline", async () => {
     const target = scratchDir("shared-target");
     const box = sandbox("lock-holder");

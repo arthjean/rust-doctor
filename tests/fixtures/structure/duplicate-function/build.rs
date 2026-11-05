@@ -1,8 +1,8 @@
-//! A clone family living where Cargo puts it rather than where the crate ships.
-//!
-//! The two functions below are one family, and it is marked as a build script
-//! rather than counted against the shipped codebase, exactly as a `println!`
-//! in a build script is.
+
+
+
+
+
 
 fn level_of(name: &str) -> u8 {
     let trimmed = name.trim();

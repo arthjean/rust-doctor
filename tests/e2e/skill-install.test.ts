@@ -1,6 +1,3 @@
-// SK-01 to SK-28 of `tasks/e2e-catalog/subcommands.md` section 8: `skill
-// install`, its refusals and agent detection, and the notice a scan prints
-// for an agent whose skill is missing.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +18,6 @@ import { gitScenario, type Repo } from "./git-scenario";
 const VERSION = cargoVersion();
 const SHIPPED = join(REPO_ROOT, "skills/rust-doctor");
 const STAMP = `<!-- Installed by rust-doctor ${VERSION}. Refresh with \`rust-doctor skill install --update\`. -->\n`;
-// The shipped SKILL.md with the version stamp right after its front matter.
 const INSTALLED = readFileSync(join(SHIPPED, "SKILL.md"), "utf8").replace(/^(---\n[\s\S]*?\n---\n)/, `$1${STAMP}`);
 const CLAUDE = ".claude/skills/rust-doctor";
 const SKILL = `${CLAUDE}/SKILL.md`;
@@ -41,7 +37,6 @@ async function installed(name: string, args: string[] = []): Promise<Repo> {
   return repo;
 }
 
-// An empty workspace directory, for the detection rows that need no crate.
 function emptyRepo(name: string): Repo {
   const box = sandbox(name);
   const path = join(scratchDir(`${name}-ws`), "ws");
@@ -316,8 +311,6 @@ describe("skill install", () => {
   });
 });
 
-// The notice a text scan prints on stderr for the agent whose marker is set,
-// and the silence of a JSON scan and of an empty marker.
 describe("skill notice", () => {
   const scan = async (name: string, env: Record<string, string>, json = false) => {
     const box = sandbox(name);

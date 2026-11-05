@@ -15,9 +15,6 @@ function temporary(name) {
   return root;
 }
 
-// Mirrors what actions/download-artifact leaves behind: one directory per
-// uploaded artifact, holding the staged binary with the executable bit already
-// lost to the zip round trip.
 function downloadedArtifacts({ skip = [], empty = [] } = {}) {
   const root = temporary("artifacts");
   for (const key of Object.keys(PLATFORM_PACKAGES)) {
@@ -31,8 +28,6 @@ function downloadedArtifacts({ skip = [], empty = [] } = {}) {
   return root;
 }
 
-// Each of the six packages declares `MIT OR Apache-2.0`, so each has to carry
-// both texts rather than name terms a reader cannot find in the tarball.
 function licensed(directory) {
   for (const name of LICENSE_FILES) {
     const text = readFileSync(join(directory, name), "utf8");
@@ -74,8 +69,6 @@ describe("release staging", () => {
       expect(manifest.name.startsWith("@rustdoctor/")).toBeTrue();
       expect(Object.hasOwn(manifest, "scripts")).toBeFalse();
 
-      // The launcher refuses a binary that is not executable, and the artifact
-      // it came from was not.
       const embedded = statSync(package_.binary);
       expect(embedded.isFile()).toBeTrue();
       expect(embedded.mode & 0o111).not.toBe(0);
@@ -83,9 +76,6 @@ describe("release staging", () => {
       licensed(package_.directory);
     }
 
-    // The wrapper is staged like the five, so a release never publishes it from
-    // the checkout, where the license pair sits one directory up and out of
-    // reach of npm.
     const wrapper = JSON.parse(readFileSync(join(staged.wrapper, "package.json"), "utf8"));
     expect(wrapper.name).toBe("rust-doctor");
     expect(wrapper.version).toBe(staged.version);

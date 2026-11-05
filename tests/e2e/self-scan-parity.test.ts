@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 2, invariants 8, 9 and 19:
-// the human report, the saved report rendered as Markdown and the JSON of the
-// same scan of this repository say the same thing, and the advisory database
-// a scan reads is the one it was told to read. Every number compared here is
-// read from the JSON, never written in the test.
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,7 +18,6 @@ function lines(text: string): string[] {
   return text.split("\n");
 }
 
-// The audit category a diagnostic is tallied under, as `category_mapping` buckets it.
 function bucket(category: string | null): string {
   switch (category) {
     case "security": return "Security";
@@ -35,8 +29,6 @@ function bucket(category: string | null): string {
   }
 }
 
-// A category line counts what weighs and sets the rest apart (EP-002 US-010
-// of the self-scan remediation), so it is rebuilt from the diagnostics.
 function categoryLine(scan: Report, name: string): string {
   const counts = { error: 0, warning: 0, info: 0, unknown: 0 } as Record<string, number>;
   let outside = 0;
@@ -59,8 +51,6 @@ describe("this repository: human, Markdown and JSON parity", () => {
     const human = await scanSelf(clone, [], { target });
     expect(human.exitCode).toBe(0);
     const out = human.stdout;
-    // The report wraps at 80 columns, on spaces, so a long sentence is read
-    // back with its rows joined.
     const flat = out.replace(/\n/g, " ");
     expect(flat).toContain(`Scored ${scan.audit.source_files} production files (${scan.audit.production_lines} lines) in `);
     expect(flat).toContain("Clippy linted library and binary targets, native rules also read tests");
@@ -70,15 +60,12 @@ describe("this repository: human, Markdown and JSON parity", () => {
     }
     const score = scan.audit.score!;
     expect(out).toContain(`${score.value} / 100 ${score.label}`);
-    // A ceiling the dimensions already score under is named, never as the value.
     const ceiling = score.applied_ceiling;
     expect(out.includes("Capped at")).toBe(ceiling !== null && score.value >= ceiling);
     expect(out.includes("caps the score at")).toBe(ceiling !== null && score.value < ceiling);
     const share = out.match(/https:\/\/rust-doctor\.com\/share\?\S+/);
     expect(share).not.toBeNull();
     const params = new URL(share![0]).searchParams;
-    // The link counts what weighs, the categories' production counts, never
-    // the unscored findings `summary` also publishes.
     const production = (key: "warnings" | "info") =>
       scan.audit.categories.reduce((sum, category) => sum + category.production[key], 0);
     expect(Object.fromEntries(params)).toEqual({
@@ -90,8 +77,6 @@ describe("this repository: human, Markdown and JSON parity", () => {
       l: String(scan.audit.production_lines),
     });
 
-    // A scored finding is listed at its location; a rule whose sites all lie
-    // outside production code is summed on one `Unscored:` line instead.
     const text = (await scanSelf(clone, ["--verbose"], { target })).stdout;
     const verbose = lines(text);
     const unscored = new Set([...text.matchAll(/Unscored: [^(]*\(\d+ occurrences? outside production code,\s+([\w:]+)\)/g)].map((match) => match[1]!));
@@ -105,7 +90,6 @@ describe("this repository: human, Markdown and JSON parity", () => {
     expect(rules).toEqual([]);
   }, TEST_TIMEOUT_MS);
 
-  // No cargo on PATH: the renderer reads the file and scans nothing.
   test("INV-09 report markdown renders the saved report's score, counts and delta without a toolchain", async () => {
     const markdown = async (value: Report) => {
       const file = join(clone.sandbox.dir, `report-${value.scope?.mode}.json`);
@@ -121,7 +105,6 @@ describe("this repository: human, Markdown and JSON parity", () => {
       if (value.delta) {
         expect(out).toContain(`**Against the base:** ${value.delta.summary.introduced} introduced, ${value.delta.summary.fixed} fixed.`);
       } else {
-        // The table lists the default 20 findings of a longer report.
         expect(out).not.toContain("Against the base");
         if (value.summary.total > 20) expect(out).toContain(`Showing 20 of ${value.summary.total} findings.`);
       }

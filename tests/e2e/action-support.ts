@@ -1,11 +1,3 @@
-// action.yml, or comment/action.yml, replayed without GitHub: its `run:` steps
-// execute as GitHub runs a composite action's `shell: bash` (`bash --noprofile
-// --norc -eo pipefail`), under fake GITHUB_* files, with the release binary as
-// the preinstalled `rust-doctor` and as the launcher a stub `npm` installed
-// under its prefix, and a recording `gh` stub. Only the expressions action.yml
-// uses are evaluated: `inputs.*`, `github.*`, `steps.<id>.outputs.*` and the
-// `if:` forms built from `always()`, `==`, `!=` and `&&`. A `uses:` step
-// (toolchain, cache, artifact upload) is the runner's and is skipped.
 import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { BIN, hermeticEnv, REPO_ROOT, RUN_ROOT, sandbox, spawnTracked, toolchainBin, type Sandbox } from "./e2e-helpers";
@@ -33,9 +25,6 @@ export function actionYaml(path = ACTION_PATH): ActionYaml {
   return Bun.YAML.parse(readFileSync(path, "utf8")) as ActionYaml;
 }
 
-// The stand-in for `gh api`: every call is appended to $GH_LOG as one JSON
-// array of its arguments. Listing comments prints $GH_COMMENTS, or fails with
-// $GH_LIST_EXIT; a PATCH or POST exits $GH_WRITE_EXIT.
 const GH_STUB = `#!/bin/sh
 set -u
 log=\${GH_LOG:?GH_LOG is not set}
@@ -58,19 +47,13 @@ cat "\${GH_COMMENTS:-/dev/null}"
 
 let toolsDir: string | undefined;
 
-// The prefix the `npm` stub answers `npm prefix -g` with, whose
-// `bin/rust-doctor` is the binary under test.
 export const NPM_PREFIX = join(RUN_ROOT, "npm-prefix");
 
-// `npm install -g` installs nothing (the launcher already sits under the
-// prefix), and `npm prefix -g` prints the prefix.
 const NPM_STUB = `#!/bin/sh
 [ "\${1:-}" = prefix ] && echo "${NPM_PREFIX}"
 exit 0
 `;
 
-// rust-doctor (the binary under test), npm, gh (the stubs) and jq, in front of
-// the suite's toolchain directory.
 export function actionTools(): string {
   if (toolsDir) return toolsDir;
   const dir = join(RUN_ROOT, "action-bin");
@@ -92,22 +75,15 @@ export function actionTools(): string {
 export type Event = "push" | "pull_request" | "workflow_dispatch";
 
 export type ReplayOptions = {
-  // The action replayed, action.yml unless set.
   action?: string;
-  // Directories put in front of PATH, as a runner's `~/.cargo/bin` is.
   pathPrefix?: string[];
-  // The checkout, GITHUB_WORKSPACE and the steps' working directory.
   workspace: string;
   event: Event;
   inputs?: Record<string, string>;
-  // github.base_ref, set on a pull request.
   baseRef?: string;
-  // The comments `gh api` lists, as the JSON text it prints.
   comments?: string;
   ghListExit?: number;
   ghWriteExit?: number;
-  // Only the steps with these names run; `stepOutputs` stands for the ones
-  // left out.
   only?: string[];
   stepOutputs?: Record<string, Record<string, string>>;
   target?: string;
@@ -122,7 +98,6 @@ export type Replay = {
   outputs: Record<string, string>;
   summary: string;
   gh: string[][];
-  // The status the composite action ends with: the last failing step's.
   failed: boolean;
   exitCode: number;
   runnerTemp: string;
@@ -148,8 +123,6 @@ function literal(term: string, context: Context): string {
   return quoted ? quoted[1]! : lookup(context, term);
 }
 
-// `always()`, `a == 'b'`, `a != 'b'`, joined by `&&`: every form action.yml
-// writes. Anything else fails, so a new form cannot be evaluated wrong.
 export function evaluateIf(condition: string, context: Context): { value: boolean; always: boolean } {
   let always = false;
   const value = condition.split("&&").map((part) => part.trim()).every((term) => {

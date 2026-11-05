@@ -1,27 +1,3 @@
-//! The scope a scan runs under: the whole workspace, the files or the lines
-//! changed since a base, or a baseline comparison against one, each of the
-//! changed-work scopes judging the working tree or, with `--staged`, the index.
-//!
-//! Three rules hold the module together.
-//!
-//! **Validated once, resolved from that.** `ScopeRequest::validate` returns a
-//! [`ValidatedScope`] whose base selector already passed the closed grammar,
-//! and resolution reads that and nothing else. Validation used to run twice
-//! over the same request, once as the gate in `lib.rs` and once inside
-//! `resolve_with`, which left a failure branch in resolution that no input
-//! could reach.
-//!
-//! **One resolved shape.** [`ResolvedScope`] is the four cases, and the public
-//! [`ScopeReport`] is the accessors over it. A second enum used to mirror it
-//! variant for variant so callers inside the crate could match on it, which
-//! made a fourth scope mode an edit in five places.
-//!
-//! **One constructor per shape.** [`ScopeReport::files_scope`] is the only way
-//! a file scope is built: it sorts, deduplicates and bounds. `includes` binary
-//! searches that order, and the invariant used to be established separately by
-//! the production path and by the test constructor, so a third site would have
-//! broken the search in silence rather than loudly.
-
 use std::fmt;
 use std::path::Path;
 
@@ -41,7 +17,6 @@ mod tests;
 
 pub(crate) use lines::LineRanges;
 
-/// The stage every outcome of this pass is reported at.
 const STAGE: &str = "scope";
 
 const OID_OUTPUT_LIMIT: usize = 4_096;
@@ -63,45 +38,31 @@ const DIFF_TOO_LARGE: GitFailure = GitFailure::new(
 const UNTRACKED_FAILED: GitFailure =
     GitFailure::new("git-untracked-failed", "Git untracked files could not be read.");
 
-/// The scope a caller asked for, before its base selector was checked.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum ScopeRequest {
     Full,
     Changed {
         mode: ChangeMode,
-        /// `None` asks the repository for its default branch, or for `HEAD`
-        /// when the scan judges the index.
         base: Option<String>,
         options: ChangeOptions,
     },
 }
 
-/// The three ways of judging changed work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChangeMode {
-    /// The changed files, whole.
     Files,
-    /// The changed lines of the changed files.
     Lines,
-    /// The changed lines, plus the functions holding them for a rule whose
-    /// cause can sit above the line it reports.
     Contextual,
-    /// What the change introduced, against a scan of the base.
     Baseline,
 }
 
-/// The two modifiers a changed-work scope takes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ChangeOptions {
-    /// The index replaces the working tree: what `git commit` would record.
     pub(crate) staged: bool,
-    /// Untracked files join the selection as wholly changed.
     pub(crate) include_untracked: bool,
 }
 
 impl ScopeRequest {
-    /// Checks the base selector against the closed grammar, once, and the
-    /// modifiers against the mode they were given with.
     pub(crate) fn validate(&self) -> Result<ValidatedScope, InternalError> {
         let Self::Changed {
             mode,
@@ -152,10 +113,6 @@ impl fmt::Debug for Redacted {
     }
 }
 
-/// A scope whose base selector passed [`BaseSelector::new`].
-///
-/// Resolution takes this rather than a `ScopeRequest`, which is what makes an
-/// invalid base unrepresentable at the point git is about to be handed one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ValidatedScope {
     Full,
@@ -163,7 +120,6 @@ pub(crate) enum ValidatedScope {
 }
 
 impl ValidatedScope {
-    /// Whether the scan judges the index rather than the working tree.
     pub(crate) fn staged(&self) -> bool {
         matches!(self, Self::Changed(change) if change.options.staged)
     }
@@ -176,11 +132,6 @@ pub(crate) struct ChangeScope {
     options: ChangeOptions,
 }
 
-/// A base selector inside the grammar this tool accepts.
-///
-/// The grammar is closed rather than delegated to git: a selector reaches a
-/// command line, and `HEAD~1`, `main^{commit}` or a leading `-` are spellings
-/// this tool refuses to construct rather than spellings it asks git to judge.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct BaseSelector(String);
 
@@ -196,7 +147,6 @@ impl BaseSelector {
         Ok(Self(base.to_owned()))
     }
 
-    /// The checked-out commit, which scopes a comparison to uncommitted work.
     fn head() -> Self {
         Self("HEAD".to_owned())
     }
@@ -206,9 +156,6 @@ impl BaseSelector {
     }
 }
 
-/// A branch name is the caller's, and no error or trace of this crate carries
-/// it: the selector redacts itself rather than relying on every formatter that
-/// might reach one.
 impl fmt::Debug for BaseSelector {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("<redacted>")
@@ -226,7 +173,6 @@ pub enum ScopeMode {
 }
 
 impl ScopeMode {
-    /// The name `--scope` takes and the JSON publishes.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Full => "full",
@@ -244,24 +190,14 @@ pub enum ExecutionScope {
     Workspace,
 }
 
-/// The resolved scope, published through accessors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeReport {
     kind: ResolvedScope,
-    /// The ref the comparison base was detected from, absent when named.
     base_ref: Option<String>,
-    /// The index replaced the working tree.
     staged: bool,
-    /// Untracked Rust files a files or lines scope compiled but did not
-    /// judge, counted when `--include-untracked` was not given.
     untracked_unreported: Option<usize>,
 }
 
-/// The four shapes a resolved scope takes.
-///
-/// Crate callers match on this directly through [`ScopeReport::kind`]. It stays
-/// out of the public API because the published surface is the accessors and the
-/// versioned JSON, not the variant list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ResolvedScope {
     Full,
@@ -269,9 +205,6 @@ pub(crate) enum ResolvedScope {
         comparison_base: String,
         files: Vec<String>,
     },
-    /// `files` is every path with a changed line, plus every untracked file the
-    /// caller included; a path absent from `ranges` is changed whole.
-    /// `contextual` widens an item-reach rule to its enclosing function.
     Lines {
         comparison_base: String,
         files: Vec<String>,
@@ -333,19 +266,14 @@ impl ScopeReport {
         }
     }
 
-    /// The ref the comparison base was resolved from when `--base` named none:
-    /// the default branch detected, or `HEAD`. A ref the caller named is not
-    /// published.
     pub fn base_ref(&self) -> Option<&str> {
         self.base_ref.as_deref()
     }
 
-    /// Whether the index replaced the working tree.
     pub const fn staged(&self) -> bool {
         self.staged
     }
 
-    /// Untracked Rust files a files or lines scope left out.
     pub const fn untracked_unreported(&self) -> Option<usize> {
         self.untracked_unreported
     }
@@ -367,18 +295,10 @@ impl ScopeReport {
         Self::of(ResolvedScope::Full)
     }
 
-    /// A baseline scope carries a validated hex object id and nothing else, so
-    /// its serialized form is a fixed hundred or so bytes and the report bound
-    /// is one it cannot reach.
     pub(crate) fn baseline_scope(comparison_base: String) -> Self {
         Self::of(ResolvedScope::Baseline { comparison_base })
     }
 
-    /// The one place a file scope is built.
-    ///
-    /// Sorting and deduplicating here is what [`Self::includes`] binary
-    /// searches, and the bound is checked here because this is the only shape
-    /// that can reach it.
     pub(crate) fn files_scope(
         comparison_base: String,
         files: Vec<String>,
@@ -391,8 +311,6 @@ impl ScopeReport {
         Ok(scope)
     }
 
-    /// A lines scope: the paths the ranges name, plus the untracked ones the
-    /// caller included whole.
     pub(crate) fn lines_scope(
         comparison_base: String,
         ranges: LineRanges,
@@ -410,15 +328,6 @@ impl ScopeReport {
         Ok(scope)
     }
 
-    /// Refuses a scope whose serialized form reaches the report limit.
-    ///
-    /// The measurement is the serialization itself, because normalization
-    /// expands paths (`%` becomes `%25`) and a bound on the diff bytes does not
-    /// bound what the report carries. A serializer that cannot answer is
-    /// treated as one that answered too large: an unmeasured scope is not a
-    /// bounded one. That branch is unreachable for a shape of enums and
-    /// strings, and refusing it is what keeps "published" and "measured" the
-    /// same set.
     fn ensure_output_bound(&self) -> Result<(), InternalError> {
         let measured = serde_json::to_vec(self).map_or(usize::MAX, |serialized| serialized.len());
         (measured < SCOPE_OUTPUT_LIMIT)
@@ -431,13 +340,6 @@ impl ScopeReport {
         self.includes_span(path, Some((1, 1)))
     }
 
-    /// Whether a diagnostic at `path` spanning `lines` belongs to the scope.
-    ///
-    /// A files scope asks for the path alone. A lines scope also needs the
-    /// span to meet a changed range. A finding with no span is about its
-    /// whole file, a dependency declared in a manifest or a lockfile entry,
-    /// so it is in a lines scope exactly when its file changed. A finding with
-    /// no path is out of both.
     pub(crate) fn includes_span(&self, path: Option<&str>, lines: Option<(usize, usize)>) -> bool {
         let (files, ranges) = match &self.kind {
             ResolvedScope::Full | ResolvedScope::Baseline { .. } => return true,
@@ -451,8 +353,6 @@ impl ScopeReport {
             .binary_search_by(|candidate| candidate.as_str().cmp(path))
             .is_ok();
         match (ranges.map(|ranges| ranges.get(path)), lines) {
-            // A files scope, a span-less finding, or a file listed without
-            // ranges: an untracked file, changed whole.
             (None, _) | (Some(_), None) | (Some(None), Some(_)) => listed,
             (Some(Some(changed)), Some((first, last))) => changed
                 .ranges
@@ -463,12 +363,6 @@ impl ScopeReport {
 }
 
 impl ScopeReport {
-    /// Whether a diagnostic belongs to the scope once its rule's reach is
-    /// read: what [`Self::includes_span`] keeps, plus, under a contextual
-    /// scope, an item-reach finding whose enclosing function changed and a
-    /// file-reach finding whose file changed. `source` reads a file of the
-    /// judged tree, and is asked only for an item-reach finding the line test
-    /// did not keep. A line-reach rule is never widened.
     pub(crate) fn includes_reach(
         &self,
         path: Option<&str>,
@@ -530,8 +424,6 @@ impl Serialize for ScopeReport {
     }
 }
 
-/// Resolves a validated scope, reading the staged diff through `index` when
-/// the scan judges the index.
 pub(crate) fn resolve(
     scope: &ValidatedScope,
     workspace_root: &Path,
@@ -557,8 +449,6 @@ fn resolve_with(
     let base = change_base(change, workspace_root, &mut run)?;
     let comparison_base = resolve_comparison_base(&base, workspace_root, &mut run)
         .map_err(|error| diagnose_merge_base(error, workspace_root, &mut run))?;
-    // Each mode answers in full in its own arm, so a fourth one cannot be added
-    // without writing what it resolves to.
     let mut report = match change.mode {
         ChangeMode::Baseline => ScopeReport::baseline_scope(comparison_base),
         ChangeMode::Files => changed_files(change, comparison_base, workspace_root, &mut run)?,
@@ -566,27 +456,18 @@ fn resolve_with(
             changed_lines(change, comparison_base, workspace_root, &mut run)?
         }
     };
-    // Only a base the repository answered for is published: one the caller
-    // named is the caller's, and no report of this crate carries it.
     report.base_ref = change.base.is_none().then(|| base.as_str().to_owned());
     report.staged = change.options.staged;
     report.untracked_unreported = untracked_unreported(change, workspace_root, &mut run)?;
     Ok(report)
 }
 
-/// The default branch of the repository `workspace_root` sits in, the one a
-/// changed-work scope compares against when no base is named, or `None` when
-/// none resolves.
 pub fn default_branch(workspace_root: &Path) -> Option<String> {
     base::default_branch(workspace_root, &mut |call| {
         run_git(Path::new("git"), workspace_root, call, None)
     })
 }
 
-/// The selector to compare against: the one named, or the index's own
-/// `HEAD`, or the default branch the repository answers for. The index is
-/// judged against the commit it would follow; the working tree against the
-/// branch it would merge into.
 fn change_base(
     change: &ChangeScope,
     workspace_root: &Path,
@@ -662,8 +543,6 @@ fn changed_lines(
     )
 }
 
-/// The untracked Rust files a scope could have judged and did not: counted
-/// for a working-tree files or lines scope without `--include-untracked`.
 fn untracked_unreported(
     change: &ChangeScope,
     workspace_root: &Path,
@@ -675,13 +554,9 @@ fn untracked_unreported(
     {
         return Ok(None);
     }
-    // Only Rust files are listed, so an untracked tree the caller never asked
-    // about cannot push a count past the bounds that fail the scan.
     Ok(Some(untracked_matching(workspace_root, run, "*.rs")?.len()))
 }
 
-/// `git diff` over the index or the working tree, with `options`, against
-/// `comparison_base`, limited to the workspace.
 fn diff_operation<'a>(staged: bool, options: &[&'a str], comparison_base: &'a str) -> Vec<&'a str> {
     let mut operation = vec!["diff", "--no-ext-diff"];
     if staged {
@@ -692,7 +567,6 @@ fn diff_operation<'a>(staged: bool, options: &[&'a str], comparison_base: &'a st
     operation
 }
 
-/// The untracked files under the workspace that `.gitignore` does not hide.
 fn untracked(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
@@ -700,8 +574,6 @@ fn untracked(
     untracked_matching(workspace_root, run, ".")
 }
 
-/// The untracked files under the workspace matching `pathspec`, which git
-/// reads relative to the workspace, `*` matching across directories.
 fn untracked_matching(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
@@ -715,9 +587,6 @@ fn untracked_matching(
     ))?)
 }
 
-/// A base commit or a merge base that could not be found in a shallow clone is
-/// a fetch that stopped short, and the reader is told which one: a depth-1
-/// pull request checkout holds neither the base branch nor any ancestor.
 fn diagnose_merge_base(
     error: InternalError,
     workspace_root: &Path,
@@ -731,12 +600,6 @@ fn diagnose_merge_base(
     error
 }
 
-/// Resolves the base selector to the single merge base the comparison runs
-/// against.
-///
-/// The selector is turned into an object id first, so every later argument this
-/// pass puts on a command line is a validated lowercase hex digest rather than
-/// anything the caller wrote.
 fn resolve_comparison_base(
     base: &BaseSelector,
     workspace_root: &Path,
@@ -766,8 +629,6 @@ fn resolve_comparison_base(
     ))?;
     let merge_bases =
         parse_oids(&merge_answer).ok_or_else(|| MERGE_BASE_UNAVAILABLE.error(STAGE))?;
-    // A merge base of another hash length than the commit it was asked about is
-    // not an answer about that commit.
     if merge_bases.iter().any(|oid| oid.len() != base_commit.len()) {
         return Err(MERGE_BASE_UNAVAILABLE.error(STAGE));
     }
@@ -829,8 +690,6 @@ fn parse_single_oid(output: &[u8]) -> Option<String> {
     (oids.len() == 1).then(|| oids.remove(0))
 }
 
-/// Reads whitespace-separated object ids, refusing the whole output if any
-/// token is not one.
 fn parse_oids(output: &[u8]) -> Option<Vec<String>> {
     let output = std::str::from_utf8(output).ok()?;
     output
@@ -842,15 +701,7 @@ fn parse_oids(output: &[u8]) -> Option<Vec<String>> {
         .collect()
 }
 
-/// Reads the NUL-terminated paths of a `--name-only -z` diff.
-///
-/// The byte count is not checked here: `run_git` refused anything past
-/// `DIFF_OUTPUT_LIMIT` before this ran, and the count of paths and the length
-/// of each are what bound the result the report carries.
 fn parse_paths(output: &[u8]) -> Result<Vec<String>, InternalError> {
-    // The last byte terminates the final path rather than separating an empty
-    // one, so it is split off rather than sliced away. Empty output is no
-    // change; anything else that does not end in NUL is a truncated answer.
     let Some((&0, entries)) = output.split_last() else {
         return if output.is_empty() {
             Ok(Vec::new())

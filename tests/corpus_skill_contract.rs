@@ -1,22 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! What the adjudication skill says against what the record holds.
-//!
-//! A skill that names a field is a second copy of the schema, and the copy
-//! drifts. The one this replaced told the agent to write a reviewed site with
-//! eight members, at a time when the shape had nine and refused the eighth
-//! spelling: the example was the drift, and nothing compared it to anything.
-//! `tests/skill_contract.rs` answers the same question for the shipped skill,
-//! against `--help` and the catalog; this answers it for the corpus protocol,
-//! against the structs the harness reads the artifact with.
-//!
-//! The contract is total over two forms, and the skill is written to use no
-//! third. A JSON example deserializes into one of the record's shapes, and an
-//! identifier in code voice resolves against the record: a dotted path into the
-//! artifact, a key of one of its shapes, a value of one of its closed
-//! vocabularies, or one of the five words named below.
-
 mod support;
 
 use std::collections::BTreeSet;
@@ -29,13 +13,6 @@ use support::corpus::coefficients::{Coefficient, ContingencyTable};
 use support::corpus::sampling::{SamplingPlan, stride};
 use support::corpus::{Population, Provenance, ReviewedSite, SiteContext, Verdict, artifact};
 
-/// Words the skill spells in code voice that name nothing in the record.
-///
-/// Listed rather than inferred, because the point of the check is that
-/// everything else does resolve: `i`, `k` and `n` are the arithmetic of the
-/// stride, one is a rule the sampling prose already names, and two are tests
-/// the procedure tells the reader to run against. A seventh exception is a
-/// field that quietly stopped existing.
 const NOT_FIELDS: [&str; 6] = [
     "i",
     "k",
@@ -51,13 +28,6 @@ fn skill_text() -> String {
     fs::read_to_string(&path).expect("the adjudication skill should be readable")
 }
 
-/// The artifact as a document, with an exemplar where the record is empty.
-///
-/// `sampling_plan` holds nothing today, so a path into it resolves against a
-/// row built from the struct itself rather than against a shape written here:
-/// renaming the field renames the exemplar, which is what makes the absence of
-/// data cost the contract nothing. The pairs predating `evidence_cutoff` carry
-/// no date and no citation, so a dated, cited pair is appended the same way.
 fn record() -> Value {
     let published = artifact();
     let mut cited = published.adjudication.agreement.pairs[0].clone();
@@ -87,7 +57,6 @@ fn record() -> Value {
     document
 }
 
-/// Every key of the document, at any depth.
 fn keys(value: &Value, found: &mut BTreeSet<String>) {
     match value {
         Value::Object(members) => {
@@ -105,7 +74,6 @@ fn keys(value: &Value, found: &mut BTreeSet<String>) {
     }
 }
 
-/// Every value of the record's closed vocabularies, serialized from the types.
 fn vocabulary() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let mut push = |value: Value| {
@@ -137,7 +105,6 @@ fn vocabulary() -> BTreeSet<String> {
     found
 }
 
-/// The prose of the skill, with every fenced block removed.
 fn prose(text: &str) -> String {
     let mut kept = String::new();
     let mut inside = false;
@@ -154,7 +121,6 @@ fn prose(text: &str) -> String {
     kept
 }
 
-/// Every fenced block of the skill declared as JSON.
 fn json_blocks(text: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut current: Option<String> = None;
@@ -179,7 +145,6 @@ fn json_blocks(text: &str) -> Vec<String> {
     blocks
 }
 
-/// Every identifier the skill spells in code voice, in source order.
 fn identifiers(text: &str) -> Vec<String> {
     prose(text)
         .split('`')
@@ -203,8 +168,6 @@ fn identifiers(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Resolve a dotted path against the record, descending into the first member
-/// of an array.
 fn resolves(document: &Value, path: &str) -> bool {
     let mut current = document;
     for segment in path.split('.') {
@@ -222,7 +185,6 @@ fn resolves(document: &Value, path: &str) -> bool {
     true
 }
 
-/// Closed defects of what the skill names, each naming the identifier.
 fn naming_defects(text: &str) -> Vec<String> {
     let document = record();
     let mut published = BTreeSet::new();
@@ -246,11 +208,6 @@ fn naming_defects(text: &str) -> Vec<String> {
     defects
 }
 
-/// Closed defects of what the skill prints, each naming the block.
-///
-/// A block is checked by deserializing it, never by comparing its keys to a
-/// list: every shape refuses an unknown member, so an invented key is refused
-/// by the reader itself and a missing one by the same call.
 fn example_defects(text: &str) -> Vec<String> {
     let mut defects = Vec::new();
     for block in json_blocks(text) {
@@ -275,8 +232,6 @@ fn example_defects(text: &str) -> Vec<String> {
 #[test]
 fn every_field_the_skill_names_exists_in_the_record() {
     let text = skill_text();
-    // A contract over nothing passes: the count is what says the extraction
-    // still finds the identifiers the skill spells.
     assert!(identifiers(&text).len() >= 30, "{:?}", identifiers(&text));
     assert_eq!(naming_defects(&text), Vec::<String>::new());
 }
@@ -288,7 +243,6 @@ fn every_json_example_the_skill_prints_is_a_shape_the_record_holds() {
     assert_eq!(example_defects(&text), Vec::<String>::new());
 }
 
-/// A field renamed on one side of the contract fails it, in either form.
 #[test]
 fn a_renamed_field_fails_the_contract() {
     let text = skill_text();
@@ -319,7 +273,6 @@ fn a_renamed_field_fails_the_contract() {
     assert!(!example_defects(&dropped).is_empty());
 }
 
-/// The skill documents the shape a pass is recorded in, not a summary of it.
 #[test]
 fn the_skill_documents_the_pair_shape_the_judge_and_the_independence_values() {
     let text = skill_text();
@@ -336,12 +289,6 @@ fn the_skill_documents_the_pair_shape_the_judge_and_the_independence_values() {
     }
 }
 
-/// The done-when is the recomputation, not a figure the agent states.
-///
-/// Kappa is the figure the skill used to ask for, and the record now publishes
-/// it beside a second coefficient, both recomputed from the pairs. A skill that
-/// asks for either by name is a skill asking an agent to do arithmetic no one
-/// checks, which is what made the 2026-08-11 agreement unverifiable.
 #[test]
 fn the_skill_asks_for_the_coefficients_to_recompute_rather_than_for_a_figure() {
     let text = skill_text();
@@ -353,7 +300,6 @@ fn the_skill_asks_for_the_coefficients_to_recompute_rather_than_for_a_figure() {
     assert!(text.contains("recomputes\n`adjudication.agreement.coefficients` clean"));
 }
 
-/// An escalation is a human verdict or it is nothing.
 #[test]
 fn the_skill_leaves_an_escalation_to_a_human() {
     let text = skill_text();

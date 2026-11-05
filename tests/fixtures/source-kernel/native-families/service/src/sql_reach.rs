@@ -1,5 +1,5 @@
-//! SQL text the rule reaches through diesel's prelude glob, the builders'
-//! raw-SQL entry points and `write!`.
+
+
 
 use std::fmt::Write;
 

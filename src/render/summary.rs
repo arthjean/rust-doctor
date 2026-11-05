@@ -1,19 +1,11 @@
-//! The default view of the findings: the worst scored group framed, then one
-//! row per other scored rule.
-
 use std::io::Write;
 
 use crate::presentation::{DiagnosticGroup, GroupDiagnostic};
 
 use super::{GroupView, RenderError, Style, TerminalOptions, line, render_group, severity_style};
 
-/// Rows the default report gives the scored groups, the framed one included.
 const SUMMARY_ROWS: usize = 20;
 
-/// The default view: the worst scored group framed, then every other scored
-/// group as one row, so a commit blocked by three rules shows three, up to
-/// [`SUMMARY_ROWS`] and a line saying how many more `--verbose` lists. A group
-/// whose every site is outside production code is counted in the totals only.
 pub(super) fn render_summary<W: Write>(
     writer: &mut W,
     scored: &[&DiagnosticGroup],
@@ -39,8 +31,6 @@ pub(super) fn render_summary<W: Write>(
     }
 }
 
-/// One scored group on one row: severity, title, occurrences, rule id and the
-/// first site, wrapped like any line when the pane is narrow.
 fn render_group_row<W: Write>(
     writer: &mut W,
     group: &DiagnosticGroup,

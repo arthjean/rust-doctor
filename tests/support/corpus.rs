@@ -1,11 +1,3 @@
-//! Pinned corpus, confined execution harness and precision admission gate.
-//!
-//! The corpus is never committed: the harness reads a local cache whose path is
-//! declared at the call site, materialises every pinned revision under its
-//! artifact directory, and writes nowhere else. Precision is an adjudicated
-//! measurement, not an impression: every finding carries a verdict, and the
-//! gate refuses default activation for a rule whose precision is not proven.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,11 +21,8 @@ use interval::Separation;
 use position::PositionProof;
 use sampling::SamplingPlan;
 
-/// Published threshold, in basis points. The rate is computed in integer
-/// arithmetic so that two runs of the report produce identical bytes.
 pub(crate) const THRESHOLD_BASIS_POINTS: u64 = 500;
 
-/// Number of repositories the manifest must pin.
 pub(crate) const EXPECTED_REPOSITORIES: usize = 10;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -46,11 +35,8 @@ pub(crate) enum Verdict {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrecisionStatus {
-    /// Findings observed and fully adjudicated: the rate is published.
     Measured,
-    /// Adjudication missing or stale: the rate stays withheld.
     Incomplete,
-    /// No finding on the corpus: the rule is unproven, not perfect.
     Unobserved,
 }
 
@@ -70,12 +56,8 @@ pub(crate) enum RefusalReason {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RepositoryOutcome {
-    /// Report produced and usable.
     Processed,
-    /// Revision materialised with no Cargo manifest: nothing to scan.
     Skipped,
-    /// Scan with no usable report: the failure stays isolated on this
-    /// repository.
     Failed,
 }
 
@@ -90,14 +72,6 @@ pub(crate) struct CorpusArtifact {
     pub(crate) gate: GateOutcome,
     pub(crate) generated_at: String,
     pub(crate) harness: HarnessEvidence,
-    /// λ table the measurement was taken under, one entry per dimension.
-    ///
-    /// Recorded beside the toolchain and for the same reason: the toolchain
-    /// decides which diagnostics were produced and λ decides what they cost, so
-    /// a corpus that names neither is a set of numbers nobody can place. The
-    /// freeze test in `src/audit/tests/lambda_freeze.rs` compares it against the
-    /// shipped table, so moving a λ without regenerating this file fails there
-    /// and names the dimension that moved.
     pub(crate) lambdas: Vec<LambdaObservation>,
     pub(crate) manifest: Manifest,
     pub(crate) network_in_automated_tests: bool,
@@ -105,51 +79,17 @@ pub(crate) struct CorpusArtifact {
     pub(crate) precision: Vec<RulePrecision>,
     pub(crate) schema_version: u64,
     pub(crate) score_distribution: ScoreDistribution,
-    /// Pseudo-counts every published rate is read through by the ranking.
-    ///
-    /// Recorded for the reason `lambdas` and `toolchain` are: the toolchain
-    /// decides which diagnostics exist, λ decides what they cost, and the
-    /// smoothing decides what a measured rate is worth once the sample it rests
-    /// on is taken into account. `precision` publishes the raw counts and the
-    /// raw share, which is the measurement; the smoothing is what turns it into
-    /// the number the report ranks by, so a record naming the first and not the
-    /// second cannot be replayed into the ranking it produced. The freeze test
-    /// in `src/policy/noise.rs` compares it against the shipped constant.
     pub(crate) smoothing: Smoothing,
     pub(crate) toolchain: Toolchain,
     pub(crate) trust_boundary: TrustBoundary,
 }
 
-/// Second corpus population: repositories whose commit history documents agent
-/// authorship. Their build code is untrusted, so the population is scanned
-/// with every Clippy rule off: the native detectors parse source text and
-/// compile nothing, which the confinement tests prove.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AgentPopulation {
-    /// Rules of this population carrying a published rate.
-    ///
-    /// The count rather than the list, because the list is `precision` itself:
-    /// what a reader cannot get from it at a glance is how much of the catalog
-    /// this population has measured at all, which is the number that says how
-    /// much of the ranking still rests on a healthy-code estimate.
     pub(crate) measured_rules: u64,
     pub(crate) observations: Vec<Observation>,
-    /// Per-rule precision on this population, derived from the sites of
-    /// `adjudication.reviewed` marked `agent`, exactly as `precision` is derived
-    /// from the ones marked `healthy`.
-    ///
-    /// It is a separate list rather than a second column of `precision` because
-    /// the two populations do not observe the same rules: Clippy is switched off
-    /// here, so no Clippy rule can ever carry a rate on this side, and a shared
-    /// row would have to publish a hole for most of the catalog.
     pub(crate) precision: Vec<RulePrecision>,
-    /// The two rates of every rule measured on both populations, and the
-    /// signed distance between them.
-    ///
-    /// Published rather than left to a reader with two lists and a
-    /// calculator: the two rates answer two different questions, and the gap
-    /// between them is the only reason both are measured.
     pub(crate) rate_comparison: Vec<RateComparison>,
     pub(crate) repositories: Vec<AgentRepository>,
     pub(crate) scan_arguments: Vec<String>,
@@ -157,16 +97,10 @@ pub(crate) struct AgentPopulation {
     pub(crate) structural_density: DensityComparison,
 }
 
-/// An agent-authored repository, pinned like the healthy ones and carrying the
-/// mechanical evidence of its selection: an exact marker searched in commit
-/// messages, and the counts that make the criterion falsifiable from the
-/// repository record alone.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AgentRepository {
     pub(crate) commit: String,
-    /// Exact string searched in the commit messages reachable from the pinned
-    /// revision.
     pub(crate) marker: String,
     pub(crate) marked_commits: u64,
     pub(crate) name: String,
@@ -175,36 +109,24 @@ pub(crate) struct AgentRepository {
     pub(crate) url: String,
 }
 
-/// Structural finding density of both populations, in integer arithmetic so
-/// two computations produce identical bytes.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DensityComparison {
     pub(crate) agent: StructuralDensity,
     pub(crate) healthy: StructuralDensity,
-    /// Agent density over healthy density, in thousandths.
     pub(crate) ratio_milli: u64,
-    /// True when the ratio is at or below 1.0. Published as a refutation of
-    /// the assumption that agent-written Rust carries more structural
-    /// duplication, never omitted.
     pub(crate) refutes_density_assumption: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StructuralDensity {
-    /// Distinct structural findings over the population.
     pub(crate) findings: u64,
-    /// Lines in the population's Rust source files, measured on the
-    /// materialised trees.
     pub(crate) lines: u64,
-    /// Findings per thousand lines, in thousandths.
     pub(crate) per_thousand_lines_milli: u64,
 }
 
 impl AgentPopulation {
-    /// The replay manifest of the population. Shape and tag carry no meaning
-    /// for the harness, which only reads names and commits.
     pub(crate) fn manifest(&self) -> Manifest {
         Manifest {
             repositories: self
@@ -229,7 +151,6 @@ impl AgentPopulation {
     }
 }
 
-/// Distinct structural findings across a population's observations.
 pub(crate) fn structural_findings(observations: &[Observation]) -> u64 {
     observations
         .iter()
@@ -239,7 +160,6 @@ pub(crate) fn structural_findings(observations: &[Observation]) -> u64 {
         .sum()
 }
 
-/// Findings per thousand lines, in thousandths: `findings * 1_000_000 / lines`.
 pub(crate) fn density_milli(findings: u64, lines: u64) -> u64 {
     if lines == 0 {
         return 0;
@@ -247,7 +167,6 @@ pub(crate) fn density_milli(findings: u64, lines: u64) -> u64 {
     findings.saturating_mul(1_000_000) / lines
 }
 
-/// Lines in every `.rs` file under `root`, newline-terminated or not.
 pub(crate) fn rust_line_count(root: &Path) -> u64 {
     fn visit(directory: &Path, total: &mut u64) {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -270,25 +189,17 @@ pub(crate) fn rust_line_count(root: &Path) -> u64 {
     total
 }
 
-/// One dimension of the λ table the corpus was measured under.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LambdaObservation {
-    /// Name the report publishes the dimension under.
     pub(crate) name: String,
-    /// λ in millionths, so the record is integer arithmetic like the rest of
-    /// this file and two writings of it produce identical bytes.
     pub(crate) lambda_micro: u64,
 }
 
-/// The pseudo-counts the ranking reads every measured rate through: the
-/// Beta(1,1) posterior, one imagined false positive over two imagined sites.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Smoothing {
-    /// Imagined false positives added to every sample's numerator.
     pub(crate) prior_false_positives: u64,
-    /// Imagined sites added to every sample's denominator.
     pub(crate) prior_sites: u64,
 }
 
@@ -366,18 +277,7 @@ pub(crate) struct Observation {
     pub(crate) name: String,
     pub(crate) occurrences: u64,
     pub(crate) outcome: RepositoryOutcome,
-    /// Production lines the scan measured, which is the denominator every
-    /// per-kiloline density of `score.dimensions` is read against.
-    ///
-    /// Recorded on the observation rather than beside the score, because it is
-    /// what makes the density reproducible from the record alone: a reader
-    /// holding this count, the λ table and the recorded densities recomputes
-    /// the published score without the scan. Zero on a repository that was
-    /// skipped or that failed, since a scan that never ran measured no source.
     pub(crate) production_lines: u64,
-    /// Why the score is not authoritative, as the report published it: empty
-    /// exactly when `authoritative` is true, and on a repository that produced
-    /// no report.
     pub(crate) reasons: Vec<String>,
     pub(crate) rules: Vec<RuleObservation>,
     pub(crate) score: Option<ScoreObservation>,
@@ -398,100 +298,36 @@ pub(crate) struct ScoreObservation {
     pub(crate) applied_ceiling: Option<u64>,
     pub(crate) dimensions: Vec<DimensionObservation>,
     pub(crate) label: String,
-    /// Model the score was computed under, published by the binary itself. A
-    /// corpus is a measurement of one model, and a record that does not name
-    /// which one is a rate nobody can place.
     pub(crate) model: String,
     pub(crate) value: u64,
     pub(crate) worst_tier: Option<String>,
 }
 
-/// One dimension of a recorded score, with the density it was computed from.
-///
-/// The report publishes the dimension score and not the density behind it, so
-/// the harness recovers the density from the diagnostics the report carries: one
-/// distinct site per production diagnostic, weighed by severity, summed per rule
-/// and divided by the denominator the rule's producer chose.
-///
-/// Recomputing rather than reading is the point. The recovered density is
-/// compared against the published score by the λ freeze test, so a density that
-/// does not explain the number the binary printed fails the corpus instead of
-/// being recorded beside it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DimensionObservation {
-    /// Weighted distinct sites over the denominator, in millionths, so two
-    /// computations of the record produce identical bytes.
     pub(crate) density_micro: u64,
-    /// Name the report publishes the dimension under.
     pub(crate) name: String,
-    /// Dimension score the binary published, ceiling included.
     pub(crate) score: u64,
-    /// Worst tier among the rules that scored in this dimension, which is what
-    /// caps it.
     pub(crate) worst_tier: Option<String>,
 }
 
-/// Adjudication in two deliberately distinct quantities.
-///
-/// `trigger_verification` is mechanical and covers 100% of the findings: it
-/// only proves that the rule's pattern is present where it reported, hence
-/// that no span is corrupted. Confirming a pattern says nothing about its
-/// value: the lint looking for `.unwrap()` always finds an `.unwrap()`.
-///
-/// `reviewed` carries the only quantity precision is derived from: sites
-/// actually read back, each judged on the question "should this site be
-/// changed" and not "is the pattern present". The published rate is that of
-/// this sample, never that of the population.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Adjudication {
-    /// The `(rule, population)` samples adjudicated after `protocol_cutoff`.
-    ///
-    /// The three structural rules of the agent population are enrolled here,
-    /// and nothing else: every other published verdict predates the cutoff and
-    /// is re-adjudicated by nothing. Every reviewed site of an enrolled sample
-    /// has to carry an agreeing pair, which is what makes the enrolment a
-    /// claim the suite can refuse rather than a label.
     pub(crate) adjudicated_after_cutoff: Vec<ProtocolScope>,
     pub(crate) agreement: Agreement,
     pub(crate) criterion: String,
-    /// Date from which every adjudicated pair is dated and every one of its
-    /// passes cites the lines that decided it. Distinct from
-    /// `protocol_cutoff`, which dates the double pass itself: the pairs judged
-    /// between the two carry two verdicts and no citation.
     pub(crate) evidence_cutoff: String,
-    /// Digest anchoring every published site to a run that located it.
-    ///
-    /// Sits here rather than beside `harness`, which is evidence about the scan,
-    /// because what it anchors is the adjudication: a site is a claim this block
-    /// makes, and the proof is what a run that saw it leaves behind.
     pub(crate) position_proof: PositionProof,
-    /// Date from which a verdict must be backed by a double pass.
-    ///
-    /// The protocol applies forward. The verdicts produced before it stay
-    /// single-pass and keep the provenance they were measured under: recording
-    /// them as pairs would mean inventing a second justification for each, and
-    /// a fabricated pass is worse evidence than an honest single one.
     pub(crate) protocol_cutoff: String,
-    /// What the provenance of a verdict means and what the reader may conclude
-    /// from each value. Published beside the rates, because a sample judged by
-    /// an agent and one judged by a person are not the same evidence.
     pub(crate) provenance: String,
     pub(crate) reviewed: Vec<ReviewedSite>,
     pub(crate) sampling: String,
-    /// The draw of every scope adjudicated after the cutoff, one row each.
-    ///
-    /// One per enrolled scope, and only there: a verdict that predates the
-    /// protocol has the sentence in `sampling` as the only account its draw
-    /// ever had, and a plan nobody enrolled is refused rather than kept as an
-    /// empty row.
     pub(crate) sampling_plan: Vec<SamplingPlan>,
     pub(crate) trigger_verification: TriggerVerification,
 }
 
-/// Mechanical guard rail: the adjudicated pattern is present in the reported
-/// span.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TriggerVerification {
@@ -508,10 +344,6 @@ pub(crate) struct RuleTrigger {
     pub(crate) rule: String,
 }
 
-/// Where the reviewed site lives. The context carries no verdict by itself, but
-/// it makes the dominant cause of a high rate visible: a rule aimed at
-/// production panics, applied to a test or to a build script, reports there a
-/// pattern that is not a defect there.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SiteContext {
@@ -523,10 +355,6 @@ pub(crate) enum SiteContext {
 }
 
 impl SiteContext {
-    /// Does this declared context match what the report published for the
-    /// finding? A production diagnostic carries no `context` field at all,
-    /// which is what `weighs` reads, so an absent field means production and
-    /// nothing else.
     pub(crate) fn matches(self, reported: Option<&str>) -> bool {
         let expected = match self {
             Self::Benchmark => Some("benchmark"),
@@ -539,12 +367,6 @@ impl SiteContext {
     }
 }
 
-/// Which population a reviewed site was drawn from.
-///
-/// The two answer different questions. `Healthy` says what a rule costs on code
-/// nobody wants disturbed, which is what decides admission. `Agent` says what it
-/// is worth on the code this tool exists for, which is what should decide what
-/// the report recommends. A rate that does not say which it is is not a rate.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Population {
@@ -552,12 +374,6 @@ pub(crate) enum Population {
     Healthy,
 }
 
-/// Who produced a verdict.
-///
-/// A rate adjudicated by an agent and a rate adjudicated by a person do not
-/// carry the same weight, and a measurement that claims methodological honesty
-/// has to say which it is. `Unrecorded` names the sites judged before this
-/// field existed: it is the truthful value for them, not a default to reuse.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Provenance {
@@ -566,22 +382,10 @@ pub(crate) enum Provenance {
     Unrecorded,
 }
 
-/// A corpus site actually read back, with its value verdict.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReviewedSite {
     pub(crate) context: SiteContext,
-    /// The structural family this site belongs to, for a rule whose unit is a
-    /// family rather than a position.
-    ///
-    /// `structural_identity` in `src/delta.rs` is the same fact under the same
-    /// predicate: the identity of a `Producer::Structure` finding is the digest
-    /// of the family, not its span and not its message, because every
-    /// structural message states a count the next edit moves. A site of one of
-    /// those rules is a claim about the family, and the position it is
-    /// published at is only where the anchor happened to sit. Absent on every
-    /// other rule, where the position is the unit and a second identity would
-    /// be a second answer to a question the path and the line already settle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) family: Option<String>,
     pub(crate) justification: String,
@@ -594,48 +398,21 @@ pub(crate) struct ReviewedSite {
     pub(crate) verdict: Verdict,
 }
 
-/// Minimum reviewed sample size for a rate to be publishable, except when the
-/// whole population is smaller and entirely reviewed.
 pub(crate) const MINIMUM_REVIEWED_SITES: u64 = 5;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RulePrecision {
-    /// Sites of this rate backed by an agreeing pair. Zero when the rate rests
-    /// on verdicts produced before the protocol cutoff, which is what every
-    /// rate but the three structural rates of the agent population rests on.
     pub(crate) doubly_judged: u64,
     pub(crate) false_positive_rate_basis_points: Option<u64>,
     pub(crate) false_positives: Option<u64>,
-    /// Population observed on the corpus. Never the denominator of the rate.
     pub(crate) findings: u64,
     pub(crate) id: String,
-    /// Upper and lower bound of the Wilson 95 % interval of the rate, in basis
-    /// points, present exactly when the rate is.
-    ///
-    /// A rate is a sample, and twenty of the twenty-four healthy rates rest on
-    /// five sites or fewer. Published beside the point estimate rather than
-    /// left to a reader with a calculator, because the ranking the report does
-    /// reads the point estimate alone: what the interval changes is not the
-    /// order, it is whether whoever decides to change the order can see what
-    /// the order rests on.
     pub(crate) interval_high_basis_points: Option<u64>,
     pub(crate) interval_low_basis_points: Option<u64>,
-    /// Distinct judges behind the pairs backing this rate, sorted. Empty when
-    /// no site of the rate carries a pair, the way `provenance` is empty when
-    /// no rate is published: it rides the rate for the same reason, since who
-    /// judged a sample is what decides how much a reader can lean on it.
     pub(crate) judges: Vec<String>,
-    /// Distinct provenances of the verdicts this rate rests on, sorted. Empty
-    /// when no rate is published. It rides the rate rather than staying buried
-    /// in the site list, because this is where a reader looks: a rate is worth
-    /// its weakest verdict, and that has to be visible without cross-checking
-    /// a hundred and ten entries by hand.
     pub(crate) provenance: Vec<Provenance>,
-    /// Sites actually read back. This is the denominator of the published rate.
     pub(crate) reviewed: u64,
-    /// What the interval settles against the published threshold, present
-    /// exactly when the rate is.
     pub(crate) separation: Option<Separation>,
     pub(crate) status: PrecisionStatus,
     pub(crate) tier: String,
@@ -645,24 +422,8 @@ pub(crate) struct RulePrecision {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GateOutcome {
-    /// Rules active by default that the gate does not refuse. A noisy or
-    /// unproven rule appears there: the two following lists annotate it, they
-    /// do not disqualify it.
     pub(crate) admitted: Vec<String>,
-    /// Rules the gate admits with a rate whose interval settles nothing: not
-    /// named noisy, and not separated from the threshold by their own sample.
-    ///
-    /// The gate's only positive statement used to rest entirely on these. Five
-    /// rules carry a measured rate and are not called noisy, on ten sites in
-    /// total, and not one of their intervals separates the rule from the
-    /// threshold it is being cleared against. Naming them is what stops
-    /// `verdict: passed` from reading as a measurement where it is an absence
-    /// of one.
     pub(crate) indecisive: Vec<String>,
-    /// Rules whose noise rate on healthy code exceeds the published threshold.
-    /// Named so that their contribution to the score can be decided, never to
-    /// remove their default activation: the corpus measures what they cost on
-    /// healthy code, not what they are worth on code that is not.
     pub(crate) noisy_on_healthy_code: Vec<String>,
     pub(crate) refused: Vec<GateRefusal>,
     pub(crate) threshold_basis_points: u64,
@@ -677,59 +438,27 @@ pub(crate) struct GateRefusal {
     pub(crate) reason: RefusalReason,
 }
 
-/// Minimum spread the model must achieve over the two populations, in points.
-///
-/// A scale that cannot separate ranks nothing, whatever its range, so the
-/// record carries the floor rather than a boolean saying the last measurement
-/// happened to clear it. The number is the month-1 goal of the core-v3
-/// recalibration PRD; raising it is a deliberate recalibration, and a model
-/// that falls under it fails
-/// `the_corpus_score_distribution_is_published_with_its_spread` naming the
-/// spread it measured.
 pub(crate) const MINIMUM_SPREAD: u64 = 20;
 
-/// What the score does over the two pinned populations.
-///
-/// core-v2 published one population and a boolean saying it had collapsed into
-/// a single band, which measured nothing beyond the collapse itself. What a
-/// scale has to prove is that it separates, so each population publishes its
-/// own spread and its own median, and the block publishes the distance between
-/// the two medians: a model that cannot tell agent-written code from code
-/// nobody wants disturbed ranks nothing, however wide its range.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ScoreDistribution {
     pub(crate) agent: PopulationDistribution,
     pub(crate) healthy: PopulationDistribution,
-    /// Highest score of the two populations together.
     pub(crate) maximum: u64,
-    /// Lowest score of the two populations together.
     pub(crate) minimum: u64,
-    /// Healthy median less agent median, in hundredths of a point. Signed,
-    /// because a model that scores the agent population higher is a fact the
-    /// record has to be able to state rather than a case it cannot represent.
     pub(crate) separation_centi: i64,
-    /// Maximum less minimum over the two populations, which is what
-    /// `MINIMUM_SPREAD` bounds from below.
     pub(crate) spread: u64,
 }
 
-/// The distribution of one population, published for each of the two.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PopulationDistribution {
     pub(crate) bands: Vec<ScoreBand>,
     pub(crate) ceilings_applied: usize,
-    /// Every score carries the same label. This is the exact question of the
-    /// criterion: a corpus where every repository falls in the same band proves
-    /// nothing about the ability of the score to separate.
     pub(crate) collapsed_into_one_band: bool,
-    /// Every score is worth the same, a collapse harsher still than the shared
-    /// band.
     pub(crate) collapsed_into_one_value: bool,
     pub(crate) maximum: u64,
-    /// Middle score, in hundredths of a point, since a population of even size
-    /// has no middle member and its median falls between two.
     pub(crate) median_centi: u64,
     pub(crate) minimum: u64,
     pub(crate) spread: u64,
@@ -751,7 +480,6 @@ pub(crate) struct ScoreValue {
     pub(crate) value: u64,
 }
 
-/// Complete result of a harness run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HarnessRun {
     pub(crate) failed: Vec<String>,
@@ -785,10 +513,6 @@ pub(crate) fn artifact() -> CorpusArtifact {
     serde_json::from_slice(&bytes).expect("the corpus artifact should match its typed schema")
 }
 
-/// Closed defects of the manifest, each naming the repository concerned.
-///
-/// A message cites neither a path nor an escape sequence: it carries only the
-/// declared name of the repository and the nature of the defect.
 pub(crate) fn manifest_defects(manifest: &Manifest) -> Vec<String> {
     let mut defects = Vec::new();
     if manifest.repositories.len() != EXPECTED_REPOSITORIES {
@@ -849,14 +573,10 @@ pub(crate) fn manifest_defects(manifest: &Manifest) -> Vec<String> {
     defects
 }
 
-/// A revision is immutable when it is a complete object identifier. A tag, a
-/// branch or an abbreviated prefix stays movable.
 fn is_immutable_revision(commit: &str) -> bool {
     commit.len() == 40 && commit.chars().all(|value| value.is_ascii_hexdigit() && !value.is_ascii_uppercase())
 }
 
-/// Manifest repositories missing from the local cache or pinned on another
-/// revision. The evaluation does not start while the list is not empty.
 pub(crate) fn missing_repositories(cache: &Path, manifest: &Manifest) -> Vec<String> {
     manifest
         .repositories
@@ -886,18 +606,9 @@ pub(crate) struct HarnessPaths<'a> {
     pub(crate) artifacts: &'a Path,
     pub(crate) binary: &'a Path,
     pub(crate) cache: &'a Path,
-    /// Removes the `RUSTUP_TOOLCHAIN` a rustup-proxied `cargo test` exports,
-    /// so a scan runs as a caller outside any proxy does: the only way a
-    /// `rust-toolchain.toml` path toolchain is reached at all.
     pub(crate) unpinned: bool,
 }
 
-/// Replays the complete catalog on the corpus.
-///
-/// The run is refused while a repository is missing: a partial corpus would
-/// produce a precision measured on an unknown sample. Every repository is
-/// materialised from its pinned revision under `artifacts`, never in the cache,
-/// and every failure stays isolated on its repository.
 pub(crate) fn run(
     paths: &HarnessPaths<'_>,
     manifest: &Manifest,
@@ -932,8 +643,6 @@ pub(crate) fn run(
             .arg(&work)
             .args(scan_arguments)
             .env("CARGO_TARGET_DIR", &target)
-            // A wall-clock cutoff would make the observations of a large
-            // repository depend on machine load; a measurement cannot.
             .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600");
         if paths.unpinned {
             scan.env_remove("RUSTUP_TOOLCHAIN");
@@ -964,12 +673,6 @@ pub(crate) fn run(
     Ok(run)
 }
 
-/// Materialises the pinned revision into `work` as a clone checked out at it,
-/// which is how anyone who scans the repository meets it. The repository pass
-/// enumerates through `git ls-files`, so a bare tree would record every subject
-/// as tracking nothing and publish a score no clone of it gets. `--shared`
-/// borrows the cache's objects rather than copying them: the cache stays
-/// read-only.
 pub(crate) fn materialise(repository: &Path, commit: &str, work: &Path) {
     let clone = Command::new("git")
         .args(["clone", "--quiet", "--shared", "--no-checkout"])
@@ -988,8 +691,6 @@ pub(crate) fn materialise(repository: &Path, commit: &str, work: &Path) {
     assert!(checkout.status.success(), "the pinned revision should check out");
 }
 
-/// A fresh directory on every run: no partial state of an interrupted run can
-/// mix into the result.
 fn fresh_directory(path: &Path) -> PathBuf {
     if path.exists() {
         fs::remove_dir_all(path).expect("a stale artifact directory should be removable");
@@ -1053,11 +754,6 @@ fn failed_observation(entry: &ManifestEntry, exit_code: i32) -> Observation {
     }
 }
 
-/// The five dimensions, in the order the score declares them.
-///
-/// Restated here rather than read off the report, because the report publishes
-/// a map: a dimension dropped from the published object would silently leave
-/// the record one row shorter instead of failing.
 const DIMENSION_NAMES: [&str; 5] = [
     "security",
     "reliability",
@@ -1066,7 +762,6 @@ const DIMENSION_NAMES: [&str; 5] = [
     "dependencies",
 ];
 
-/// Dimension a rule category is scored under.
 fn dimension_of(category: &str) -> Option<&'static str> {
     match category {
         "security" => Some("security"),
@@ -1078,10 +773,6 @@ fn dimension_of(category: &str) -> Option<&'static str> {
     }
 }
 
-/// What one distinct site weighs, by the severity the report published. An
-/// info site is shown and weighs nothing; an unknown severity weighs nothing
-/// and costs the scan its authoritative flag, which the observation records
-/// separately.
 fn severity_weight(severity: &str) -> Option<u64> {
     match severity {
         "error" => Some(2),
@@ -1091,8 +782,6 @@ fn severity_weight(severity: &str) -> Option<u64> {
     }
 }
 
-/// What a site of a rule of this tier weighs against a site of a `P3` rule:
-/// each tier doubles the one below, and a rule outside the catalog weighs one.
 fn tier_weight(tier: Option<RuleTier>) -> u64 {
     match tier {
         Some(RuleTier::P0) => 8,
@@ -1102,8 +791,6 @@ fn tier_weight(tier: Option<RuleTier>) -> u64 {
     }
 }
 
-/// The smoothed rate the report publishes beside a measured rule, or `None`
-/// for a rule the corpus never adjudicated.
 fn noise_basis_points(report: &Value, rule: &str) -> Option<u64> {
     report["policy"]["rules"]
         .as_array()
@@ -1114,27 +801,14 @@ fn noise_basis_points(report: &Value, rule: &str) -> Option<u64> {
         .and_then(|entry| entry["corpus_noise_basis_points"].as_u64())
 }
 
-/// The share of a measured rule's sites the score charges, in basis points:
-/// the complement of the smoothed rate. An unmeasured rule is charged whole.
 fn kept_basis_points(report: &Value, rule: &str) -> u64 {
     noise_basis_points(report, rule).map_or(10_000, |noise| 10_000u64.saturating_sub(noise))
 }
 
-/// Whether the corpus found a rule wrong more often than right, past the
-/// threshold that withholds it: its sites are charged at the discount and its
-/// tier caps nothing.
 fn is_withheld(report: &Value, rule: &str) -> bool {
     noise_basis_points(report, rule).is_some_and(|noise| noise > 5_000)
 }
 
-/// Denominator the producer that raised a rule divides by, read off the rule's
-/// own identifier.
-///
-/// The prefix is the contract: `validate_catalog` refuses any other, so the
-/// five producers are exactly these heads, and the two that judge the manifests
-/// and the tracked tree rather than the source divide by the workspace. A rule
-/// the catalog does not hold has no producer to ask and is counted against the
-/// workspace, which is what the binary does with it.
 fn divisor(rule: &str, shipped: &BTreeMap<&str, RuleTier>, kilolines: f64) -> f64 {
     let per_kiloline = shipped.contains_key(rule)
         && (rule.starts_with("clippy::")
@@ -1143,22 +817,6 @@ fn divisor(rule: &str, shipped: &BTreeMap<&str, RuleTier>, kilolines: f64) -> f6
     if per_kiloline { kilolines } else { 1.0 }
 }
 
-/// The density behind each published dimension, recovered from the diagnostics.
-///
-/// This is deliberately an independent recomputation rather than a call into
-/// the crate: a density recovered through the same helper the binary used would
-/// agree with the published score by construction and prove nothing. What makes
-/// it evidence is that the λ freeze test reads these densities back, rescores
-/// them through the shipped curve and compares against the score the binary
-/// printed, so a recomputation that drifts from the model fails the corpus.
-///
-/// One distinct site per production diagnostic, weighed by severity, summed per
-/// rule, weighed by the rule's tier, discounted by the rate the corpus
-/// adjudicated the rule wrong, and divided by the denominator its producer
-/// chose, in identifier order: the same additions in the same sequence as
-/// `DimensionState`, so the float is the same float. Under core-v5 a rule its
-/// producer counts against the workspace charges what no member claims whole and
-/// what members claim averaged over the members the report lists.
 fn dimension_observations(report: &Value, production_lines: u64) -> Vec<DimensionObservation> {
     let shipped: BTreeMap<&str, RuleTier> =
         catalog().into_iter().map(|rule| (rule.id, rule.tier)).collect();
@@ -1174,8 +832,6 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         .map(Vec::as_slice)
         .unwrap_or_default()
     {
-        // A diagnostic marked with a non-production context stays published and
-        // counted, and weighs nothing.
         if !diagnostic["context"].is_null() {
             continue;
         }
@@ -1190,8 +846,6 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         else {
             continue;
         };
-        // A site weighing nothing enters no rule: an `Info` finding neither charges nor caps,
-        // so its rule holds no tier the dimension could be pinned by.
         if weight == 0 {
             continue;
         }
@@ -1298,8 +952,6 @@ fn observation(entry: &ManifestEntry, exit_code: i32, report: &Value) -> Observa
     }
 }
 
-/// Finding retained for the measurement: a categorized diagnostic, hence
-/// carried by a catalog rule.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct Finding<'a> {
     pub(crate) column: u64,
@@ -1309,15 +961,7 @@ pub(crate) struct Finding<'a> {
     pub(crate) occurrences: u64,
     pub(crate) path: &'a str,
     pub(crate) rule: &'a str,
-    /// Non-production mark the report published, absent for production code.
-    ///
-    /// Last on purpose, against the alphabetical order the rest of this file
-    /// keeps: `Ord` is derived, `digest` walks the sorted set, and a field
-    /// placed earlier would reorder every published `findings_digest` without
-    /// a single finding having changed.
     pub(crate) context: Option<&'a str>,
-    /// The diagnostic's identity, which for a structural rule is the digest of
-    /// the family it reports. Last for the reason `context` is.
     pub(crate) id: &'a str,
 }
 
@@ -1344,9 +988,6 @@ pub(crate) fn curated_findings(report: &Value) -> Vec<Finding<'_>> {
     findings
 }
 
-/// Exact source text covered by the span of a finding, at the materialised
-/// revision. This is the piece that makes an adjudication verdict verifiable
-/// rather than declarative.
 pub(crate) fn span_text(root: &Path, finding: &Finding<'_>) -> Option<String> {
     if finding.line == 0 {
         return None;
@@ -1373,10 +1014,6 @@ pub(crate) fn span_text(root: &Path, finding: &Finding<'_>) -> Option<String> {
     Some(text)
 }
 
-/// The adjudicated trigger is present where the rule reported the defect.
-///
-/// A finding with no span bears on a whole file, a manifest or a lockfile: the
-/// evidence is then looked for in the reported file.
 pub(crate) fn evidence_holds(root: &Path, finding: &Finding<'_>, evidence: &str) -> bool {
     match span_text(root, finding) {
         Some(text) => text.contains(evidence),
@@ -1385,7 +1022,6 @@ pub(crate) fn evidence_holds(root: &Path, finding: &Finding<'_>, evidence: &str)
     }
 }
 
-/// Canonical fingerprint of the whole finding set of a repository.
 pub(crate) fn digest(findings: &[Finding<'_>]) -> String {
     let mut hasher = blake3::Hasher::new();
     for finding in findings {
@@ -1399,16 +1035,6 @@ pub(crate) fn digest(findings: &[Finding<'_>]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-/// Per-rule precision, derived from the actually reviewed sites alone.
-///
-/// The denominator of the rate is the size of the reviewed sample, never the
-/// observed population: relating value verdicts to a population that was not
-/// reviewed would publish a precision nobody measured. A rule whose sample is
-/// smaller than `MINIMUM_REVIEWED_SITES`, without its whole population being
-/// reviewed, stays incomplete and the gate refuses it.
-///
-/// A reviewed site matching no observed finding makes the rule incomplete: the
-/// sample has drifted from the population it claims to describe.
 pub(crate) fn precision(
     catalog: &[CatalogRule],
     observations: &[Observation],
@@ -1417,11 +1043,6 @@ pub(crate) fn precision(
     precision_of(catalog, observations, adjudication, Population::Healthy)
 }
 
-/// Per-rule precision on one population.
-///
-/// The population selects both sides at once: the findings come from that
-/// population's observations and the verdicts from the sites drawn there.
-/// Crossing them would relate a verdict to a corpus it never described.
 pub(crate) fn precision_of(
     catalog: &[CatalogRule],
     observations: &[Observation],
@@ -1464,9 +1085,6 @@ pub(crate) fn precision_of(
         .map(|site| site.rule.as_str())
         .collect();
 
-    // What the double pass backs, read once for the whole population rather
-    // than per rule: a rate says how many of its sites carry a pair and which
-    // judges produced them, and both answers come from the same map.
     let backing = agreement::backing(&adjudication.agreement);
 
     catalog
@@ -1545,9 +1163,6 @@ pub(crate) fn precision_of(
                     }
                 }
             }
-            // The interval and the point estimate come from the same two
-            // counts, so a rate can never be published without the bounds that
-            // say what it settles.
             let (low, high) = interval::wilson_95(false_positives, count);
             RulePrecision {
                 doubly_judged,
@@ -1572,15 +1187,6 @@ pub(crate) fn precision_of(
         .collect()
 }
 
-/// Admission gate.
-///
-/// The only refusal is that of a zero-tolerance tier showing a false positive:
-/// a `P0` caps the whole score, so a single false alarm on healthy code costs
-/// all of it there. The rest is published, not refused. A high noise rate on
-/// healthy code says nothing about the value of a rule on code that is not
-/// healthy, and a rule never observed on ten healthy repositories is not
-/// imprecise: both are named so that the decision is taken knowingly, never
-/// held against default activation.
 pub(crate) fn gate(
     catalog: &[CatalogRule],
     precision: &[RulePrecision],
@@ -1616,9 +1222,6 @@ pub(crate) fn gate(
         if rate > threshold_basis_points {
             noisy_on_healthy_code.push(id.to_owned());
         } else if separation_of(measure, threshold_basis_points) != Some(Separation::Below) {
-            // Admitted on a sample that separates it from nothing. The two
-            // lists are disjoint by construction: a rule the gate names noisy
-            // is not a rule it clears, whatever its interval spans.
             indecisive.push(id.to_owned());
         }
         admitted.push(id.to_owned());
@@ -1639,17 +1242,12 @@ pub(crate) fn gate(
     }
 }
 
-/// What a measured rate settles against a threshold, from the bounds it
-/// publishes rather than from a second computation of them.
 fn separation_of(measure: &RulePrecision, threshold_basis_points: u64) -> Option<Separation> {
     let low = measure.interval_low_basis_points?;
     let high = measure.interval_high_basis_points?;
     Some(interval::separation(low, high, threshold_basis_points))
 }
 
-/// Distribution of the corpus scores, published to observe whether tier capping
-/// crushes every score into a single band.
-/// The distribution of both populations, and the distance between them.
 pub(crate) fn score_distribution(
     healthy: &[Observation],
     agent: &[Observation],
@@ -1721,12 +1319,6 @@ fn population_distribution(observations: &[Observation]) -> PopulationDistributi
     }
 }
 
-/// Median of a population in hundredths of a point.
-///
-/// An even population has no middle member, so its median is the mean of the
-/// two that straddle the middle and can land on a half point. Hundredths rather
-/// than halves because the record derives `Eq`, and a rational median stored as
-/// a float is a record two machines can disagree on.
 fn median_centi(values: &[ScoreValue]) -> u64 {
     let mut sorted: Vec<u64> = values.iter().map(|value| value.value).collect();
     sorted.sort_unstable();
@@ -1739,8 +1331,6 @@ fn median_centi(values: &[ScoreValue]) -> u64 {
     }
 }
 
-/// Catalog published by a report, reduced to the quantities the gate depends
-/// on.
 pub(crate) fn catalog_from_report(report: &Value) -> Vec<CatalogRule> {
     report["policy"]["rules"]
         .as_array()

@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 4: action.yml's own logic,
-// and comment/action.yml's after it, replayed offline over their case matrix. The scans are real (the release
-// binary on `mini` histories, cloned over file:// from a local origin the way
-// actions/checkout hands a workflow its repository); `gh` is a recording stub,
-// and the steps GitHub itself provides are skipped.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,8 +11,6 @@ const STICKY = "<!-- rust-doctor -->";
 
 type Report = { status: string; scope: { mode: string; comparison_base: string | null } };
 
-// `main` holds `mini`; `feature` adds NEWFN in a second commit, or nothing
-// for a no-op pull request. The checkout is a clone on `feature`.
 async function checkout(name: string, change: "newfn" | "none", clone: { depth?: number } = {}): Promise<Repo> {
   let scenario = gitScenario(name).template("mini").commit("base").branch("feature");
   if (change === "newfn") scenario = scenario.append("src/lib.rs", NEW_FN).commit("feature");
@@ -28,9 +21,6 @@ function replay(repo: Repo, event: Event, options: Omit<Parameters<typeof replay
   return replayAction({ workspace: repo.path, event, sandbox: repo.sandbox, target: TARGET, ...options });
 }
 
-// The comment job after the scan: comment/action.yml replayed in the same
-// runner, where the scan left the report, summary and clean flag its
-// artifact carries. The download step is the runner's and is skipped.
 function comment(repo: Repo, options: Partial<Omit<ReplayOptions, "workspace" | "action">> = {}): Promise<Replay> {
   return replayAction({ event: "pull_request", sandbox: repo.sandbox, ...options, action: COMMENT_ACTION_PATH, workspace: repo.path });
 }
@@ -54,8 +44,6 @@ function namesUnder(dir: string): string[] {
 }
 
 describe("the exit policy", () => {
-  // The warning code is 42. Only a pull request fails on the gate (1) or the
-  // warning code; a missing code counts as 2, and 2 and 130 fail every event.
   const codes = ["0", "1", "2", "130", "42", undefined] as const;
   const cases = (["push", "pull_request", "workflow_dispatch"] as const).flatMap((event) =>
     codes.map((code) => {
@@ -182,9 +170,6 @@ describe("a replayed run", () => {
     expect(step(result, EXIT_STEP).exitCode).toBe(2);
   });
 
-  // The outputs step falls back to `authoritative=false` only when jq fails,
-  // and jq reads an empty report, what a refused argument leaves, as no
-  // input at all: it prints nothing and succeeds.
   test.failing("real/B9 an empty report still sets the authoritative output to false", async () => {
     const repo = await checkout("empty-report", "none");
     const result = await replay(repo, "push", { inputs: { args: "--bogus" } });
@@ -198,15 +183,12 @@ describe("a replayed run", () => {
     const list = await comment(repo, { ghListExit: 1 });
     expect(step(list, COMMENT_STEP).exitCode).toBe(0);
     expect(step(list, COMMENT_STEP).stdout).toContain("::warning::rust-doctor could not read the pull request's comments");
-    // A fork's read-only token: the write is refused, and the job stays green.
     const write = await comment(repo, { ghWriteExit: 1 });
     expect(step(write, COMMENT_STEP).exitCode).toBe(0);
     expect(step(write, COMMENT_STEP).stdout).toContain("::warning::rust-doctor could not post the pull request comment");
     expect(write.failed).toBe(false);
   });
 
-  // action.yml downgrades every comment failure to a warning, but a comment
-  // list that is not JSON fails jq under `set -e` and turns the step red.
   test.failing("real/B8 a comment list that is not JSON leaves a warning and a green step", async () => {
     const repo = await checkout("api-not-json", "none");
     await replay(repo, "pull_request");
@@ -235,9 +217,6 @@ describe("a replayed run", () => {
 });
 
 describe("the launcher and the comment job (EP-005)", () => {
-  // US-019: a runner's `~/.cargo/bin` comes first on PATH, and a build script
-  // can plant a `rust-doctor` there. The Action runs the launcher npm
-  // installed, by its absolute path, so the planted one never runs.
   test("a planted rust-doctor earlier on PATH never stands in for the pinned launcher", async () => {
     const repo = await checkout("planted-launcher", "none");
     const planted = join(repo.sandbox.dir, "cargo-bin");
@@ -255,8 +234,6 @@ describe("the launcher and the comment job (EP-005)", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
-  // US-020: a scan that crashed before its upload leaves no artifact, and the
-  // comment job says so and stays green.
   test("the comment job without an artifact prints the notice and exits 0", async () => {
     const repo = await checkout("no-artifact", "none");
     const result = await comment(repo);

@@ -18,13 +18,8 @@ fn root(name: &str) -> PathBuf {
     root
 }
 
-/// The line every oracle case starts from on both sides.
 const ORIGINAL: &str = "todo!();\n";
 
-/// A scratch tree removed when the test that made it ends.
-///
-/// Deleting at the end of a body leaves the tree behind on exactly the run whose
-/// fixture is worth keeping out of the next one: the one whose assertion failed.
 struct Scratch(PathBuf);
 
 impl Drop for Scratch {
@@ -39,11 +34,6 @@ fn write_source(root: &Path, path: &str, source: &str) {
     fs::write(path, source).unwrap();
 }
 
-/// Two source trees and the two diagnostic lists compared over them.
-///
-/// Naming the trees, writing them, listing the diagnostics, computing the delta
-/// and removing the trees is the whole shape of a test here, and spelling it out
-/// in each of them is what made three of them near-duplicates of one another.
 struct Scenario {
     baseline_root: Scratch,
     current_root: Scratch,
@@ -59,8 +49,6 @@ impl Scenario {
         )
     }
 
-    /// A scenario under an existing pair of parents, which is how the oracle
-    /// keeps its thirty-two cases side by side.
     fn under(baseline_parent: &Path, current_parent: &Path, name: &str) -> Self {
         let baseline_root = baseline_parent.join(name);
         let current_root = current_parent.join(name);
@@ -189,15 +177,12 @@ fn proof_normalizes_unicode_whitespace_and_rejects_invalid_or_oversized_ranges()
     );
 }
 
-/// What a delta is expected to say, as the three lists a reader checks.
 #[derive(Debug, PartialEq, Eq)]
 struct Verdict {
     introduced: Vec<String>,
-    /// Each pairing as the current id and the baseline id it was matched with.
     pre_existing: Vec<(String, String)>,
     fixed: Vec<String>,
     cross_file_matches: usize,
-    /// Pairs the count pass made, once evidence was spent.
     counted: usize,
 }
 
@@ -225,12 +210,6 @@ fn verdict(
     }
 }
 
-/// One named comparison and the verdict it has to produce.
-///
-/// Writing two trees, naming two diagnostic lists and checking three vectors is
-/// one shape, and the six tests that each spelled it out were near-duplicates of
-/// one another and of nothing else. The shape is written once here and the cases
-/// are data, which is what the thirty-two-case oracle below already does.
 struct MatchingCase {
     name: &'static str,
     build: fn(&mut Scenario),
@@ -258,8 +237,6 @@ impl Scenario {
     }
 }
 
-/// What makes two diagnostics one finding, and what is deliberately left out of
-/// that answer.
 fn identity_cases() -> Vec<MatchingCase> {
     vec![
         MatchingCase {
@@ -280,8 +257,6 @@ fn identity_cases() -> Vec<MatchingCase> {
             },
             expected: verdict(&["current"], &[], &["base"], 0),
         },
-        // The message identifies a finding while evidence pairs; once it is
-        // spent, a reworded finding of one rule at one place is the same one.
         MatchingCase {
             name: "a reworded finding at its place pairs by count",
             build: |scenario| {
@@ -309,13 +284,6 @@ fn identity_cases() -> Vec<MatchingCase> {
             },
             expected: verdict(&[], &[("current", "base")], &[], 0).counted(1),
         },
-        // `workspace_path` percent-encodes `%` and every control character of a
-        // published path. Opening the published spelling literally resolved to
-        // no file at all, so every finding in a file whose name carries one
-        // silently lost its proof and fell back to its message, which is the
-        // weakest identity the module has. Here the two excerpts differ, so a
-        // proof that was read leaves the pair to the count pass, and a proof
-        // that was not pairs it on the message.
         MatchingCase {
             name: "an encoded path is decoded before the evidence is read",
             build: |scenario| {
@@ -331,8 +299,6 @@ fn identity_cases() -> Vec<MatchingCase> {
     ]
 }
 
-/// The order the passes run in, on the inputs that put two of them in
-/// competition.
 fn pairing_cases() -> Vec<MatchingCase> {
     vec![
         MatchingCase {
@@ -376,14 +342,6 @@ fn pairing_cases() -> Vec<MatchingCase> {
             },
             expected: verdict(&[], &[("moved", "base")], &[], 1),
         },
-        // A finding whose proof could not be read falls back to its message on
-        // its own file; a finding that moved carries its proof to another file.
-        // When both claim the same baseline the message match on the original
-        // file wins, because the moved pass runs last. That is a decision rather
-        // than a consequence, and reversing the two would report the move as
-        // pre-existing and the proofless finding as introduced. It is asserted
-        // so changing it is a moved expectation rather than a silent shift in
-        // what `--scope baseline` calls new.
         MatchingCase {
             name: "a message match on the original file wins over a moved proof",
             build: |scenario| {
@@ -392,9 +350,7 @@ fn pairing_cases() -> Vec<MatchingCase> {
                 scenario.baseline =
                     vec![diagnostic("base", Some("src/old.rs"), Some(span(1, 1, 8)))];
                 scenario.current = vec![
-                    // No span, so no proof: only its message can identify it.
                     diagnostic("unproven", Some("src/old.rs"), None),
-                    // The proof the baseline carries, in another file.
                     diagnostic("moved", Some("src/new.rs"), Some(span(1, 1, 8))),
                 ];
             },
@@ -533,14 +489,6 @@ fn multiset_matching_is_deterministic_and_bounded() {
     assert_eq!(error.code, "delta-limit-exceeded");
 }
 
-/// US-003: a structural finding is matched on the identity its own pass
-/// computed, never on the message it published.
-///
-/// Every structural message states a number the next edit moves: the line count
-/// of an oversized file, the occurrence count of a clone family, the two figures
-/// of a hotspot. Matched on the message and on an excerpt of the unit, a finding
-/// older than the branch reads as introduced by it and the one it replaced reads
-/// as fixed, which is the opposite of what a baseline scope is asked for.
 #[test]
 fn a_structural_finding_survives_the_count_its_message_states() {
     let scenario = Scenario::new("structural");
@@ -565,9 +513,6 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     assert_eq!(delta.summary.pre_existing, 1, "{delta:?}");
     assert!(delta.fixed.is_empty(), "{delta:?}");
 
-    // The same family reported from another file, which is what a clone family
-    // does when a new member sorts ahead of the old first one. The identity does
-    // not carry the path, so the family is still the same family.
     let mut moved = before.clone();
     moved.path = Some("src/other.rs".to_owned());
     let delta = compute(
@@ -580,8 +525,6 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     assert_eq!(delta.summary.pre_existing, 1, "{delta:?}");
     assert_eq!(delta.summary.cross_file_matches, 1, "{delta:?}");
 
-    // A per-site diagnostic is identified by its message while evidence
-    // pairs; reworded at its own place, it is left to the count pass.
     let site = diagnostic("site", Some("src/lib.rs"), Some(span(1, 1, 2)));
     let mut reworded = site.clone();
     reworded.message = "another message".to_owned();
@@ -590,7 +533,6 @@ fn a_structural_finding_survives_the_count_its_message_states() {
     assert_eq!(delta.summary.rule_count_matches, 1, "{delta:?}");
 }
 
-/// The one arithmetic the evidence rests on, at its edges.
 #[test]
 fn a_reported_position_resolves_to_the_byte_the_line_index_says() {
     let source = "ab\ncd\n";
@@ -599,20 +541,15 @@ fn a_reported_position_resolves_to_the_byte_the_line_index_says() {
 
     assert_eq!(at(1, 1), Some(0));
     assert_eq!(at(1, 2), Some(1));
-    // A line owns its terminator, so the newline is the last column it answers.
     assert_eq!(at(1, 3), Some(2));
     assert_eq!(at(1, 4), None);
     assert_eq!(at(2, 1), Some(3));
-    // The empty line a trailing newline opens.
     assert_eq!(at(3, 1), Some(6));
     assert_eq!(at(3, 2), None);
     assert_eq!(at(4, 1), None);
-    // Neither a line nor a column is ever zero.
     assert_eq!(at(0, 1), None);
     assert_eq!(at(1, 0), None);
 
-    // A file with no trailing newline answers the position one past its last
-    // character, which is what a span covering that line reports.
     let unterminated = "é!";
     let lines = LineIndex::of(unterminated);
     let at = |line, column| lines.offset(unterminated, SourcePosition { line, column });
@@ -622,9 +559,6 @@ fn a_reported_position_resolves_to_the_byte_the_line_index_says() {
     assert_eq!(at(1, 4), None);
 }
 
-/// Every file of the module stays under the bound `oversized_unit` reports at,
-/// tests included: the pass that decides what a branch introduced has to pass
-/// the rule it publishes.
 #[test]
 fn the_delta_holds_the_size_bound_it_matches_for() {
     for own in [

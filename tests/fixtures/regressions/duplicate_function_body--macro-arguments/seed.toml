@@ -1,0 +1,4 @@
+rule = "rust_doctor::structure::duplicate_function_body"
+weakness = "macro-argument"
+source = "US-022, self-scan 0.9.0, tests/corpus_agreement.rs cases differing only inside their assertions"
+verdict = "quiet"

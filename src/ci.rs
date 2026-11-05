@@ -1,24 +1,3 @@
-//! `rust-doctor ci install`: the GitHub Actions workflow that runs the scan on
-//! every pull request, written without the interactive report. The report's
-//! menu entry calls the same writer with the same defaults.
-//!
-//! The workflow judges a pull request in baseline scope, so the backlog the
-//! default branch already carries is nobody's pull request's problem, and
-//! scans a push to that branch with `--blocking none`, so it reports without
-//! ever turning the branch red. With `--comment`, a second job posts the
-//! summary as one sticky pull request comment: it alone holds
-//! `pull-requests: write`, checks nothing out and installs nothing, and reads
-//! the report artifact the scan uploaded, so the build scripts of the pull
-//! request never run beside that token. GitHub reduces it to read on a pull
-//! request from a fork, so a fork gets a warning instead of a comment. The
-//! binary reaches no network: the comment is posted by `gh` with the
-//! workflow's own token.
-//!
-//! GitHub reads workflows only at the top of the repository, so the file goes
-//! under the git toplevel, and a Cargo workspace below it (`src-tauri/`,
-//! `backend/`) is the path the workflow scans and caches. Every action it
-//! uses is pinned to a commit, with the ref it was read from beside it.
-
 use std::fmt;
 use std::fs;
 use std::io;
@@ -32,17 +11,10 @@ use rust_doctor::workspace_write::{create_new, symlinked_component};
 
 pub const WORKFLOW_PATH: &str = ".github/workflows/rust-doctor.yml";
 
-/// The toolchain this release was validated on. The workflow pins it rather
-/// than tracking `stable`: Clippy's diagnostics are the product, and a gate
-/// whose lints move every six weeks fails builds for reasons nobody chose.
 pub const VALIDATED_TOOLCHAIN: &str = "1.99.1";
 
-/// The line the workflow this command writes opens with, and the one
-/// `--update` requires before it rewrites the file.
 const MARKER: &str = "# Written by rust-doctor ci install";
 
-/// Exit code of an install that could not run: no branch, an invalid value, a
-/// failed write.
 const FAILED: u8 = 2;
 
 #[derive(Debug, Clone, Args)]
@@ -55,40 +27,46 @@ pub struct CiArgs {
 enum CiCommand {
     #[command(about = "Write .github/workflows/rust-doctor.yml, never over a file rust-doctor did not write")]
     Install {
-        /// The workspace the workflow scans. It is written under the top of
-        /// the git repository holding it.
-        #[arg(default_value = ".", value_name = "PATH")]
+        #[arg(
+            default_value = ".",
+            value_name = "PATH",
+            help = "The workspace the workflow scans. It is written under the top of the git repository holding it"
+        )]
         path: PathBuf,
-        /// The level a pull request fails at. Without it, the workspace's
-        /// configuration decides. A push to the branch never fails.
-        #[arg(long, value_enum, value_name = "LEVEL")]
+        #[arg(
+            long,
+            value_enum,
+            value_name = "LEVEL",
+            help = "The level a pull request fails at. Without it, the workspace's configuration decides. A push to the branch never fails"
+        )]
         blocking: Option<BlockingLevel>,
-        /// The branch pushes are scanned on. Without it, the default branch
-        /// the repository answers for.
-        #[arg(long, value_name = "NAME")]
+        #[arg(
+            long,
+            value_name = "NAME",
+            help = "The branch pushes are scanned on. Without it, the default branch the repository answers for"
+        )]
         branch: Option<String>,
-        /// The Rust toolchain the workflow installs.
-        #[arg(long, value_name = "VERSION", default_value = VALIDATED_TOOLCHAIN)]
+        #[arg(
+            long,
+            value_name = "VERSION",
+            default_value = VALIDATED_TOOLCHAIN,
+            help = "The Rust toolchain the workflow installs"
+        )]
         toolchain: String,
-        /// Also post the summary as one sticky pull request comment, from a
-        /// second job that holds `pull-requests: write` and runs no pull
-        /// request code. A pull request from a fork gets a read-only token,
-        /// and a warning instead of the comment.
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Also post the summary as one sticky pull request comment, from a second job that holds `pull-requests: write` and runs no pull request code. A pull request from a fork gets a read-only token, and a warning instead of the comment"
+        )]
         comment: bool,
-        /// Rewrite the workflow this command wrote before.
-        #[arg(long)]
+        #[arg(long, help = "Rewrite the workflow this command wrote before")]
         update: bool,
-        /// Print what would be written, and write nothing.
-        #[arg(long)]
+        #[arg(long, help = "Print what would be written, and write nothing")]
         dry_run: bool,
     },
 }
 
-/// What a workflow is rendered from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowOptions {
-    /// The Cargo workspace, relative to the repository's top, `.` at it.
     pub workspace: String,
     pub blocking: Option<BlockingLevel>,
     pub branch: String,
@@ -112,8 +90,6 @@ pub enum CiError {
 }
 
 impl CiError {
-    /// A file that is already there is nothing broken: the install did what it
-    /// could, which was nothing.
     const fn exit_code(&self) -> u8 {
         match self {
             Self::AlreadyPresent(_) | Self::NotOurs(_) | Self::Installed(_) => 1,
@@ -163,7 +139,6 @@ impl fmt::Display for CiError {
     }
 }
 
-/// A file the install wrote or would write, relative to the repository root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Planned {
     pub path: &'static str,
@@ -171,7 +146,6 @@ pub struct Planned {
     pub replaces: bool,
 }
 
-/// `rust-doctor ci install`.
 pub fn run(arguments: &CiArgs) -> ExitCode {
     let CiCommand::Install {
         path,
@@ -221,15 +195,10 @@ pub fn run(arguments: &CiArgs) -> ExitCode {
     }
 }
 
-/// Whether the interactive report offers to add the workflow: a workspace at
-/// the top of its repository that does not carry it yet. A workspace nested
-/// in a repository is left to `ci install`, which the reader points at it.
 pub fn can_install(root: &Path) -> bool {
     root.join(".git").exists() && !root.join(WORKFLOW_PATH).exists()
 }
 
-/// The interactive report's entry: the scan workflow with every default
-/// `ci install` has, answering with the path it wrote.
 pub fn install_default(root: &Path) -> Result<PathBuf, CiError> {
     let (toplevel, workspace) = placement(root)?;
     let options = WorkflowOptions {
@@ -241,9 +210,6 @@ pub fn install_default(root: &Path) -> Result<PathBuf, CiError> {
     Ok(PathBuf::from(WORKFLOW_PATH))
 }
 
-/// The top of the repository the workflow goes under, and the Cargo
-/// workspace it scans, relative to that top: the one a scan of `path` would
-/// judge, or `path` itself when none resolves.
 fn placement(path: &Path) -> Result<(PathBuf, String), CiError> {
     let toplevel = rust_doctor::git_hook::toplevel(path).ok_or(CiError::NotARepository)?;
     let toplevel = rust_doctor::git_hook::confine(path, &toplevel)
@@ -263,8 +229,6 @@ fn placement(path: &Path) -> Result<(PathBuf, String), CiError> {
     Ok((toplevel, relative))
 }
 
-/// A relative path a YAML scalar and a shell word both carry as written:
-/// `[A-Za-z0-9._/-]`, no leading dash, no `..` segment.
 fn is_workspace_path(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with(['-', '/'])
@@ -303,9 +267,6 @@ fn options(
     })
 }
 
-/// A name git could hold as a branch, and nothing a YAML scalar or a branch
-/// filter could read as more than one: no whitespace, no control character,
-/// none of the characters `git check-ref-format` refuses.
 fn is_branch_name(branch: &str) -> bool {
     !branch.is_empty()
         && !branch.starts_with('-')
@@ -316,7 +277,6 @@ fn is_branch_name(branch: &str) -> bool {
         })
 }
 
-/// Every file the install writes, checked before any is written.
 fn plan(root: &Path, options: &WorkflowOptions, update: bool) -> Result<Vec<Planned>, CiError> {
     let files = vec![(WORKFLOW_PATH, scan_workflow(options))];
     files
@@ -353,8 +313,6 @@ fn plan(root: &Path, options: &WorkflowOptions, update: bool) -> Result<Vec<Plan
         .collect()
 }
 
-/// A workflow already under `.github/workflows/` that runs rust-doctor,
-/// through the Action or a file this command wrote under another name.
 fn existing_install(root: &Path) -> Option<String> {
     let mut names: Vec<String> = fs::read_dir(root.join(".github/workflows"))
         .ok()?
@@ -372,9 +330,6 @@ fn existing_install(root: &Path) -> Option<String> {
     })
 }
 
-/// A new file is created only if absent. A rewrite goes through a sibling
-/// created the same way and renamed over the old file, and a rename replaces
-/// the name rather than writing wherever it pointed.
 fn write(root: &Path, planned: &[Planned]) -> Result<(), CiError> {
     for file in planned {
         let target = root.join(file.path);
@@ -399,10 +354,6 @@ fn write(root: &Path, planned: &[Planned]) -> Result<(), CiError> {
     Ok(())
 }
 
-/// The scan workflow. The base branch reaches the shell through the
-/// environment, never through `${{ }}` inside `run`: on a fork pull request a
-/// branch name is attacker-controlled text, and interpolating it into a run
-/// block is a command injection.
 pub fn scan_workflow(options: &WorkflowOptions) -> String {
     let blocking = options
         .blocking
@@ -533,9 +484,6 @@ jobs:
           retention-days: 7
 {COMMENT_JOB}"#;
 
-/// The job that posts the comment. It alone holds `pull-requests: write`, and
-/// it checks nothing out and installs nothing: the pull request's code ran in
-/// `inspect`, and what crosses over is the artifact, read as data.
 const COMMENT_JOB: &str = r#"
   # One sticky comment per pull request, edited on each push, posted after the
   # scan whatever its verdict. A pull request from a fork gets a read-only
@@ -567,14 +515,6 @@ const COMMENT_JOB: &str = r#"
 {SCRIPT}
 "#;
 
-/// Posts the summary the scan job rendered, downloaded with its report, as the
-/// pull request's one `<!-- rust-doctor -->` comment, editing the bot's
-/// earlier one. `comment/action.yml` runs the same script, and a test holds
-/// the two to it. Under its `comment-on-clean: false`, a clean pull request,
-/// as the scan's `clean` file says, gets no new comment, while one already
-/// posted is still edited so it never reports a stale result. Nothing here
-/// fails the job: the scan's exit code is the verdict, and a fork's read-only
-/// token is expected.
 const COMMENT_SCRIPT: &str = r#"set -euo pipefail
 summary="$RUNNER_TEMP/rust-doctor/summary.md"
 if [ ! -s "$summary" ]; then

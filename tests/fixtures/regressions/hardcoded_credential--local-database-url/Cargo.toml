@@ -1,8 +1,3 @@
-# rule: rust_doctor::repo::hardcoded_credential
-# weakness: placeholder-credential
-# source: audit Z1a-N03, fixed by US-019
-# verdict: quiet
-
 [package]
 name = "seed-hardcoded-credential-local-database-url"
 version = "0.1.0"

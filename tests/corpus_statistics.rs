@@ -1,16 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
-//! What a published rate and a published agreement are worth.
-//!
-//! Every proof here runs from the artifact alone: no clone cache, no network,
-//! no environment variable. A rate and an agreement are both statistics over a
-//! sample, and until this crate existed the artifact published neither the
-//! sample's precision nor its own recomputation of the agreement: twenty of the
-//! twenty-four healthy rates rest on five sites or fewer, and the only
-//! assertion on the agreement of the 2026-08-11 double pass was that the
-//! sentence describing it ran past eighty characters.
-
 mod support;
 
 use std::collections::BTreeSet;
@@ -28,17 +18,6 @@ use support::corpus::{
     THRESHOLD_BASIS_POINTS, Verdict, artifact, artifact_path, gate,
 };
 
-/// The rules the gate clears on a sample that separates them from nothing.
-///
-/// Frozen by name rather than by count: a rule leaving this list because its
-/// sample was deepened is a measurement, and a rule entering it is a rate
-/// published on a sample that cannot carry it. Both deserve to move an
-/// assertion rather than a number.
-///
-/// `duplicate_major_versions` left on 2026-10-29 without being deepened: once
-/// versions compared by Cargo compatibility class, fd and hexyl hold five
-/// findings on two span-less `Cargo.lock` sites, and one reviewed site no
-/// longer covers its population, so the rule publishes no rate at all.
 const CLEARED_BLIND: [&str; 4] = [
     "clippy::missing_safety_doc",
     "clippy::ptr_arg",
@@ -59,15 +38,6 @@ fn measured(precision: &[RulePrecision]) -> Vec<&RulePrecision> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// US-005: the interval a rate rests on
-// ---------------------------------------------------------------------------
-
-/// Every published rate carries the bounds of its own sample.
-///
-/// Both populations, and both directions of the coupling: a rate with no bounds
-/// is a rate nobody can weigh, and bounds with no rate are bounds around
-/// nothing.
 #[test]
 fn every_published_rate_carries_the_interval_it_rests_on() {
     let artifact = artifact();
@@ -96,7 +66,6 @@ fn every_published_rate_carries_the_interval_it_rests_on() {
     }
 }
 
-/// A bound moved by hand fails, and the failure names the rule and the field.
 #[test]
 fn a_hand_edited_interval_is_refused_naming_the_rule_and_the_field() {
     let artifact = artifact();
@@ -138,12 +107,6 @@ fn a_hand_edited_interval_is_refused_naming_the_rule_and_the_field() {
     assert!(named.contains(&target.id), "{named}");
 }
 
-/// One clean site bounds nothing, and the interval says so.
-///
-/// This is the whole reason the interval is Wilson and not Wald: at x = 0 the
-/// Wald interval is the point `[0, 0]`, which states certainty on the strength
-/// of a single observation. Three of the five rules the gate clears blind rest
-/// on exactly that sample.
 #[test]
 fn a_single_clean_site_bounds_nothing_and_says_so() {
     let (low, high) = wilson_95(0, 1);
@@ -166,18 +129,12 @@ fn a_single_clean_site_bounds_nothing_and_says_so() {
     assert_eq!(single.separation, Some(Separation::Indecisive));
 }
 
-/// A sample with no denominator bounds nothing either, and is not `[0, 0]`.
 #[test]
 fn a_sample_with_no_denominator_spans_the_whole_scale() {
     assert_eq!(wilson_95(0, 0), (0, 10_000));
     assert_eq!(wilson_95(2, 1), (0, 10_000));
 }
 
-/// The separation is strict on both sides.
-///
-/// A bound landing exactly on the threshold places the rule at it, not under it
-/// and not past it, which is the only reading that keeps `below` a positive
-/// statement.
 #[test]
 fn a_bound_landing_on_the_threshold_settles_nothing() {
     let threshold = THRESHOLD_BASIS_POINTS;
@@ -188,13 +145,6 @@ fn a_bound_landing_on_the_threshold_settles_nothing() {
     assert_eq!(separation(0, 10_000, threshold), Separation::Indecisive);
 }
 
-/// No float reaches the artifact, at any bound.
-///
-/// Read from the file rather than from the deserialized shape, because what a
-/// `u64` field refuses is not what the record is: a bound written `7.9e3` would
-/// fail to parse, and a bound written `7935.0` is what a generator emitting
-/// floats produces. The record derives `Eq`, and a statistic two machines can
-/// disagree on is a record neither can reproduce.
 #[test]
 fn every_published_bound_is_an_integer_basis_point() {
     let raw: Value = serde_json::from_str(&std::fs::read_to_string(artifact_path()).unwrap()).unwrap();
@@ -232,7 +182,6 @@ fn every_published_bound_is_an_integer_basis_point() {
     }
 }
 
-/// The published vocabulary of a separation is closed.
 #[test]
 fn an_unknown_separation_value_fails_deserialization() {
     for value in ["above", "below", "indecisive"] {
@@ -240,10 +189,6 @@ fn an_unknown_separation_value_fails_deserialization() {
     }
     assert!(serde_json::from_str::<Separation>("\"unclear\"").is_err());
 }
-
-// ---------------------------------------------------------------------------
-// US-006: the agreement, recomputed rather than written
-// ---------------------------------------------------------------------------
 
 fn pass(judge: &str, verdict: Verdict) -> Pass {
     Pass {
@@ -269,11 +214,6 @@ fn pair(line: u64, rule: &str, first: Verdict, second: Verdict) -> AdjudicatedPa
     }
 }
 
-/// Every maximal run of digits in a string, deduplicated.
-///
-/// Read off the raw text rather than off a parsed shape, because the point is
-/// what a reader of the sentence sees: a number restated in prose is a second
-/// copy of a computed figure, and the copy is the one no test compares.
 fn numbers(prose: &str) -> BTreeSet<&str> {
     let mut found = BTreeSet::new();
     let mut rest = prose;
@@ -288,7 +228,6 @@ fn numbers(prose: &str) -> BTreeSet<&str> {
     found
 }
 
-/// An agreement record whose coefficients are the ones its pairs support.
 fn recorded(pairs: Vec<AdjudicatedPair>) -> Agreement {
     let mut agreement = Agreement {
         coefficients: Vec::new(),
@@ -299,7 +238,6 @@ fn recorded(pairs: Vec<AdjudicatedPair>) -> Agreement {
     agreement
 }
 
-/// One row per `(rule, population)` carrying at least one pair, recomputed.
 #[test]
 fn the_published_coefficients_are_the_coefficients_recomputed_from_the_pairs() {
     let artifact = artifact();
@@ -326,8 +264,6 @@ fn the_published_coefficients_are_the_coefficients_recomputed_from_the_pairs() {
     }
 }
 
-/// A coefficient moved by hand fails, and the failure names the rule and the
-/// field that moved.
 #[test]
 fn a_hand_edited_coefficient_is_refused_naming_the_rule_and_the_field() {
     let mut agreement = recorded(vec![
@@ -366,11 +302,6 @@ fn a_hand_edited_coefficient_is_refused_naming_the_rule_and_the_field() {
     }
 }
 
-/// A pass that never varied leaves the coefficient undefined, and says why.
-///
-/// The unguarded formula tends toward 1.0 there, which states perfect agreement
-/// on the strength of a rater that made no choice. This is not a hypothetical:
-/// it is the case both Clippy rules of the 2026-08-11 run landed in.
 #[test]
 fn a_pass_with_no_variance_leaves_the_coefficient_undefined() {
     let agreement = recorded(vec![
@@ -384,7 +315,6 @@ fn a_pass_with_no_variance_leaves_the_coefficient_undefined() {
     assert_eq!(row.agreed, 3);
     assert_eq!(row.pairs, 3);
 
-    // The same absence of variance, with the two passes agreeing on nothing.
     let split = recorded(vec![
         pair(1, "clippy::probe", Verdict::TruePositive, Verdict::FalsePositive),
         pair(2, "clippy::probe", Verdict::TruePositive, Verdict::FalsePositive),
@@ -396,7 +326,6 @@ fn a_pass_with_no_variance_leaves_the_coefficient_undefined() {
     assert_eq!(split.coefficients[0].kappa_basis_points, None);
 }
 
-/// With variance on both sides the coefficient is a value, and it is signed.
 #[test]
 fn a_pass_with_variance_publishes_a_signed_coefficient() {
     let agreed = recorded(vec![
@@ -408,8 +337,6 @@ fn a_pass_with_variance_publishes_a_signed_coefficient() {
     assert_eq!(agreed.coefficients[0].kappa_status, KappaStatus::Defined);
     assert_eq!(agreed.coefficients[0].kappa_basis_points, Some(10_000));
 
-    // Two passes agreeing less often than chance predicts is a real outcome,
-    // and a coefficient stored unsigned turns it into its own opposite.
     let opposed = recorded(vec![
         pair(1, "clippy::probe", Verdict::FalsePositive, Verdict::TruePositive),
         pair(2, "clippy::probe", Verdict::TruePositive, Verdict::FalsePositive),
@@ -424,7 +351,6 @@ fn a_pass_with_variance_publishes_a_signed_coefficient() {
     );
 }
 
-/// A `(rule, population)` with no pair gets no row, rather than a row of zeros.
 #[test]
 fn a_rule_with_no_pair_publishes_no_coefficient_row() {
     assert_eq!(coefficients(&recorded(Vec::new())), Vec::new());
@@ -438,8 +364,6 @@ fn a_rule_with_no_pair_publishes_no_coefficient_row() {
     assert_eq!(agreement.coefficients.len(), 1);
     assert_eq!(agreement.coefficients[0].rule, "clippy::probe");
 
-    // A row nothing backs is a published agreement over pairs that do not
-    // exist, which is the forgery the recomputation exists to catch.
     let mut forged = agreement;
     let mut orphan = forged.coefficients[0].clone();
     orphan.rule = "clippy::absent".to_owned();
@@ -447,7 +371,6 @@ fn a_rule_with_no_pair_publishes_no_coefficient_row() {
     let named = defect_naming(&coefficient_defects(&forged), "backed by no pair");
     assert!(named.contains("clippy::absent"), "{named}");
 
-    // And pairs with no row is the other direction of the same coupling.
     let mut stripped = recorded(vec![pair(
         1,
         "clippy::probe",
@@ -459,12 +382,6 @@ fn a_rule_with_no_pair_publishes_no_coefficient_row() {
     assert!(named.contains("clippy::probe"), "{named}");
 }
 
-/// The sampling prose states no quantity the coefficients block publishes.
-///
-/// The whole assertion on the agreement of the 2026-08-11 run used to be that
-/// this sentence ran past eighty characters, and it stated two counts and a
-/// coefficient the record could not back. Prose that restates a computed number
-/// is a second copy of it, and the copy is the one no test compares.
 #[test]
 fn the_sampling_prose_states_no_agreement_quantity() {
     let artifact = artifact();
@@ -483,14 +400,6 @@ fn the_sampling_prose_states_no_agreement_quantity() {
         );
     }
 
-    // Every number the prose is allowed to carry, named. A whitelist rather
-    // than a list of forbidden words, because a quantity re-entering this
-    // sentence arrives in whatever wording its author picks and only its
-    // digits are predictable: "26 of 29" states an agreement as surely as
-    // "agreed on 26", and only one of the two is a phrase anyone thought to
-    // forbid. Each entry is a sampling quantity or a date, which is what this
-    // field is for; an agreement quantity has no member here and cannot
-    // acquire one without moving this assertion.
     assert_eq!(
         numbers(&prose),
         BTreeSet::from([
@@ -499,22 +408,10 @@ fn the_sampling_prose_states_no_agreement_quantity() {
         "the sampling prose carries a number this field is not allowed to state"
     );
 
-    // The prose still describes the sampling itself, which is what the three
-    // length assertions of `corpus_precision` hold it to.
     assert!(artifact.adjudication.sampling.len() > 80);
     assert!(artifact.adjudication.sampling.contains("stride"));
 }
 
-// ---------------------------------------------------------------------------
-// US-008: a coefficient that does not collapse at high prevalence
-// ---------------------------------------------------------------------------
-
-/// An agreement whose table holds the four given cells, one pair per site.
-///
-/// Built from counts rather than from a list of verdicts, because what a
-/// coefficient reads is the table and what a reader disagreeing with a
-/// coefficient recomputes by hand is the table: a test that states the four
-/// cells states the input of both figures at once.
 fn tabled(
     both_false_positive: u64,
     both_true_positive: u64,
@@ -556,13 +453,6 @@ fn tabled(
     recorded(pairs)
 }
 
-/// AC1 is published wherever a pair is, kappa only where the passes varied.
-///
-/// Both behaviors are asserted on the same row, because the point is not that
-/// two coefficients exist: it is that the row kappa has to decline is a row a
-/// reader still gets an agreement figure for. The artifact's own row is that
-/// case today, and the no-variance row on the other side of it is the one an
-/// unguarded kappa would have published as perfect agreement.
 #[test]
 fn ac1_is_published_where_kappa_declines_on_the_same_pairs() {
     let artifact = artifact();
@@ -575,9 +465,6 @@ fn ac1_is_published_where_kappa_declines_on_the_same_pairs() {
     let published = published.expect("the artifact publishes a row with no variance");
     assert_eq!(published.kappa_basis_points, None);
     assert!(published.pairs > 0, "{published:?}");
-    // Two passes that agreed on nothing, which is an AC1 of minus one whole:
-    // negative is representable, and it is the value the record actually
-    // carries rather than a case invented to exercise the sign.
     assert_eq!(published.ac1_basis_points, -10_000, "{published:?}");
 
     let unanimous = tabled(0, 3, 0, 0);
@@ -587,14 +474,6 @@ fn ac1_is_published_where_kappa_declines_on_the_same_pairs() {
     assert_eq!(row.ac1_basis_points, 10_000, "{row:?}");
 }
 
-/// At high prevalence the same pairs read materially higher under AC1.
-///
-/// The 2026-08-11 shape: twenty-nine pairs, twenty-six agreed, most sites
-/// judged the same way. Kappa reads that as moderate, which is the documented
-/// prevalence paradox and the reason AC1 is published beside it. The ordering
-/// is what is asserted, never the two values: the claim is that one coefficient
-/// does not collapse where the other does, and freezing the figures would make
-/// this test a copy of the arithmetic it is checking.
 #[test]
 fn a_prevalence_skewed_agreement_reads_higher_under_ac1_than_under_kappa() {
     let skewed = tabled(3, 23, 2, 1);
@@ -609,8 +488,6 @@ fn a_prevalence_skewed_agreement_reads_higher_under_ac1_than_under_kappa() {
         row.ac1_basis_points
     );
 
-    // And where prevalence is balanced the two agree about the same pairs,
-    // which is what says the gap above is the prevalence and not the formula.
     let balanced = tabled(13, 13, 2, 1);
     let row = &balanced.coefficients[0];
     let kappa = row.kappa_basis_points.unwrap_or_default();
@@ -621,7 +498,6 @@ fn a_prevalence_skewed_agreement_reads_higher_under_ac1_than_under_kappa() {
     );
 }
 
-/// A negative AC1 clamped by hand fails, naming the rule and the field.
 #[test]
 fn a_hand_clamped_negative_ac1_is_refused() {
     let mut opposed = tabled(0, 0, 0, 3);
@@ -631,11 +507,6 @@ fn a_hand_clamped_negative_ac1_is_refused() {
     assert!(named.contains("clippy::probe"), "{named}");
 }
 
-/// A row that states an agreement and no AC1 is not a row this schema holds.
-///
-/// The field is not an `Option`, so the refusal is the deserialization itself
-/// rather than a check written after it: a row holding a pair holds an AC1, and
-/// the only way to publish one without is to invent a shape the reader rejects.
 #[test]
 fn a_coefficient_row_without_an_ac1_fails_deserialization() {
     let honest = &tabled(0, 2, 1, 0).coefficients[0];
@@ -646,12 +517,6 @@ fn a_coefficient_row_without_an_ac1_fails_deserialization() {
     assert!(refused.is_err(), "{refused:?}");
 }
 
-// ---------------------------------------------------------------------------
-// US-007: what the gate clears blind
-// ---------------------------------------------------------------------------
-
-/// The gate names the rules it admits on a sample that separates them from
-/// nothing, and that list is not empty today.
 #[test]
 fn the_gate_names_the_rules_it_clears_blind() {
     let artifact = artifact();
@@ -680,8 +545,6 @@ fn the_gate_names_the_rules_it_clears_blind() {
     );
     assert!(indecisive.is_subset(&admitted));
 
-    // Every name on the list carries a measured rate whose interval spans the
-    // threshold: the list is what the separations say, never a second opinion.
     for id in &artifact.gate.indecisive {
         let published = artifact.precision.iter().find(|rule| &rule.id == id);
         assert!(
@@ -700,10 +563,6 @@ fn the_gate_names_the_rules_it_clears_blind() {
     }
 }
 
-/// A rule whose interval clears the threshold is not named indecisive.
-///
-/// The list is what separates a measurement from an absence of one, so a rate
-/// the sample actually places under the threshold has to leave it.
 #[test]
 fn a_rule_the_sample_places_under_the_threshold_is_not_cleared_blind() {
     let artifact = artifact();
@@ -714,10 +573,6 @@ fn a_rule_the_sample_places_under_the_threshold_is_not_cleared_blind() {
         .find(|rule| rule.id == target)
         .expect("the named rule carries a rate");
 
-    // A hundred clean sites out of a hundred findings: the same point estimate
-    // on a sample that can carry it. Forty could not: at x = 0 the upper bound
-    // is roughly z squared over n, so it takes seventy-four clean sites before
-    // the interval clears five percent at all.
     deepened.findings = 100;
     deepened.reviewed = 100;
     deepened.false_positives = Some(0);
@@ -734,10 +589,6 @@ fn a_rule_the_sample_places_under_the_threshold_is_not_cleared_blind() {
     assert_eq!(outcome.indecisive.len(), artifact.gate.indecisive.len() - 1);
 }
 
-/// Naming a rate as blind never withholds it.
-///
-/// The interval annotates the admitted set the way the noisy list does: it says
-/// what a rate is worth, it does not decide whether the rule ships.
 #[test]
 fn no_published_rate_is_withheld_by_what_its_interval_settles() {
     assert_eq!(MINIMUM_REVIEWED_SITES, 5);
@@ -757,30 +608,6 @@ fn no_published_rate_is_withheld_by_what_its_interval_settles() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// US-013: no structural rule of the agent population is left unjudged
-// ---------------------------------------------------------------------------
-
-/// The structural rules the agent population observes and has never judged,
-/// each beside the answer the healthy population still holds for it.
-///
-/// Frozen by name, the way `CLEARED_BLIND` is and for the same reason: the
-/// four rules that dominate this population's score carry a rate, and these
-/// three are the debt that remains. A rule leaving this list is a measurement
-/// and a rule entering it is a rate that went away, so both move an assertion
-/// rather than a count nobody reads. Between them they account for a hundred
-/// and twenty-five findings against the four thousand the measured rules do,
-/// which is why the debt is named rather than blocking.
-///
-/// The second column is what the debt costs today. `unreferenced_feature`
-/// still answers on healthy code, so what is missing there is the second
-/// answer and not the first. The other two lost even that on 2026-08-22, when
-/// the context of a non-production family stopped being read as production and
-/// took their only two `anyhow` sites out of the reviewed population: a rule
-/// with neither rate is ranked by the smoothed default and nothing else, which
-/// is the state this column exists to make visible rather than infer.
-/// `crate_level_allow` then lost its healthy population on 2026-10-29, when
-/// it stopped reporting an allow that hides nothing catalogued or dead.
 const UNJUDGED_ON_AGENT_CODE: [(&str, PrecisionStatus); 3] = [
     ("rust_doctor::structure::crate_level_allow", PrecisionStatus::Unobserved),
     (
@@ -790,14 +617,6 @@ const UNJUDGED_ON_AGENT_CODE: [(&str, PrecisionStatus); 3] = [
     ("rust_doctor::structure::unreferenced_feature", PrecisionStatus::Measured),
 ];
 
-/// Every structural rule this population observes carries a verdict, or is
-/// named in the frozen debt.
-///
-/// The failure names the offending rule, because the whole point of the list
-/// is that a reader learns which rule went unjudged without diffing sixty-two
-/// rows: a rate on the population the tool exists for is the number its score
-/// ranks by, and a rule with no verdict there is ranked on a healthy-code
-/// estimate of what it costs somewhere else.
 #[test]
 fn no_observed_structural_rule_of_the_agent_population_is_left_without_a_verdict() {
     let artifact = artifact();
@@ -821,21 +640,12 @@ fn no_observed_structural_rule_of_the_agent_population_is_left_without_a_verdict
     }
     assert_eq!(judged, 6);
 
-    // What the debt costs, rule by rule, on the other population. Asserted as
-    // the frozen column rather than as one status for the three, so a rate
-    // that comes back and a rate that goes away are both a moved assertion.
     for (id, healthy_status) in UNJUDGED_ON_AGENT_CODE {
         let healthy = artifact.precision.iter().find(|rule| rule.id == id).unwrap();
         assert_eq!(healthy.status, healthy_status, "{id}");
     }
 }
 
-// ---------------------------------------------------------------------------
-// US-014: what the two rates of one rule say next to each other
-// ---------------------------------------------------------------------------
-
-/// The rules measured on both populations, in the order the comparison
-/// publishes them.
 const COMPARED: [&str; 4] = [
     "rust_doctor::structure::complex_function",
     "rust_doctor::structure::duplicate_function_body",
@@ -843,7 +653,6 @@ const COMPARED: [&str; 4] = [
     "rust_doctor::structure::oversized_unit",
 ];
 
-/// The comparison and the count are recomputed from the two precision lists.
 #[test]
 fn the_two_rates_of_a_rule_are_published_with_the_distance_between_them() {
     let artifact = artifact();
@@ -870,11 +679,6 @@ fn the_two_rates_of_a_rule_are_published_with_the_distance_between_them() {
         .collect();
     assert_eq!(compared, COMPARED.to_vec());
 
-    // The gap is the finding, and on all four rules it points the same way:
-    // every structural rule measured on both sides is wrong less often on
-    // agent-written code than on the healthy corpus the score was calibrated
-    // against. Asserted rather than described, because a sign that flips is
-    // the one thing this row exists to make visible.
     for row in &population.rate_comparison {
         assert!(row.gap_basis_points < 0, "{}", row.rule);
         assert_eq!(
@@ -887,11 +691,6 @@ fn the_two_rates_of_a_rule_are_published_with_the_distance_between_them() {
     }
 }
 
-/// A rule measured on one population alone carries no comparison row.
-///
-/// An absence is not a rate of nought: subtracting a rate the other population
-/// never measured from the one it did would publish a gap the size of the
-/// whole rate, pointing at a population that never observed the rule.
 #[test]
 fn a_rule_measured_on_one_population_alone_is_not_compared() {
     let artifact = artifact();
@@ -920,8 +719,6 @@ fn a_rule_measured_on_one_population_alone_is_not_compared() {
     }
 }
 
-/// A hand-edited comparison is refused, and the failure names the rule and the
-/// field.
 #[test]
 fn a_hand_edited_comparison_is_refused_naming_the_rule_and_the_field() {
     let artifact = artifact();
@@ -945,7 +742,6 @@ fn a_hand_edited_comparison_is_refused_naming_the_rule_and_the_field() {
         assert!(named.contains(COMPARED[0]), "{named}");
     }
 
-    // And the count is the other half of the block, refused the same way.
     let defects = comparison_defects(
         &artifact.precision,
         &population.precision,
@@ -955,16 +751,6 @@ fn a_hand_edited_comparison_is_refused_naming_the_rule_and_the_field() {
     defect_naming(&defects, "publishes measured_rules");
 }
 
-/// A sample that settles nothing is published as such rather than deepened.
-///
-/// `orphan_module_file` reports one false positive on agent-written code over
-/// a production population of twelve, which is every site the population can
-/// supply: the stride is the whole list, so there is no deeper sample to draw.
-/// The interval that census supports still spans the threshold, and the
-/// indecisive verdict is the published one, the rate beside it rather than
-/// withheld. Drawing more sites until the bound moves is how a record ends up
-/// publishing the sample size that produced the answer its author wanted, and
-/// here it is not even available: what the scope has is what it observed.
 #[test]
 fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened() {
     let artifact = artifact();
@@ -975,12 +761,6 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
         .find(|rule| rule.id == "rust_doctor::structure::orphan_module_file")
         .unwrap();
 
-    // Below the protocol target because the population is, which is the one
-    // way a scope under this protocol reviews fewer sites than it asks for.
-    // Compared against the scope's own target rather than against the constant:
-    // the target is a floor, so a scope reviewed exhaustively publishes a
-    // target above it, and only the target the plan recorded says what this
-    // draw actually asked for.
     let plan = artifact
         .adjudication
         .sampling_plan
@@ -990,9 +770,6 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
     assert!(rule.reviewed < PROTOCOL_TARGET);
     assert_eq!(plan.target, rule.reviewed);
     assert_eq!(plan.target, target_floor(plan.observed));
-    // One false positive in twelve until US-020 fixed the walk behind it: none
-    // in the eleven sites the census still holds, and eleven cannot place a
-    // rate of zero under the threshold either.
     assert_eq!(rule.false_positives, Some(0));
     assert_eq!(rule.false_positive_rate_basis_points, Some(0));
     assert_eq!(rule.separation, Some(Separation::Indecisive));
@@ -1001,9 +778,6 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
     assert!(low <= THRESHOLD_BASIS_POINTS && THRESHOLD_BASIS_POINTS <= high);
     assert_eq!((low, high), wilson_95(0, rule.reviewed));
 
-    // The other three rates of the same draw separate, which is what says the
-    // indecision is this rule's population and not the target the protocol
-    // takes or the way the four were judged.
     for id in [
         "rust_doctor::structure::duplicate_function_body",
         "rust_doctor::structure::near_duplicate_function_body",

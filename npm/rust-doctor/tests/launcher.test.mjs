@@ -27,9 +27,6 @@ import { packageRoot } from "../scripts/pack-local.mjs";
 
 const roots = [];
 
-// The launcher refuses a native package whose version differs from the
-// wrapper's, so the fixtures state the shipped version rather than a literal
-// that a release bump would silently invalidate.
 const wrapperVersion = JSON.parse(
   readFileSync(join(packageRoot, "package.json"), "utf8"),
 ).version;
@@ -230,8 +227,6 @@ setInterval(() => {}, 1000);
     expect(run(wrongPlatform).stderr).toContain("does not match linux-x64");
   });
 
-  // EP-004 US-015: the native package is looked up beside the wrapper only,
-  // never in an ancestor `node_modules` the install did not write.
   test("resolves the native package in the nested, flat and pnpm layouts", () => {
     const layouts = {
       flat: {},
@@ -263,8 +258,6 @@ setInterval(() => {}, 1000);
     expect(output.stderr).toContain("@rustdoctor/linux-x64 is not installed");
     expect(existsSync(marker)).toBeFalse();
 
-    // A sibling manifest selects the sibling root: its missing binary is
-    // never completed from the ancestor's.
     const incomplete = fixture("sibling-incomplete", {
       wrapperPath: "project/node_modules/rust-doctor",
       nativePath: "node_modules/@rustdoctor/linux-x64",
@@ -310,13 +303,6 @@ setInterval(() => {}, 1000);
   });
 });
 
-// EP-002 US-010: the built binary behind the real launcher. A terminal's
-// Ctrl-C reaches the whole foreground process group: the launcher forwards it
-// and the binary receives it from the terminal too, twice within a few
-// milliseconds. The binary has to read that as one delivery and still publish
-// its report. `RUST_DOCTOR_BINARY` names the binary, else the newest of
-// `target/release` and `target/debug`; the launcher job builds neither, so
-// there the test says it was skipped rather than passing on nothing.
 const repositoryRoot = join(packageRoot, "../..");
 const builtBinary = [
   process.env.RUST_DOCTOR_BINARY,
@@ -377,8 +363,6 @@ describe.skipIf(!unixWithBinary)("built binary behind the launcher", () => {
       }
       process.kill(-child.pid, "SIGINT");
       const outcome = await closed;
-      // What a shell reports: the code, or 128 plus the signal the launcher
-      // re-raised on itself after the binary exited.
       const status = outcome.code ?? 128 + constants.signals[outcome.signal];
       expect(status).toBe(130);
       const report = JSON.parse(stdout);

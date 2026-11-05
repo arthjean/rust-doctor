@@ -1,19 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![cfg(target_os = "linux")]
 
-//! US-001: the two assumptions the Clippy-off metadata pin rests on, checked
-//! on the toolchain that runs this suite.
-//!
-//! A1: `cargo metadata --no-deps` starts no program the workspace's
-//! `.cargo/config.toml` names. A2: a `RUSTUP_TOOLCHAIN` name outranks a
-//! `rust-toolchain.toml` `path` toolchain, and `rustup show active-toolchain`
-//! answers that path without running anything from it. Each check runs the
-//! child with `RUSTUP_TOOLCHAIN` removed unless the check sets it, and its
-//! working directory set to the fixture, as `metadata_command` runs it.
-//!
-//! Linux only, because `/proc/self/cwd` is how the path toolchain follows the
-//! working directory of whichever process reads the file.
-
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -29,8 +16,6 @@ fn executable(path: &Path, contents: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// A program that leaves `markers/<name>` behind and fails, so whatever ran it
-/// stops there and the marker is the only trace it leaves.
 fn marker_program(root: &Path, path: &Path, name: &str) {
     let marker = root.join("markers").join(name);
     executable(
@@ -48,9 +33,6 @@ fn markers(root: &Path) -> Vec<String> {
     found
 }
 
-/// A package whose Cargo configuration names a marker for every program it
-/// can, and, when `path_toolchain` holds, a `rust-toolchain.toml` that selects
-/// the marker toolchain under `tc/` by path.
 fn fixture(path_toolchain: bool) -> PathBuf {
     let root = support::fresh_workspace("toolchain-pin-assumptions", &NEXT);
     for directory in ["src", ".cargo", "tc/bin", "markers"] {
@@ -90,8 +72,6 @@ fn fixture(path_toolchain: bool) -> PathBuf {
     root
 }
 
-/// The first field of `rustup show active-toolchain` in `directory`, or
-/// `None` with the reason printed when rustup cannot answer.
 fn active_toolchain(directory: &Path) -> Option<String> {
     let output = Command::new("rustup")
         .args(["show", "active-toolchain"])
@@ -108,8 +88,6 @@ fn active_toolchain(directory: &Path) -> Option<String> {
         .flatten()
 }
 
-/// The installed toolchain this repository resolves to, which is the name a
-/// pinned check runs under. `None`, with the reason printed, skips the test.
 fn installed_toolchain() -> Option<String> {
     let found = active_toolchain(Path::new(env!("CARGO_MANIFEST_DIR")));
     if found.is_none() {
@@ -134,8 +112,6 @@ fn metadata(root: &Path, toolchain: Option<&str>) -> std::process::ExitStatus {
     command.status().unwrap()
 }
 
-/// A1: metadata starts none of the programs the workspace's Cargo
-/// configuration names.
 #[test]
 fn metadata_runs_no_program_the_cargo_configuration_names() {
     let Some(toolchain) = installed_toolchain() else {
@@ -146,8 +122,6 @@ fn metadata_runs_no_program_the_cargo_configuration_names() {
     assert_eq!(markers(&root), Vec::<String>::new());
 }
 
-/// A2: a toolchain name outranks the path toolchain, and the control without
-/// the name proves the fixture would run it.
 #[test]
 fn a_toolchain_name_outranks_a_path_toolchain() {
     let Some(toolchain) = installed_toolchain() else {
@@ -161,8 +135,6 @@ fn a_toolchain_name_outranks_a_path_toolchain() {
     assert_eq!(markers(&root), ["path-cargo"]);
 }
 
-/// A2: rustup answers the path without running anything from it, and the
-/// answer is no toolchain name.
 #[test]
 fn rustup_names_the_path_toolchain_without_running_it() {
     if installed_toolchain().is_none() {
@@ -173,7 +145,5 @@ fn rustup_names_the_path_toolchain_without_running_it() {
     assert_eq!(markers(&root), Vec::<String>::new());
     let answer = answer.unwrap();
     assert_eq!(answer, "/proc/self/cwd/tc");
-    // `accepted` admits only ASCII alphanumerics, `-`, `_` and `.`; its own
-    // unit test refuses this exact answer.
     assert!(answer.contains('/'));
 }

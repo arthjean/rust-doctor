@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.12: whatever way the interactive report
-// is left, the process exits with the scan's code, 130 for a signal, and the
-// terminal is given back.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,8 +10,6 @@ import { tuiWorkspace, type TuiKind } from "./tui-support";
 const HINT = /(?:^|\s)q quit\s*$/m;
 const TASKSET = Bun.which("taskset", { PATH: "/usr/bin:/bin" });
 
-// The first CPU this process may run on, so a pin never names one the job's
-// cgroup forbids.
 function firstCpu(): string {
   return readFileSync("/proc/self/status", "utf8").match(/^Cpus_allowed_list:\s*(\d+)/m)?.[1] ?? "0";
 }
@@ -40,7 +35,6 @@ async function waitForFile(path: string, timeoutMs = 30_000): Promise<string> {
   return readFileSync(path, "utf8");
 }
 
-// The pid of the one child of `pid`: the binary under the shell of a pane.
 function childOf(pid: number): number {
   for (const task of readdirSync(`/proc/${pid}/task`)) {
     const children = readFileSync(`/proc/${pid}/task/${task}/children`, "utf8").trim();
@@ -151,10 +145,6 @@ describe.skipIf(!requireTmux())("interactive report exit codes", () => {
     }
   });
 
-  // The binary under a shell that records its exit status and the terminal
-  // modes it left, then signaled while the report waits for a key.
-  // `pinned` runs it on one CPU, where the race of tui/BUG-14 was lost about
-  // two runs in five whatever the machine.
   async function signalWaiting(signal: NodeJS.Signals, pinned = false): Promise<{ code: string; modes: string; log: string }> {
     const workspace = await tuiWorkspace("denied");
     const after = join(workspace.sandbox.dir, "stty.txt");
@@ -184,10 +174,6 @@ describe.skipIf(!requireTmux())("interactive report exit codes", () => {
     }
   }
 
-  // The report's own quit path can win the race with the signal watcher's
-  // exit, and the run used to end with the scan's code then: twelve pinned
-  // runs made a pass by chance unlikely (0.6^12). It now ends with 130 either
-  // way.
   test("EXIT-11 tui/BUG-14 SIGTERM, SIGHUP and SIGINT while the report waits always exit 130", async () => {
     const codes: string[] = [];
     for (let round = 0; round < 4; round += 1) {
@@ -205,8 +191,6 @@ describe.skipIf(!requireTmux())("interactive report exit codes", () => {
 
   test("EXIT-12 a terminal that fails under the report says so and keeps the scan's code", async () => {
     const workspace = await tuiWorkspace("denied");
-    // A second pane lends its terminal as stdin; ending that pane hangs the
-    // terminal up under the report's read, which fails with an I/O error.
     const ttyFile = join(workspace.sandbox.dir, "tty.txt");
     const lender = TmuxSession.create(["sh", "-c", 'readlink /proc/$$/fd/0 > "$0"; exec sleep 600', ttyFile], { sandbox: workspace.sandbox });
     try {

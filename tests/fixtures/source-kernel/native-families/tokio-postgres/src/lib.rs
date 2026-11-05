@@ -1,4 +1,4 @@
-//! The surface of tokio-postgres the fixture calls, with none of its behavior.
+
 
 pub struct Client;
 pub struct Connection;

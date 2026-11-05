@@ -26,14 +26,8 @@ use tally::render_categories;
 
 const DEFAULT_WIDTH: usize = 80;
 
-/// The linear report never renders narrower than this, and every entry point
-/// normalizes to it. That is what makes the score block total: at this width
-/// the block always fits, so neither it nor this file carries a
-/// narrow-terminal fallback with a second rounding of its own.
 const MIN_WIDTH: usize = 40;
 const _: () = assert!(MIN_WIDTH >= crate::score_block::MIN_BLOCK_COLUMNS);
-/// Narrowest gutter a code frame is drawn with, so a report reads the same
-/// whether its frames sit at line 7 or line 700.
 const FRAME_GUTTER_COLUMNS: usize = 4;
 const DOCS_URL: &str = "https://rust-doctor.com/docs";
 const GITHUB_URL: &str = "https://github.com/arthjean/rust-doctor";
@@ -82,10 +76,7 @@ pub struct TerminalOptions<'a> {
     pub verbose: bool,
     pub width: usize,
     pub color: bool,
-    /// Allows the score block to animate. Reserved for a real interactive
-    /// terminal: any captured output must stay deterministic.
     pub animate: bool,
-    /// The scope the invocation asked for, named when it never resolved.
     pub requested_scope: Option<ScopeMode>,
 }
 
@@ -114,9 +105,6 @@ pub fn render_json<W: Write>(report: &InspectReport, mut writer: W) -> Result<()
     if !report.is_valid() {
         return Err(RenderError::InvalidReport);
     }
-    // Whole or not at all: a serializer that fails or panics midway leaves
-    // no partial document on the writer for a reader to parse. A failed write
-    // still reads as the serializer's, as it did when it wrote the stream.
     let mut document = serde_json::to_vec(report).map_err(RenderError::Json)?;
     document.push(b'\n');
     writer
@@ -153,10 +141,6 @@ pub fn render_terminal_with_presentation<W: Write>(
         return render_failure(writer, report, options);
     }
 
-    // The report is its sections, in order. Nothing is composed inline here:
-    // a line written straight into the entry point is a section nobody named,
-    // and eight of them are what made this function the report's own worst
-    // complexity hotspot.
     render_scope(writer, report, options)?;
     render_scanned(writer, report, options)?;
     render_findings(writer, report, presentation, options)?;
@@ -174,14 +158,6 @@ pub fn render_terminal_with_presentation<W: Write>(
     render_links(writer, report, options)
 }
 
-/// What a failed scan may say: the scope it was attempted under, and the stage
-/// that failed.
-///
-/// It measured nothing, so none of the sections below it apply: each of them
-/// counts, tallies, ranks or scores a population no producer ever produced.
-/// `No issues found.` over a scan that never ran is the same false claim as the
-/// `100 / 100` face that used to close such a report, under the line naming the
-/// failure.
 fn render_failure<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -191,9 +167,6 @@ fn render_failure<W: Write>(
     render_scan_errors(writer, report, options)
 }
 
-/// The findings themselves: all of them under `--verbose`, the worst one
-/// otherwise, and a sentence when there are none. Compiler notes come last,
-/// under their own heading, since they weigh nothing.
 fn render_findings<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -237,8 +210,6 @@ fn render_findings<W: Write>(
     Ok(())
 }
 
-/// The rule below the findings, the two totals, and the hint that the rest is
-/// one flag away.
 fn render_totals<W: Write>(
     writer: &mut W,
     presentation: &ReportPresentation,
@@ -265,8 +236,6 @@ fn render_totals<W: Write>(
     )
 }
 
-/// A rule firing across enough files that fixing it one site at a time is the
-/// wrong plan.
 fn render_advisories<W: Write>(
     writer: &mut W,
     presentation: &ReportPresentation,
@@ -294,9 +263,6 @@ fn render_advisories<W: Write>(
     Ok(())
 }
 
-/// Where to take the report next. A failed scan reaches none of this: it is
-/// rendered by `render_failure`, having no score to share and nothing the docs
-/// would explain.
 fn render_links<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -314,24 +280,13 @@ fn render_links<W: Write>(
     )
 }
 
-/// How much of a group the report is drawing.
-///
-/// The two used to be two positional booleans, `top` and `all_locations`,
-/// naming four combinations for the two that exist: the summary shows the
-/// worst group with its first location, the verbose run shows every group with
-/// every location. A call site read `(.., true, false)`, which said nothing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GroupView {
-    /// The single worst group, heading it as the top finding.
     Top,
-    /// One group among all of them, with every location it carries.
     Full,
 }
 
 impl GroupView {
-    /// How many of the group's diagnostics get a location and a code frame.
-    /// The summary shows one; the verbose run shows them all, and `usize::MAX`
-    /// is what `take` reads as all of them.
     const fn location_limit(self) -> usize {
         match self {
             Self::Top => 1,
@@ -362,8 +317,6 @@ fn render_group<W: Write>(
         options,
         Style::Accent,
     )?;
-    // The help is the rule's, so it is printed once under the rule: under each site it was the
-    // same sentence twenty-two times on this crate's own scan, between the reader and the sites.
     if let Some(help) = group.resolved_help() {
         line(writer, &format!("Help: {help}"), options, Style::Muted)?;
     }
@@ -397,8 +350,6 @@ fn render_group<W: Write>(
     )
 }
 
-/// A group every site of which sits outside production code: one line, since it is shown and
-/// weighs nothing, and `--json` carries every site.
 fn render_unscored_group<W: Write>(
     writer: &mut W,
     group: &DiagnosticGroup,
@@ -415,9 +366,6 @@ fn render_unscored_group<W: Write>(
     )
 }
 
-/// What the toolchain proposed to write at the site, qualified whenever it does not vouch for
-/// it outright. A multi-line replacement is shown on one row, since the frame under it is
-/// where the site's layout lives.
 fn replacement_line(suggestion: &crate::Suggestion) -> String {
     let replacement: String = suggestion
         .replacement
@@ -431,7 +379,6 @@ fn replacement_line(suggestion: &crate::Suggestion) -> String {
     }
 }
 
-/// The source window around one finding, or the reason there is none.
 fn render_code_frame<W: Write>(
     writer: &mut W,
     location: &crate::presentation::GroupLocation,
@@ -449,11 +396,6 @@ fn render_code_frame<W: Write>(
         }
     };
     line(writer, &format!("{}{note}", frame.location), options, Style::Accent)?;
-    // The gutter comes from the frame rather than from a constant, so a source
-    // row and the caret row under it agree on where the text begins whatever
-    // line numbers the frame carries. The four columns are the floor the
-    // report has always drawn at, not a ceiling on what a line number may
-    // need.
     let gutter = frame.gutter_width().max(FRAME_GUTTER_COLUMNS);
     let indent = " ".repeat(gutter.saturating_add(3));
     for source in frame.lines {
@@ -478,11 +420,6 @@ fn render_code_frame<W: Write>(
     Ok(())
 }
 
-/// Other sites a structural finding spans.
-///
-/// The list is bounded here and complete in `--json`: a function cloned two
-/// hundred times is one finding, and printing two hundred references would bury
-/// every other finding under it.
 fn render_related<W: Write>(
     writer: &mut W,
     diagnostic: &GroupDiagnostic,
@@ -516,7 +453,6 @@ fn render_related<W: Write>(
     Ok(())
 }
 
-/// How the run was configured, when a policy reached the report.
 fn render_configuration<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -545,8 +481,6 @@ fn render_configuration<W: Write>(
     )
 }
 
-/// The one line the advisory rules owe the reader: that no local database
-/// answered them, or that the one that did is stale.
 fn render_advisory_database<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -582,10 +516,6 @@ fn render_advisory_database<W: Write>(
     }
 }
 
-/// What a baseline comparison found, and every finding the branch fixed.
-///
-/// The two used to sit at opposite ends of one grab-bag function with three
-/// unrelated sections between them, each testing `report.delta` again.
 fn render_delta<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -637,7 +567,6 @@ fn render_delta<W: Write>(
     )
 }
 
-/// The gate's verdict, evaluated or not.
 fn render_gate<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -653,7 +582,6 @@ fn render_gate<W: Write>(
     line(writer, &description, options, Style::Muted)
 }
 
-/// Every stage that failed, on a scan that did not complete.
 fn render_scan_errors<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -697,7 +625,6 @@ fn severity_style(severity: crate::Severity) -> Style {
     }
 }
 
-/// One line of prose: sanitized, then wrapped onto as many rows as it needs.
 fn line<W: Write>(
     writer: &mut W,
     content: &str,
@@ -710,9 +637,6 @@ fn line<W: Write>(
     Ok(())
 }
 
-/// One line carrying a URL: sanitized and never wrapped, since a link cut in two is two strings
-/// no terminal opens. The width every other line respects is a budget on prose; a link is an
-/// atom, and the terminal soft-wraps it while keeping it whole.
 fn link_line<W: Write>(
     writer: &mut W,
     content: &str,
@@ -722,11 +646,6 @@ fn link_line<W: Write>(
     write_styled(writer, &sanitize(content), options.color, style)
 }
 
-/// One row of a code frame: sanitized, then cut rather than wrapped.
-///
-/// A source line and the caret row under it are aligned by column, so wrapping
-/// either of them would put the caret under the wrong text. This is the only
-/// thing that separates it from [`line`].
 fn frame_line<W: Write>(
     writer: &mut W,
     content: &str,

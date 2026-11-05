@@ -1,21 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
-//! The standing documents state numbers an agent acts on without checking: how
-//! large the catalog is, which schema the report publishes, the bounds
-//! `oversized_unit` reports at, how many tests hold the modules under them, and
-//! how many workflows pin which toolchain. Each of those is recomputed here
-//! from the binary that produces it, the way `tests/skill_contract.rs` does for
-//! the shipped skill.
-//!
-//! `AGENTS.md` stated a schema version the binary had left behind, and a
-//! rewrite that touched every line of the file carried the stale number through
-//! untouched while a second document repeated it. Prose does not notice a
-//! number going out of date; recomputing it does.
-//!
-//! The documents under contract are the `budgets` of `docs/doc-budgets.json`,
-//! the list `scripts/verify-doc-budgets.sh` reads, so a document added to one
-//! gate is added to both. `docs/doc-gates.md` holds the reasoning.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,23 +15,16 @@ fn read(relative: &str) -> String {
         .unwrap_or_else(|_| unreachable!("{relative} should be readable"))
 }
 
-/// A document with its wrapping collapsed: where markdown breaks a sentence is
-/// not something the binary decides.
 fn flat(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// A token as it sits in prose, stripped of the markdown around it. Underscores
-/// and colons are what a test name and a rule id are made of, so they never
-/// bound the token.
 fn bare(token: &str) -> &str {
     token.trim_matches(|character: char| {
         !character.is_ascii_alphanumeric() && character != '_' && character != ':'
     })
 }
 
-/// The standing documents, flattened, read from the manifest the budgets gate
-/// reads.
 fn standing_documents() -> Vec<(String, String)> {
     let manifest: serde_json::Value =
         serde_json::from_str(&read("docs/doc-budgets.json")).expect("the manifest should be JSON");
@@ -66,14 +43,12 @@ fn standing_documents() -> Vec<(String, String)> {
     documents
 }
 
-/// The standing documents and the README, which states the catalog size too.
 fn documents_under_contract() -> Vec<(String, String)> {
     let mut documents = standing_documents();
     documents.push(("README.md".to_owned(), flat(&read("README.md"))));
     documents
 }
 
-/// Every integer written immediately before `phrase`.
 fn numbers_before(text: &str, phrase: &str) -> Vec<u64> {
     text.match_indices(phrase)
         .filter_map(|(index, _)| {
@@ -87,7 +62,6 @@ fn numbers_before(text: &str, phrase: &str) -> Vec<u64> {
         .collect()
 }
 
-/// Every integer written immediately after `phrase`.
 fn numbers_after(text: &str, phrase: &str) -> Vec<u64> {
     text.match_indices(phrase)
         .filter_map(|(index, _)| {
@@ -101,7 +75,6 @@ fn numbers_after(text: &str, phrase: &str) -> Vec<u64> {
         .collect()
 }
 
-/// Every double-quoted value written immediately after `marker`.
 fn quoted_after(text: &str, marker: &str) -> Vec<String> {
     text.match_indices(marker)
         .map(|(index, _)| {
@@ -113,9 +86,6 @@ fn quoted_after(text: &str, marker: &str) -> Vec<String> {
         .collect()
 }
 
-/// Asserts that every number written before `phrase` is `expected`, and returns
-/// how many documents said so, since a claim nobody makes is a gate that passes
-/// on silence.
 fn every_number_before(phrase: &str, expected: u64) -> usize {
     let mut stated = 0;
     for (path, text) in documents_under_contract() {
@@ -130,8 +100,6 @@ fn every_number_before(phrase: &str, expected: u64) -> usize {
     stated
 }
 
-/// The number as the documents spell it, since the house style writes a small
-/// count as a word.
 fn spelled(value: usize) -> &'static str {
     const WORDS: [&str; 21] = [
         "zero",
@@ -170,8 +138,6 @@ fn capitalized(word: &str) -> String {
     }
 }
 
-/// The value of a `usize` constant as the source declares it, for a bound the
-/// library does not publish.
 fn declared_constant(relative: &str, name: &str) -> u64 {
     let source = read(relative);
     let marker = format!("{name}: usize = ");
@@ -205,10 +171,6 @@ fn rust_sources(directory: &Path) -> Vec<PathBuf> {
     sources
 }
 
-/// Every test that holds a module under the bound its own rule reports at. The
-/// name is part of the contract: the documents name the family as
-/// `the_X_holds_the_size_bound`, and a test that spells it otherwise is one the
-/// reader cannot find from the document that promised it.
 fn size_bound_tests() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for path in rust_sources(&repo().join("src")) {
@@ -302,8 +264,6 @@ fn the_schema_version_the_documents_state_is_the_one_the_binary_publishes() {
         "the schema version belongs in exactly one standing document, written `currently <n>`"
     );
 
-    // The ledger of what each version added is what makes the frozen archive
-    // projectable, so a bump that does not reach it is a bump nobody recorded.
     let home = "docs/subsystems/reporting.md";
     let ledger = flat(&read(home));
     assert!(
@@ -399,8 +359,6 @@ fn the_workflows_the_map_counts_all_pin_the_toolchain_it_names() {
         "docs/ci-workflows.md should name the same toolchain {toolchain} the map does"
     );
 
-    // The MSRV leg is the one pin that is deliberately not the toolchain: it is
-    // the version the crate declares it still compiles on.
     let manifest = read("Cargo.toml");
     let msrv = quoted_after(&manifest, "rust-version = \"")
         .first()
@@ -429,9 +387,6 @@ fn the_workflows_the_map_counts_all_pin_the_toolchain_it_names() {
     }
 }
 
-/// Every checkout in this repository's workflows leaves no token in
-/// `.git/config`: the steps after it build and run code, and a compromised
-/// dependency or build script would otherwise find the token there.
 #[test]
 fn every_checkout_drops_its_persisted_credentials() {
     let directory = repo().join(".github/workflows");
@@ -467,10 +422,6 @@ fn every_checkout_drops_its_persisted_credentials() {
     assert!(checkouts > 0, "no checkout step was found");
 }
 
-/// Why one `release.yml` line binds its program by less than content: a
-/// non-local `uses:` without a 40-hex commit and the `# <ref>` it was read
-/// from, an `npm@` spec that is not one exact version, or a `node-version`
-/// that is not one. `None` is a line that binds nothing or binds it exactly.
 fn release_pin_violation(line: &str) -> Option<&'static str> {
     fn exact_version(value: &str) -> bool {
         let parts: Vec<&str> = value.split('.').collect();
@@ -497,10 +448,10 @@ fn release_pin_violation(line: &str) -> Option<&'static str> {
         {
             return Some("a `uses:` whose ref is not a 40-hex commit");
         }
-        return match comment.trim().strip_prefix('#') {
-            Some(reference) if !reference.trim().is_empty() => None,
-            _ => Some("a pinned `uses:` without the `# <ref>` its commit was read from"),
-        };
+        if !comment.trim().is_empty() {
+            return Some("a pinned `uses:` with text after its commit");
+        }
+        return None;
     }
     if let Some((_, spec)) = trimmed.split_once("npm@") {
         let spec = spec.split_whitespace().next().unwrap_or_default();
@@ -516,9 +467,6 @@ fn release_pin_violation(line: &str) -> Option<&'static str> {
     None
 }
 
-/// EP-004 US-014: the release jobs publish with this repository's OIDC
-/// identity, so every program they start is bound by content. A tag or branch
-/// moved upstream reaches a publication only through a change reviewed here.
 #[test]
 fn release_yml_binds_every_program_by_commit_or_exact_version() {
     let release = read(".github/workflows/release.yml");
@@ -540,22 +488,18 @@ fn release_yml_binds_every_program_by_commit_or_exact_version() {
         assert_eq!(release_pin_violation(sample), None, "{sample} binds exactly");
     }
     assert_eq!(
-        release_pin_violation(
-            "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0"
-        ),
+        release_pin_violation("      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"),
         None
     );
 }
 
-/// The predicate behind the release pins rejects each mutable form the run-1
-/// audit found or that a hurried update would write.
 #[test]
 fn the_release_pin_predicate_rejects_every_mutable_form() {
     for sample in [
         "      - uses: actions/checkout@v5",
         "      - uses: dtolnay/rust-toolchain@master",
-        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c0 # v5.1.0",
-        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c0",
+        "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0",
         "      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 #",
         "      - uses: actions/checkout",
         "        run: npm install -g npm@^11.5.1",
@@ -570,9 +514,6 @@ fn the_release_pin_predicate_rejects_every_mutable_form() {
     }
 }
 
-/// EP-003 US-013: the network promise says what holds wherever it is read.
-/// rust-doctor opens no connection, but Cargo downloads a missing dependency,
-/// so "no network" was false on a fresh clone.
 #[test]
 fn the_network_promise_names_cargo_s_downloads_and_how_to_forbid_them() {
     let help = std::process::Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
@@ -598,8 +539,6 @@ fn the_network_promise_names_cargo_s_downloads_and_how_to_forbid_them() {
     }
 }
 
-/// The jobs of a workflow, in order, each with its id and the lines it spans.
-/// A job is a two-space key under the top-level `jobs:`.
 fn workflow_jobs(text: &str) -> Vec<(String, Vec<&str>)> {
     let mut jobs: Vec<(String, Vec<&str>)> = Vec::new();
     let mut inside = false;
@@ -624,7 +563,6 @@ fn workflow_jobs(text: &str) -> Vec<(String, Vec<&str>)> {
     jobs
 }
 
-/// The steps of a job, each as its lines, the first being the `- ` line.
 fn job_steps<'a>(lines: &[&'a str]) -> Vec<Vec<&'a str>> {
     let mut steps: Vec<Vec<&'a str>> = Vec::new();
     for line in lines {
@@ -644,8 +582,6 @@ fn job_steps<'a>(lines: &[&'a str]) -> Vec<Vec<&'a str>> {
     steps
 }
 
-/// Whether a workflow line restores a cache: a rust-cache or `actions/cache`
-/// step brings back what another run compiled.
 fn restores_a_cache(line: &str) -> bool {
     let trimmed = line.trim_start().trim_start_matches("- ").trim();
     trimmed.strip_prefix("uses:").is_some_and(|action| {
@@ -654,8 +590,6 @@ fn restores_a_cache(line: &str) -> bool {
     })
 }
 
-/// The cargo commands a workflow line starts, each cut at the shell operator
-/// that ends it. A comment line starts nothing.
 fn cargo_commands(line: &str) -> Vec<String> {
     let trimmed = line.trim();
     if trimmed.starts_with('#') {
@@ -678,9 +612,6 @@ fn cargo_commands(line: &str) -> Vec<String> {
     commands
 }
 
-/// Why a job of `release.yml` holding `id-token: write` could hand that
-/// identity to code it compiled: a cache it restores, or a cargo command other
-/// than the two that compile nothing.
 fn oidc_job_violations(text: &str) -> (usize, Vec<String>) {
     let preamble = text.split("\njobs:").next().unwrap_or_default();
     let granted_to_all = preamble.lines().any(|line| line.trim() == "id-token: write");
@@ -707,9 +638,6 @@ fn oidc_job_violations(text: &str) -> (usize, Vec<String>) {
     (oidc_jobs, violations)
 }
 
-/// EP-005 US-016: `id-token: write` is granted to a whole job, so a job that
-/// exchanges it for a registry token compiles nothing and restores nothing a
-/// compiler wrote: a build script would otherwise run under that identity.
 #[test]
 fn no_release_job_holding_an_oidc_identity_compiles_or_restores_a_cache() {
     let (oidc_jobs, violations) = oidc_job_violations(&read(".github/workflows/release.yml"));
@@ -717,8 +645,6 @@ fn no_release_job_holding_an_oidc_identity_compiles_or_restores_a_cache() {
     assert_eq!(oidc_jobs, 2, "release.yml should hold the npm and crates.io OIDC jobs");
 }
 
-/// The OIDC check refuses each form a compiling or cache-restoring job takes,
-/// and admits the two cargo commands that compile nothing.
 #[test]
 fn the_oidc_job_check_rejects_a_compiling_or_cached_job() {
     let job = |body: &str| {
@@ -752,10 +678,6 @@ fn the_oidc_job_check_rejects_a_compiling_or_cached_job() {
     assert_eq!(oidc_job_violations(inherited).1.len(), 1);
 }
 
-/// EP-005 US-016, unhappy path: a run that is not a tag still verifies the
-/// package, in a job that holds no OIDC permission, and the `crates` job keeps
-/// only the five steps it needs, the two that touch the registry guarded by
-/// the tag.
 #[test]
 fn the_crate_is_verified_on_every_run_and_published_only_from_a_tag() {
     let release = read(".github/workflows/release.yml");
@@ -808,9 +730,6 @@ fn the_crate_is_verified_on_every_run_and_published_only_from_a_tag() {
     }
 }
 
-/// EP-005 US-017: a cache entry is written by whichever default-branch run
-/// saved it last, corpus and CI runs included, so no release job restores one
-/// and every shipped binary is built cold.
 #[test]
 fn release_yml_restores_no_cache() {
     let release = read(".github/workflows/release.yml");
@@ -834,8 +753,6 @@ fn release_yml_restores_no_cache() {
     assert!(!restores_a_cache("# No job here restores a rust-cache entry"));
 }
 
-/// The lines of a markdown text that sit inside a fenced code block, each with
-/// its trailing shell comment dropped: what a reader copies and runs.
 fn fenced_lines(text: &str) -> Vec<&str> {
     let mut inside = false;
     let mut lines = Vec::new();
@@ -849,8 +766,6 @@ fn fenced_lines(text: &str) -> Vec<&str> {
     lines
 }
 
-/// The release note of the highest version under `.github/releases/`, which is
-/// the one the next note is written from.
 fn newest_release_note() -> String {
     let directory = repo().join(".github/releases");
     fs::read_dir(&directory)
@@ -871,11 +786,6 @@ fn newest_release_note() -> String {
         .expect("there should be a release note")
 }
 
-/// Issue #40: `cargo install` without `--locked` ignores the shipped
-/// Cargo.lock and resolves every dependency afresh, and on 2026-10-29 that
-/// graph did not compile. The install a reader copies is locked; the newest
-/// release note is checked with the README since the next note copies its
-/// install block. `.github/workflows/install.yml` holds the reasoning.
 #[test]
 fn every_advertised_cargo_install_is_locked() {
     let newest = newest_release_note();
@@ -908,9 +818,6 @@ fn every_advertised_cargo_install_is_locked() {
     );
 }
 
-/// The unlocked install is the whole point of `install.yml`: a `--locked`
-/// added there would turn it into one more locked build, green through the
-/// next skew like every other workflow was through #40.
 #[test]
 fn install_yml_installs_unlocked_from_the_registry_and_from_this_commit() {
     let workflow = read(".github/workflows/install.yml");

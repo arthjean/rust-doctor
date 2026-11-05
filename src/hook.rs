@@ -1,13 +1,3 @@
-//! The hooks that make a rescan a habit: a git pre-commit hook that judges what
-//! the commit records, and an end-of-turn hook that keeps an agent from
-//! declaring its work done over findings it introduced.
-//!
-//! Only `hook install` writes, only under the workspace it is given (or, for a
-//! git hook, where the repository runs its hooks), only the files it prints,
-//! and never over a file rust-doctor did not write: the one exception is an
-//! agent's settings file, into which it merges one entry and keeps every other
-//! key. A scan never installs anything.
-
 mod agent;
 
 pub(crate) use agent::{AgentHook, install as install_agent};
@@ -23,9 +13,10 @@ use rust_doctor::terminal_text::sanitize;
 use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
 
-/// The hooks that turn a rescan into a habit. Only `install` writes, and only
-/// what it prints.
 #[derive(Debug, Clone, Args)]
+#[command(
+    about = "The hooks that turn a rescan into a habit. Only `install` writes, and only what it prints"
+)]
 pub struct HookArgs {
     #[command(subcommand)]
     command: HookCommand,
@@ -53,13 +44,13 @@ enum HookCommand {
     },
 }
 
-/// Whether an agent hook compiles the tree its agent wrote.
 #[derive(Debug, Clone, Copy, Args)]
+#[command(about = "Whether an agent hook compiles the tree its agent wrote")]
 pub(crate) struct ClippyArgs {
-    /// Turn every Clippy rule off, whatever rust-doctor.toml says: the hook
-    /// then compiles nothing, so no build script or procedural macro of the
-    /// tree the agent wrote runs under your account.
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Turn every Clippy rule off, whatever rust-doctor.toml says: the hook then compiles nothing, so no build script or procedural macro of the tree the agent wrote runs under your account"
+    )]
     pub(crate) no_clippy: bool,
 }
 
@@ -78,8 +69,7 @@ enum HookTarget {
     Claude {
         #[arg(default_value = ".", value_name = "PATH")]
         path: PathBuf,
-        /// Write .claude/settings.json, the file the repository shares.
-        #[arg(long)]
+        #[arg(long, help = "Write .claude/settings.json, the file the repository shares")]
         shared: bool,
         #[command(flatten)]
         clippy: ClippyArgs,
@@ -97,19 +87,18 @@ enum HookTarget {
     },
 }
 
-/// How an install treats what it would write.
 #[derive(Debug, Clone, Copy, Args)]
+#[command(about = "How an install treats what it would write")]
 pub(crate) struct WriteArgs {
-    /// Rewrite a hook rust-doctor installed before that differs from the
-    /// current one.
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Rewrite a hook rust-doctor installed before that differs from the current one"
+    )]
     pub(crate) update: bool,
-    /// Print what would be written, and write nothing.
-    #[arg(long)]
+    #[arg(long, help = "Print what would be written, and write nothing")]
     pub(crate) dry_run: bool,
 }
 
-/// `rust-doctor hook`.
 pub fn run(arguments: &HookArgs) -> ExitCode {
     match &arguments.command {
         HookCommand::Run { agent, clippy } => agent::run(*agent, *clippy),
@@ -134,18 +123,10 @@ pub fn run(arguments: &HookArgs) -> ExitCode {
     }
 }
 
-/// The comment every file rust-doctor writes as a hook carries, and the one a
-/// second install recognizes.
 const MARKER: &str = "# rust-doctor pre-commit hook";
 
-/// Exit code of an install that could not run at all: not a repository, an
-/// unreadable settings file, a failed write.
 const FAILED: u8 = 2;
 
-/// The command a pre-commit hook runs, with the workspace spelled relative to
-/// the top of the working tree, where git starts it. It blocks on a warning,
-/// as the end-of-turn hook does: every catalogued rule defaults to `warn`, so
-/// the default `error` level would let every finding through.
 fn pre_commit_command(workspace: &str) -> String {
     format!(
         "rust-doctor {} --yes --staged --scope lines --blocking warning",
@@ -164,19 +145,12 @@ fn shell_word(word: &str) -> String {
     }
 }
 
-/// The script a pre-commit hook runs. A contributor without the binary still
-/// commits, told on stderr that the commit was not judged: a hook directory a
-/// repository shares must not block the people who never chose the tool. A
-/// scan that fails (exit 2) lets the commit through the same way, since a
-/// broken toolchain judges nothing. Every other exit code is the hook's.
 fn hook_script(command: &str) -> String {
     format!(
         "#!/bin/sh\n{MARKER}: judges what this commit records.\n# Written by `rust-doctor hook install git`; remove this file to uninstall.\nif ! command -v rust-doctor >/dev/null 2>&1; then\n  echo \"rust-doctor is not on PATH: this commit was not judged.\" >&2\n  exit 0\nfi\n{command}\nstatus=$?\nif [ \"$status\" -eq 2 ]; then\n  echo \"rust-doctor could not scan: this commit was not judged.\" >&2\n  exit 0\nfi\nexit \"$status\"\n"
     )
 }
 
-/// The command a hook script runs: its `rust-doctor` line, or the `exec` line
-/// an earlier release wrote.
 fn script_command(script: &str) -> &str {
     script
         .lines()
@@ -188,7 +162,6 @@ fn script_command(script: &str) -> &str {
         .unwrap_or("(none)")
 }
 
-/// `rust-doctor hook install git`.
 pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
     let WriteArgs { update, dry_run } = write;
     let Some(location) = git_hook::locate(workspace) else {
@@ -205,8 +178,6 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
     };
     let relative = confined.workspace.to_string_lossy().into_owned();
     let toplevel = confined.toplevel;
-    // The path is written into a script and printed: a control character in
-    // it would reach the terminal of everyone who reads either.
     if relative.chars().any(char::is_control) {
         eprintln!(
             "rust-doctor: refusing to install: the workspace's path from the repository's top holds a control character."
@@ -228,10 +199,6 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
         | HookSetup::Default(directory) => canonical(&directory),
     };
     let target = directory.join("pre-commit");
-    // A hooks directory outside the working tree is shared: with other
-    // repositories through a global `core.hooksPath`, or with the main working
-    // tree of a linked one. This command writes only inside the tree it was
-    // pointed at.
     let Ok(shown) = target.strip_prefix(&toplevel) else {
         println!("The hooks directory is outside this working tree, so nothing was written.");
         println!("Add this line to its pre-commit hook:\n\n{command}");
@@ -244,8 +211,6 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
         );
         return FAILED;
     }
-    // The hooks directory can be one the repository names, through
-    // `core.hooksPath` or a `.cargo-husky/hooks` link into its own tree.
     let shown = sanitize(&shown.display().to_string());
     let script = hook_script(&command);
     let mut replaced = false;
@@ -297,8 +262,6 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
     0
 }
 
-/// The exact entry for a hook manager's own file, printed rather than merged:
-/// no YAML is edited.
 fn manager_snippet(config: &str, command: &str) -> String {
     let mut snippet = String::new();
     if config.contains("lefthook") {

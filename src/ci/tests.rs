@@ -1,16 +1,8 @@
-//! The workflows as a runner would run them: every `run` block is checked by
-//! `bash -n`, then executed with the tools it calls replaced by stubs, and every
-//! `rust-doctor` invocation it made is parsed with the binary's own clap
-//! definition. A command line the CLI refuses is a CI gate that dies on its
-//! first run, and reading the template for it would miss the arguments the
-//! shell assembles.
-
 use super::*;
 use crate::test_scratch::scratch;
 use clap::Parser as _;
 use std::process::Command;
 
-/// The body of every `run` step, dedented, in order.
 pub(crate) fn run_blocks(yaml: &str) -> Vec<String> {
     let lines: Vec<&str> = yaml.lines().collect();
     let mut blocks = Vec::new();
@@ -43,7 +35,6 @@ pub(crate) fn run_blocks(yaml: &str) -> Vec<String> {
     blocks
 }
 
-/// What a run block did under stubs.
 pub(crate) struct Execution {
     invocations: Vec<Vec<String>>,
     status: Option<i32>,
@@ -53,25 +44,12 @@ pub(crate) struct Execution {
     git: String,
 }
 
-/// Runs `block` under bash with every external tool stubbed, and answers with
-/// each `rust-doctor` command line it ran, asserting the block succeeded.
 pub(crate) fn execute(block: &str, environment: &[(&str, &str)]) -> Vec<Vec<String>> {
     let execution = run_stubbed(block, environment);
     assert_eq!(execution.status, Some(0), "a run block failed under stubs:\n{block}");
     execution.invocations
 }
 
-/// Runs `block` under bash with every external tool stubbed. A scan the stub
-/// runs exits with `SCAN_STATUS`, 0 unless the environment sets it; `jq`
-/// answers `JQ_1` then `JQ_2`; `gh` logs its arguments and, under
-/// `GH_REFUSES`, refuses every write as a fork's read-only token would.
-/// `NO_REPORT` leaves the report and its rendered summary out, and
-/// `EMPTY_REPORT` leaves both empty; `CLEAN` is written as the scan's clean
-/// flag. `git` logs its arguments, answers `SHALLOW` (default `false`) to
-/// `--is-shallow-repository`, and fails a fetch under `FETCH_FAILS`. `npm
-/// prefix -g` answers a prefix whose `bin/rust-doctor` logs as the `rust-doctor`
-/// function does, under its absolute path, and `{prefix}` in an environment
-/// value stands for that prefix.
 pub(crate) fn run_stubbed(block: &str, environment: &[(&str, &str)]) -> Execution {
     let root = scratch("ci-tests", "execute");
     let log = root.join("argv");
@@ -141,10 +119,6 @@ jq() {
         "bash -n refused a run block: {}\n{block}",
         String::from_utf8_lossy(&syntax.stderr)
     );
-    // The stubs and the block reach bash as data, and the script it runs is a
-    // constant: the command line is never assembled from text. The options
-    // are the ones GitHub gives `shell: bash`, so a command that fails
-    // unguarded ends the step here as it does on a runner.
     let output = Command::new("bash")
         .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", "eval \"$STUBS\"\neval \"$BLOCK\""])
         .env("STUBS", prelude)
@@ -255,7 +229,6 @@ fn every_command_the_scan_workflow_runs_parses_against_the_cli() {
     }
 }
 
-/// An invocation as a command line, the program named by its file name.
 fn command_line(argv: &[String]) -> String {
     let program = Path::new(&argv[0])
         .file_name()
@@ -291,9 +264,6 @@ fn the_scan_workflow_runs_read_only_and_never_interpolates_into_a_shell() {
     }
 }
 
-/// `--comment` adds a second job, the only one granted the write permission,
-/// which needs the scan, checks nothing out and runs the script
-/// `comment/action.yml` runs, byte for byte.
 #[test]
 fn the_comment_is_opt_in_and_the_action_runs_the_same_script() {
     let workflow = scan_workflow(&WorkflowOptions {
@@ -351,12 +321,10 @@ fn options_for(root: &Path, branch: &str, toolchain: &str) -> Result<WorkflowOpt
 const ACTION: &str = include_str!("../../action.yml");
 const COMMENT_ACTION: &str = include_str!("../../comment/action.yml");
 
-/// The default an input of `action.yml` declares, unquoted.
 fn input_default(name: &str) -> Option<String> {
     declared_default(ACTION, name)
 }
 
-/// The default an input of an action declares, unquoted.
 fn declared_default(action: &str, name: &str) -> Option<String> {
     let mut lines = action
         .lines()
@@ -458,10 +426,6 @@ fn every_command_the_action_runs_parses_against_the_cli() {
     }
 }
 
-/// The install step resolves the launcher once, by the absolute path npm
-/// installed it at, and the scan and summary steps run that path. With
-/// `version: preinstalled` the step is skipped, its output is empty and both
-/// fall back to the `rust-doctor` on PATH.
 #[test]
 fn the_action_runs_the_launcher_it_installed_by_its_absolute_path() {
     let install = run_blocks(ACTION).remove(0);
@@ -483,8 +447,6 @@ fn the_action_runs_the_launcher_it_installed_by_its_absolute_path() {
     assert_eq!(preinstalled.invocations[0][0], "rust-doctor", "preinstalled keeps the PATH lookup");
 }
 
-/// This repository scans itself through the Action from its own checkout,
-/// with the permission its comment needs.
 #[test]
 fn this_repository_runs_the_action_it_ships() {
     let dogfood = include_str!("../../.github/workflows/dogfood.yml");
@@ -498,9 +460,6 @@ fn this_repository_runs_the_action_it_ships() {
     assert_eq!(grants, 1, "only the comment job writes to the pull request");
 }
 
-/// A scan that exits 2 still leaves an exit code for the summary, the upload
-/// and the outputs to run after, each of which runs `if: always()`, and the
-/// last step fails with that code.
 #[test]
 fn a_failed_scan_still_publishes_and_then_fails_the_step() {
     let blocks = run_blocks(ACTION);
@@ -530,8 +489,6 @@ fn a_failed_scan_still_publishes_and_then_fails_the_step() {
     );
 }
 
-/// The comment step as a second push, a first push, a fork's read-only token,
-/// a scan that rendered nothing or an empty summary.
 #[test]
 fn the_comment_is_edited_in_place_and_never_fails_the_job() {
     let pull_request = [("REPOSITORY", "o/r"), ("PULL_REQUEST", "7")];
@@ -564,7 +521,6 @@ fn the_comment_is_edited_in_place_and_never_fails_the_job() {
     }
 }
 
-/// The scan step of the Action, found by the command it runs.
 fn action_scan() -> String {
     run_blocks(ACTION)
         .into_iter()
@@ -572,7 +528,6 @@ fn action_scan() -> String {
         .unwrap()
 }
 
-/// The line the Action's scan step runs the scan on.
 const SCAN_COMMAND: &str = "\"${LAUNCHER:-rust-doctor}\" \"${arguments[@]}\"";
 
 const SCAN_INPUTS: [(&str, &str); 6] = [
@@ -584,8 +539,6 @@ const SCAN_INPUTS: [(&str, &str); 6] = [
     ("WORKSPACE", "."),
 ];
 
-/// A gate failure (1) fails only a pull request; a scan that could not run
-/// (2) fails every event; in the Action and in the generated workflow alike.
 #[test]
 fn only_a_pull_request_fails_on_the_gate() {
     let exit = run_blocks(ACTION).pop().unwrap();
@@ -599,7 +552,6 @@ fn only_a_pull_request_fails_on_the_gate() {
         let execution = run_stubbed(&exit, &[("EXIT_CODE", code), ("EVENT_NAME", event)]);
         assert_eq!(execution.status, Some(expected), "action: {code} on {event}");
     }
-    // The warning code a caller chose fails a pull request and nothing else.
     for (event, expected) in [("push", 0), ("pull_request", 78)] {
         let environment = [("EXIT_CODE", "78"), ("EVENT_NAME", event), ("WARNING_EXIT_CODE", "78")];
         let execution = run_stubbed(&exit, &environment);
@@ -617,15 +569,11 @@ fn only_a_pull_request_fails_on_the_gate() {
         let execution = run_stubbed(&scan, &environment);
         assert_eq!(execution.status, Some(expected), "workflow: {code} on {event}");
     }
-    // The summary of a push is rendered all the same: no event guards it.
     let summarize = ACTION.split("- name: Summarize").nth(1).unwrap();
     let header = summarize.split("run: |").next().unwrap();
     assert!(header.contains("if: always()") && !header.contains("event_name"), "{header}");
 }
 
-/// A pull request scanned from a depth-1 checkout fetches its base once, and a
-/// fetch that fails never fails the step. A full clone, or a full scope,
-/// fetches nothing.
 #[test]
 fn a_shallow_pull_request_checkout_fetches_its_base_once() {
     let scan = action_scan();
@@ -654,9 +602,6 @@ fn a_shallow_pull_request_checkout_fetches_its_base_once() {
     assert!(full_scope.git.is_empty(), "{}", full_scope.git);
 }
 
-/// With `comment-on-clean: false`, a clean pull request gets no new comment,
-/// one already posted is still edited, and a pull request with findings is
-/// commented as before.
 #[test]
 fn a_clean_pull_request_stays_quiet_when_asked() {
     let with = |extra: &[(&'static str, &'static str)]| {
@@ -686,9 +631,6 @@ fn a_clean_pull_request_stays_quiet_when_asked() {
     assert!(ACTION.contains("${{ runner.temp }}/rust-doctor/clean\n"));
 }
 
-/// Every action the shipped YAML uses is pinned to a full commit, with the
-/// ref it was read from beside it, and every rust-cache step saves on
-/// failure, from the default branch only, and never caches `~/.cargo/bin`.
 #[test]
 fn every_shipped_action_is_pinned_to_a_commit() {
     let workflow = scan_workflow(&WorkflowOptions {
@@ -707,13 +649,17 @@ fn every_shipped_action_is_pinned_to_a_commit() {
             .collect();
         assert!(!uses.is_empty(), "{name}: {uses:?}");
         let count = uses.len();
+        let generated = name == "the generated workflow";
         for target in uses {
             let pinned = target.split_once('@').is_some_and(|(_, reference)| {
                 reference.get(..40).is_some_and(|sha| {
                     sha.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                }) && reference.get(40..).is_some_and(|rest| rest.starts_with(" # ") && rest.len() > 3)
+                }) && reference.get(40..).is_some_and(|rest| {
+                    if generated { rest.starts_with(" # ") && rest.len() > 3 } else { rest.is_empty() }
+                })
             });
-            assert!(pinned, "{name}: `{target}` is not pinned to a 40-hex SHA and a `# <ref>` comment");
+            let expected = if generated { "a 40-hex SHA and a `# <ref>`" } else { "a bare 40-hex SHA" };
+            assert!(pinned, "{name}: `{target}` is not pinned to {expected}");
         }
         if name == "comment/action.yml" {
             assert!(!yaml.contains("rust-cache") && !yaml.contains("actions/checkout"), "{name}");
@@ -735,13 +681,9 @@ fn every_shipped_action_is_pinned_to_a_commit() {
     }
 }
 
-/// What both rust-cache steps save under: the default branch, and nothing else.
 const SAVE_IF: &str =
     "save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}";
 
-/// The `save-if` expression of [`SAVE_IF`], evaluated as GitHub would for a
-/// run on `reference` in a repository whose payload names `default_branch`:
-/// `format` fills `{0}`, a missing property is the empty string.
 fn saves(reference: &str, default_branch: Option<&str>) -> bool {
     let expression = SAVE_IF
         .strip_prefix("save-if: ${{ ")
@@ -758,9 +700,6 @@ fn saves(reference: &str, default_branch: Option<&str>) -> bool {
     reference == template.replace("{0}", default_branch.unwrap_or_default())
 }
 
-/// EP-005 US-019, unhappy path: a pull request's ref is its merge ref, so the
-/// expression is false and the cache step restores without saving; a
-/// scheduled payload without the default branch saves nothing either.
 #[test]
 fn only_a_run_on_the_default_branch_saves_the_cache() {
     assert!(!saves("refs/pull/7/merge", Some("main")), "a pull request never saves");
@@ -769,8 +708,6 @@ fn only_a_run_on_the_default_branch_saves_the_cache() {
     assert!(!saves("refs/heads/main", None), "a payload without the default branch never saves");
 }
 
-/// The jobs of a workflow, each with its id and the lines it spans, after
-/// the lines before `jobs:`.
 fn workflow_jobs(yaml: &str) -> (Vec<&str>, Vec<(String, Vec<&str>)>) {
     let (preamble, jobs) = yaml.split_once("\njobs:\n").unwrap_or((yaml, ""));
     let mut parsed: Vec<(String, Vec<&str>)> = Vec::new();
@@ -787,8 +724,6 @@ fn workflow_jobs(yaml: &str) -> (Vec<&str>, Vec<(String, Vec<&str>)>) {
     (preamble.lines().collect(), parsed)
 }
 
-/// Whether line `index` of a job runs pull request code: a checkout of
-/// anything but the base commit, the scan Action, rust-doctor, or Cargo.
 fn runs_pull_request_code(lines: &[&str], index: usize) -> bool {
     let code = lines[index].trim().trim_start_matches("- ");
     if code.starts_with('#') {
@@ -807,9 +742,6 @@ fn runs_pull_request_code(lines: &[&str], index: usize) -> bool {
         || builds.iter().any(|fragment| code.contains(fragment))
 }
 
-/// Why a job of a workflow could run pull request code beside the token that
-/// writes to the pull request: it holds `pull-requests: write`, its own or the
-/// workflow's, and a line of it runs that code.
 pub(crate) fn writing_jobs_that_run_pull_request_code(yaml: &str) -> Vec<String> {
     let grants = |lines: &[&str]| lines.iter().any(|line| line.trim() == "pull-requests: write");
     let (preamble, jobs) = workflow_jobs(yaml);
@@ -827,9 +759,6 @@ pub(crate) fn writing_jobs_that_run_pull_request_code(yaml: &str) -> Vec<String>
     violations
 }
 
-/// EP-005 US-020, unhappy path: in the generated workflow, no job holding
-/// `pull-requests: write` checks out the pull request or runs rust-doctor,
-/// and the check refuses each way a writing job could.
 #[test]
 fn no_job_that_writes_to_the_pull_request_runs_its_code() {
     for comment in [false, true] {
@@ -872,8 +801,6 @@ fn no_job_that_writes_to_the_pull_request_runs_its_code() {
     assert!(writing_jobs_that_run_pull_request_code(&job("\n  pull-requests: write", base)).is_empty());
 }
 
-/// A workspace below the repository's top is the path the workflow scans and
-/// the one rust-cache keys its target on.
 #[test]
 fn a_nested_workspace_is_scanned_and_cached_by_its_path() {
     let workflow = scan_workflow(&WorkflowOptions {

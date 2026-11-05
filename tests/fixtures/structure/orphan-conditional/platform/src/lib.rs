@@ -1,5 +1,5 @@
-//! One implementation per platform, chosen by `cfg_attr`: no default file
-//! exists, and each platform's file is compiled on that platform.
+
+
 
 #[cfg_attr(unix, path = "sys/unix.rs")]
 #[cfg_attr(windows, path = "sys/windows.rs")]

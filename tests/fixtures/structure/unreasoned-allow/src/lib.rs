@@ -1,18 +1,18 @@
-//! Trigger and silence of `rust_doctor::structure::unreasoned_allow_attribute`.
-//!
-//! Three families, chosen to exercise the three shapes a structural finding
-//! takes. Two exemptions on `dead_code` sit in this file and form one family
-//! whose `related` array stays inside it. Two exemptions on `unused_variables`
-//! sit one here and one in the module below, and form a family whose `related`
-//! array crosses files, because the rule reports what the codebase silences,
-//! not what a file silences. The exemption inside the `#[cfg(test)]` module is
-//! a family of one, which publishes no `related` key at all, and it is marked,
-//! because no Cargo target kind names a test module living inside a library.
-//!
-//! Everything after them is the neighbouring form the rule must leave alone,
-//! which is what proves it was checked for over-reach: an exemption that states
-//! its reason, an `#[expect]` that expires by itself, and a `cfg_attr` whose
-//! attribute never exists in the tree this pass reads.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 pub mod reached;
 

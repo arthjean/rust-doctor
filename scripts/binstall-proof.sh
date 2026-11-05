@@ -1,25 +1,3 @@
-#!/usr/bin/env bash
-# Proves that `cargo binstall rust-doctor` installs a prebuilt binary for every
-# target the release ships, through the `[package.metadata.binstall]` table of
-# Cargo.toml, and never falls back to compiling.
-#
-#   scripts/binstall-proof.sh local <archives>
-#   scripts/binstall-proof.sh registry
-#
-# `local` serves <archives> on 127.0.0.1 and resolves this checkout's manifest
-# against them, before anything is published: binstall itself judges the
-# archive layout and the bin-dir template, rather than a copy of its rules.
-# `registry` resolves the version Cargo.toml declares from crates.io and the
-# GitHub Release, once both serve it.
-#
-# Every target is a dry run, which downloads the archive, extracts it and finds
-# the binary without installing it. The host target is then installed into a
-# scratch root and has to print the version Cargo.toml declares.
-#
-# CARGO_BINSTALL names the cargo-binstall to run. Unset, the script downloads
-# the pinned x86_64 Linux build and checks it against the digest below, since
-# release.yml binds every program it starts by content. docs/publishing.md
-# holds the reasoning.
 set -euo pipefail
 
 BINSTALL_VERSION=1.26.2
@@ -57,16 +35,10 @@ fi
 case "${1:-}" in
   local)
     [ $# -eq 2 ] || fail "usage: $0 local <archives>"
-    # binstall downloads over HTTPS only, so the archives are served under a
-    # certificate signed by a throwaway authority that only this run trusts.
-    # Everything the server reads sits in the scratch directory and is named
-    # relative to it, which a Windows Python resolves as well as a Linux one.
     mkdir -p "$scratch/www"
     cp "$2"/*.tar.gz "$scratch/www/"
     (
       cd "$scratch"
-      # Git Bash rewrites a leading-slash argument such as `/CN=...` into a
-      # Windows path; the variable stops it there and means nothing elsewhere.
       export MSYS_NO_PATHCONV=1
       openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=binstall-proof CA" \
         -keyout ca.key -out ca.crt 2>/dev/null
@@ -77,10 +49,6 @@ case "${1:-}" in
       openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 1 \
         -extfile server.ext -out server.crt 2>/dev/null
     ) || fail "openssl could not issue the throwaway certificate"
-    # Port 0 lets the system pick a free one, which the server then announces:
-    # a fixed port can sit in a range Windows reserves for Hyper-V. The server
-    # stops once `serving` is gone, since a signal sent to the subshell does
-    # not reach a native Windows process.
     touch "$scratch/serving"
     (
       cd "$scratch"

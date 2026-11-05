@@ -1,8 +1,5 @@
-// The helpers every other file trusts, proven on the real binary: what a
-// missing build does, what the watchdog and the preload kill, what the sealed
-// environment lets through, and what the fingerprint and the copy see.
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   copyWorkspace,
@@ -18,11 +15,9 @@ import {
   treeFingerprint,
   UNATTENDED_VARIABLES,
 } from "./e2e-helpers";
-import { fakeCalls, fakeEnv } from "./fakes";
+import { FAKE_SCRIPT, fakeCalls, fakeEnv } from "./fakes";
 import { runPty } from "./pty";
 
-// The suite's own bun, run on another file of the suite with a sealed
-// environment of its own.
 function bunTest(file: string, env: Record<string, string>) {
   const box = sandbox("bun");
   return runCommand([process.execPath, "test", file], {
@@ -184,8 +179,8 @@ describe("fake tools and PATH profiles", () => {
     const run = await runCommand(["sh", "-c", probe], { sandbox: box, env: fakeEnv(box, profile) });
     expect(run.stdout.trim().split("\n").filter(Boolean)).toEqual([...expected]);
     for (const name of expected) {
-      const resolved = await runCommand(["sh", "-c", `readlink -f "$(command -v ${name})"`], { sandbox: box, env: fakeEnv(box, profile) });
-      expect(resolved.stdout.trim()).toBe(join(import.meta.dir, "fakes", "record.sh"));
+      const resolved = await runCommand(["sh", "-c", `command -v ${name}`], { sandbox: box, env: fakeEnv(box, profile) });
+      expect(readFileSync(resolved.stdout.trim(), "utf8")).toBe(FAKE_SCRIPT);
     }
   });
 
@@ -208,8 +203,6 @@ describe("fake tools and PATH profiles", () => {
 });
 
 describe("documentation gate", () => {
-  // Built at runtime: the gate reads this file too, and a literal citation of
-  // a document that does not exist would fail it on this repository.
   const doc = (name: string) => ["docs", `${name}.md`].join("/");
 
   test("verify-doc-refs.sh fails a document that cites a path that does not exist", async () => {
@@ -218,7 +211,6 @@ describe("documentation gate", () => {
     mkdirSync(join(root, "scripts"), { recursive: true });
     mkdirSync(join(root, "docs"));
     copyFileSync(join(REPO_ROOT, "scripts/verify-doc-refs.sh"), join(root, "scripts/verify-doc-refs.sh"));
-    // The script cites the document that holds its reasoning.
     writeFileSync(join(root, doc("doc-gates")), "# Gates\n");
     writeFileSync(join(root, doc("guide")), `# Guide\n\nThe reasoning lives in ${doc("missing")}.\n`);
     expect((await runCommand(["git", "init", "-q"], { sandbox: box, cwd: root })).exitCode).toBe(0);

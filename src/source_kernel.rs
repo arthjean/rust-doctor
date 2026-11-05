@@ -1,17 +1,3 @@
-//! Source kernel: one walk of the workspace's Rust sources, and the registry of
-//! native detectors that reads it.
-//!
-//! `walk` loads and parses each reachable file exactly once. Every producer that
-//! reads source text then works off that single `Enumeration`: the detectors
-//! below, the structural pass, and `references` for the dependency-truth rules.
-//! The walk is the expensive part, so it happens here and the producers only
-//! read the result.
-//!
-//! One question runs through the whole module and has exactly one answer:
-//! several targets reach the same file, and the file publishes only what all of
-//! them agree on. `unanimous` is that answer, and it is the reason a finding in
-//! shared code names no package rather than an arbitrary one.
-
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,20 +25,12 @@ use detectors::{CrateAliases, DETECTORS, Detection, Detector};
 
 pub(crate) use walk::{enumerate, workspace_relative};
 
-/// The bounds the kernel refuses to work past. A scan is a bounded amount of
-/// work on a tree of unknown size, and each of these is a place where an
-/// enormous or adversarial workspace would otherwise be unbounded.
 #[derive(Debug, Clone, Copy)]
 struct Limits {
-    /// Largest single file the walk will read.
     file_bytes: u64,
-    /// Bytes the walk will read across every file of one scan.
     total_bytes: u64,
-    /// Distinct (file, edition) pairs the walk will load.
     units: usize,
-    /// Depth of `mod` nesting the walk will follow.
     module_depth: usize,
-    /// Bindings one unit's alias map retains before it abstains on everything.
     alias_bindings: usize,
 }
 
@@ -64,11 +42,6 @@ const LIMITS: Limits = Limits {
     alias_bindings: aliases::BINDING_LIMIT,
 };
 
-/// A bound the walk enforces, named once.
-///
-/// The name reaches the report inside a sentence, and no control flow reads it
-/// back out of one. What a caller does when a limit is hit is decided by the
-/// value it is handed, never by the phrase that was printed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Limit {
     FileBytes,
@@ -96,19 +69,12 @@ pub(crate) struct Candidate {
     pub(crate) message: Cow<'static, str>,
     pub(crate) package: Option<String>,
     pub(crate) target: Option<String>,
-    /// Non-production context of the finding: the unit's, when every target
-    /// reaching it agrees on one, or `Tests` under a `#[cfg(test)]` module or
-    /// a `#[test]` function of a shipped file. A finding carrying one is
-    /// published and weighs nothing, like every other rule's.
     pub(crate) context: Option<DiagnosticContext>,
     pub(crate) path: String,
     pub(crate) span: SourceSpan,
 }
 
 impl Candidate {
-    /// Identity of a finding: the same rule, at the same place, saying the same
-    /// thing is one finding however many units reached it. Derived from the
-    /// candidate rather than assembled beside it, so the two cannot drift.
     fn key(&self) -> CandidateKey {
         CandidateKey {
             code: self.definition.id,
@@ -137,74 +103,40 @@ pub(crate) struct SourceError {
 pub(crate) struct SourceScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<SourceError>,
-    /// The gated rules no unit opened, and why.
     pub(crate) not_evaluated: Vec<(&'static str, crate::NotEvaluated)>,
-    /// What soliciting the detectors did. What the walk did belongs to
-    /// `SourceMeasurement`, which every plan produces, and is not copied here:
-    /// a scan exists only when a source rule is active, and the walk is
-    /// measured whether one is or not.
     #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: AnalysisCounters,
 }
 
-/// What the walk did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct WalkCounters {
     pub(crate) files_read: usize,
     pub(crate) bytes_read: u64,
 }
 
-/// What the analysis did. The report publishes findings, not how much tree was
-/// touched to reach them, so this half is proof for the tests alone.
 #[derive(Debug, Default)]
 #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
 pub(crate) struct AnalysisCounters {
     pub(crate) nodes_visited: usize,
-    /// Solicitations per rule. The registry carries N detectors, so the
-    /// counter is indexed by identifier rather than by named field.
     pub(crate) predicates: BTreeMap<&'static str, usize>,
 }
 
-/// A file the walk loaded, identified by its canonical path and the edition it
-/// was parsed under. The same file reached from two packages on two editions is
-/// two units, because the tree differs.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Identity {
     path: PathBuf,
     edition: Edition,
 }
 
-/// Identity of a unit's reach, and what that one traversal knows about the
-/// file's context. It carries only the identity of the package and of the
-/// target: crate aliases live in a table indexed by package, so adding a
-/// detector aimed at another crate does not widen this shared structure.
-///
-/// `test_gated` is the third member because the gate is a property of the
-/// traversal and not of the file. A file reached by a gated declaration and by
-/// an ungated one contributes two entries here, so `unanimous` sees the
-/// disagreement and abstains, which is the same rule the package and the target
-/// are already decided by. Stamped on the unit instead, the second reach would
-/// have overwritten the first and silenced shipped code.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Reachability {
     package_id: String,
     package_name: String,
     target_key: String,
     target_name: String,
-    /// Did this traversal pass through a `#[cfg(test)]` module declaration on
-    /// its way to the file? Set by `walk::module_requests`, which is where the
-    /// declaration is read, and inherited by everything the gated file declares.
     test_gated: bool,
 }
 
 impl Reachability {
-    /// Non-production mark of this one traversal.
-    ///
-    /// Cargo's target kind answers first, because it is what the manifest
-    /// declares: a file a bench target reaches is bench material whatever its
-    /// own declarations say. For a target Cargo calls production, a library or
-    /// a binary, the declaration gate is the only thing that can say the file
-    /// is test material, and it does.
     fn context(&self, contexts: &TargetContexts) -> Option<DiagnosticContext> {
         contexts
             .get(&self.target_key)
@@ -214,8 +146,6 @@ impl Reachability {
     }
 }
 
-/// Non-production mark of every workspace target, keyed the way `Reachability`
-/// names it.
 pub(crate) type TargetContexts = BTreeMap<String, Option<DiagnosticContext>>;
 
 #[derive(Debug)]
@@ -246,8 +176,6 @@ impl SourceUnit {
         &self.source
     }
 
-    /// Package a finding in this unit names, when every target that reaches it
-    /// belongs to one.
     pub(crate) fn package(&self) -> Option<String> {
         unanimous(
             self.reachability
@@ -257,7 +185,6 @@ impl SourceUnit {
         .map(|(_, name)| name.clone())
     }
 
-    /// Target a finding in this unit names, when one target reaches it.
     pub(crate) fn target(&self) -> Option<String> {
         unanimous(
             self.reachability
@@ -267,40 +194,22 @@ impl SourceUnit {
         .map(|(_, name)| name.clone())
     }
 
-    /// Names of the workspace packages whose targets reach this unit.
     pub(crate) fn package_names(&self) -> impl Iterator<Item = &str> {
         self.reachability
             .iter()
             .map(|reach| reach.package_name.as_str())
     }
 
-    /// Identifiers of the workspace packages whose targets reach this unit.
-    ///
-    /// `package` answers what to publish on a finding and abstains when several
-    /// packages disagree. This answers the other question, which module tree a
-    /// file belongs to, and a file two packages reach belongs to both.
     pub(crate) fn package_ids(&self) -> impl Iterator<Item = &str> {
         self.reachability
             .iter()
             .map(|reach| reach.package_id.as_str())
     }
 
-    /// Non-production context of the unit, when every traversal that reaches it
-    /// agrees on one. A file the library and an integration test both reach is
-    /// left unmarked, because silencing shipped code is the expensive mistake,
-    /// and so is a file one declaration gates and another does not.
-    ///
-    /// Two different non-production contexts are not unanimous either: a file a
-    /// bench target reaches and a `#[cfg(test)]` declaration also names is
-    /// neither, and the abstention keeps it weighing.
     pub(crate) fn context(&self, contexts: &TargetContexts) -> Option<DiagnosticContext> {
         unanimous(self.reachability.iter().map(|reach| reach.context(contexts))).flatten()
     }
 
-    /// Is every traversal that reaches this unit test, bench or example
-    /// material, as Cargo names its target kind or as the declaration that
-    /// named the file gates it? This is the authoritative answer, and the one
-    /// the dependency rules classify a reference by.
     pub(crate) fn is_test_target(&self, contexts: &TargetContexts) -> bool {
         matches!(
             self.context(contexts),
@@ -308,30 +217,10 @@ impl SourceUnit {
         )
     }
 
-    /// Does this unit hold test material? Three sources answer, and each covers
-    /// what the other two cannot. Cargo's target kind covers `tests/`,
-    /// `benches/` and `examples/` targets wherever a manifest configures them
-    /// to sit. The `#[cfg(test)]` gate of the declaration that named the file
-    /// covers the out-of-line test module, which is no Cargo target and sits
-    /// wherever the declaration points, `src/foo/tests.rs` included; both reach
-    /// this through `is_test_target`. The path convention then covers the one
-    /// case neither names, an ungated `tests` directory the library reaches,
-    /// where nothing in the source says what the directory name says. A rule
-    /// that stays quiet in test code asks this, never a path by itself.
     fn is_test_code(&self, contexts: &TargetContexts) -> bool {
         self.is_test_target(contexts) || path_contains_tests_segment(&self.relative_path)
     }
 
-    /// Lines of this unit outside every outermost item `under_test_attribute`
-    /// classifies as test code: what the score's denominator counts of a
-    /// production file. The walk asks each item for its own attributes, which
-    /// keeps it linear in the file where asking every item's ancestors read the
-    /// root's children once per item and stalled on a ten-thousand-item file.
-    ///
-    /// The numerator already set an inline `#[cfg(test)] mod tests` aside while
-    /// the denominator counted it, so about six thousand lines of this crate's
-    /// own inline tests diluted every density it published. A line two items
-    /// share is subtracted once, and the attributes above an item are its own.
     fn production_line_count(&self) -> usize {
         let line_starts = line_starts(&self.source);
         let line_of = |offset: usize| line_starts.partition_point(|start| *start <= offset);
@@ -342,8 +231,6 @@ impl SourceUnit {
             let ra_ap_syntax::WalkEvent::Enter(node) = event else {
                 continue;
             };
-            // Descending from the root, the first item carrying a test attribute is the
-            // outermost one `under_test_attribute` classifies, and its subtree is skipped.
             if ast::Item::cast(node.clone()).is_none() || !detectors::carries_test_attribute(&node) {
                 continue;
             }
@@ -358,8 +245,6 @@ impl SourceUnit {
     }
 }
 
-/// Files the workspace reaches, read and parsed once for every producer that
-/// analyses source text.
 #[derive(Debug, Default)]
 pub(crate) struct Enumeration {
     units: BTreeMap<Identity, SourceUnit>,
@@ -367,29 +252,14 @@ pub(crate) struct Enumeration {
     contexts: TargetContexts,
     errors: Vec<SourceError>,
     counters: WalkCounters,
-    /// Whether every file the walk reached became a unit. A default
-    /// enumeration is not a walk that read everything, it is a walk that never
-    /// happened, so it says so.
     complete: bool,
-    /// Units read and kept out of every detector and of the measurement: a
-    /// path the configuration ignores, a file declared or headed generated, or
-    /// a package `--package` did not select. They are still walked, so a module they declare is reached,
-    /// and still read for the crate references a dependency is judged by.
     excluded: BTreeSet<Identity>,
-    /// The members `--package` selected, `None` when every member is scanned.
     selected: Option<BTreeSet<String>>,
-    /// Packages, by id, whose module tree the walk lost part of: a `mod`
-    /// request it could not follow, or a file it could not read.
     incomplete_trees: BTreeSet<String>,
-    /// The version of each direct dependency per package, which a gated
-    /// rule's detectors are judged by. `None` for a unit no manifest
-    /// describes, a regression seed or a synthetic test, whose gates open.
     versions: Option<gates::DependencyVersions>,
 }
 
 impl Enumeration {
-    /// The units the detectors read: every unit the walk loaded, less the
-    /// excluded ones.
     pub(crate) fn units(&self) -> impl Iterator<Item = &SourceUnit> {
         self.scanned().map(|(_, unit)| unit)
     }
@@ -400,15 +270,10 @@ impl Enumeration {
             .filter(|(identity, _)| !self.excluded.contains(*identity))
     }
 
-    /// Every unit the walk loaded, excluded ones included: what Cargo compiles,
-    /// which is what says whether a file is reached at all.
     pub(crate) fn reached(&self) -> impl Iterator<Item = &SourceUnit> {
         self.units.values()
     }
 
-    /// Keeps out of every detector and of the measurement the units
-    /// `excluded` names, ignored or generated, and, when `selected` is given,
-    /// every unit no selected member reaches.
     pub(crate) fn narrow(
         &mut self,
         excluded: impl Fn(&SourceUnit) -> bool,
@@ -428,16 +293,12 @@ impl Enumeration {
         self.selected = selected.cloned();
     }
 
-    /// Is this workspace member scanned: selected, or no selection made?
     pub(crate) fn selects(&self, package: &str) -> bool {
         self.selected
             .as_ref()
             .is_none_or(|selected| selected.contains(package))
     }
 
-    /// Did the walk follow every `mod` declaration of this package, by id,
-    /// to a file it read? Only then is a file of the package that no
-    /// declaration reached provably unreached.
     pub(crate) fn module_tree_complete(&self, package_id: &str) -> bool {
         !self.incomplete_trees.contains(package_id)
     }
@@ -446,11 +307,6 @@ impl Enumeration {
         &self.contexts
     }
 
-    /// What the walk measured, lifted out of the enumeration.
-    ///
-    /// Taken by value at the end of the run, once every producer has read the
-    /// units: the counts outlive the trees they were taken from, and nothing
-    /// else here does.
     pub(crate) fn into_measurement(mut self) -> SourceMeasurement {
         let (production_files, production_lines) = self.production_source();
         let packages = self.package_measurements();
@@ -466,10 +322,6 @@ impl Enumeration {
         }
     }
 
-    /// Production files and lines per workspace member, counted the way
-    /// `production_source` counts the workspace. A file two members reach
-    /// belongs to neither: it weighs on the workspace score alone, as a
-    /// finding with no package attribution does.
     fn package_measurements(&self) -> BTreeMap<String, PackageMeasurement> {
         let mut per_path: BTreeMap<&Path, (usize, bool, Option<String>)> = BTreeMap::new();
         for (identity, unit) in self.scanned() {
@@ -495,17 +347,6 @@ impl Enumeration {
         packages
     }
 
-    /// Files and lines of production source the walk enumerated.
-    ///
-    /// One file counts once however many units reached it: the same path parsed
-    /// under two editions is two units over one text. A path is production when
-    /// any unit of it is, which is the bias `context` already takes, since a
-    /// file the library and an integration test both reach is shipped code.
-    ///
-    /// A line is what `str::lines` calls one, blanks and comments included, so
-    /// a file whose last line carries no terminator still contributes it once.
-    /// The lines of an inline test-gated item are not production lines, and
-    /// `production_line_count` takes them out for both counts.
     fn production_source(&self) -> (usize, usize) {
         let mut per_path: BTreeMap<&Path, (usize, bool)> = BTreeMap::new();
         for (identity, unit) in self.scanned() {
@@ -521,63 +362,30 @@ impl Enumeration {
     }
 }
 
-/// What the walk measured, whatever the plan asked of it.
-///
-/// The walk runs on every plan, including one with no native rule active, so
-/// this is what a scan publishes about the workspace itself: how many files it
-/// read, how much production source they hold, whether every file it reached
-/// was actually read, and what it could not read. `SourceScan` is what the
-/// detectors found; this is what the walk saw, and the two are separate
-/// because a Clippy-only plan produces the second and never the first.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct SourceMeasurement {
     pub(crate) files_read: usize,
-    /// Files holding a unit no target reaches as test material: the files
-    /// `production_lines` is counted over, and what `source_files` publishes
-    /// when Clippy produced no dep-info. `files_read` also counts the test
-    /// files the detectors read, so publishing it put a workspace's tests in
-    /// its file count whenever Clippy was off.
     pub(crate) production_files: usize,
-    /// Lines of every unit no target reaches as test material. The score
-    /// divides by this, so it counts the population the score charges on.
     pub(crate) production_lines: usize,
-    /// Whether every file the walk reached was read. A file skipped for a
-    /// bound, or one that did not decode, makes both counts a floor on the
-    /// workspace rather than the workspace itself.
     pub(crate) complete: bool,
     pub(crate) errors: Vec<SourceError>,
-    /// The same two counts per workspace member, for the per-member score.
     pub(crate) packages: BTreeMap<String, PackageMeasurement>,
 }
 
-/// What the walk measured of one workspace member.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PackageMeasurement {
     pub(crate) files: usize,
     pub(crate) production_lines: usize,
 }
 
-/// Does any producer reading source text still have an active rule? When none
-/// does, the workspace is never walked at all.
-/// The one value every reacher agrees on, or nothing.
-///
-/// This is the module's recurring question, and answering it in one place is
-/// what keeps the answers consistent: a unit two packages reach names a package
-/// only if it is the same package, a candidate two units emit names a target
-/// only if it is the same target, and a file is test material only if every
-/// target reaching it says so. Disagreement abstains, it never arbitrates.
 fn unanimous<T: Eq>(values: impl IntoIterator<Item = T>) -> Option<T> {
     let mut values = values.into_iter();
     let first = values.next()?;
     values.all(|value| value == first).then_some(first)
 }
 
-/// The active detectors, grouped by the node kind each one declared. A node is
-/// visited once and its kind looked up once, so a registry that grows costs the
-/// traversal nothing.
 struct Registry {
     by_kind: BTreeMap<SyntaxKind, Vec<&'static Detector>>,
-    /// The version gates of the active rules that declare any.
     gates: Vec<gates::ParsedGates>,
 }
 
@@ -618,15 +426,11 @@ impl Registry {
     }
 }
 
-/// The mutable side of one inspection. `Emitter` carries what a unit is read
-/// through, this carries what the reading produces, so a detector or a counter
-/// added later widens no analysis signature.
 #[derive(Debug, Default)]
 struct Findings {
     candidates: BTreeMap<CandidateKey, Candidate>,
     counters: AnalysisCounters,
     errors: Vec<SourceError>,
-    /// Per gated rule, the most permissive answer any unit's gate gave.
     gates: BTreeMap<&'static str, gates::Gate>,
 }
 
@@ -634,8 +438,6 @@ impl Findings {
     fn into_scan(mut self, registry: &Registry) -> SourceScan {
         self.errors.sort();
         self.errors.dedup();
-        // A rule no unit opened was not evaluated: a crate at an unsupported
-        // version anywhere outranks one merely absent.
         let not_evaluated = registry
             .gates
             .iter()
@@ -678,9 +480,6 @@ fn inspect_with_limits(enumeration: &Enumeration, limits: Limits, plan: &PolicyP
         return SourceScan::default();
     }
 
-    // The walk's own refusals and counters belong to the measurement, which
-    // every plan produces. What is collected here is what soliciting the
-    // detectors produced, and nothing else, so neither is published twice.
     let mut findings = Findings::default();
     for unit in enumeration.units() {
         analyze_unit(unit, enumeration, &registry, limits, &mut findings);
@@ -688,8 +487,6 @@ fn inspect_with_limits(enumeration: &Enumeration, limits: Limits, plan: &PolicyP
     findings.into_scan(&registry)
 }
 
-/// Walks one unit's CST exactly once and solicits every active detector on the
-/// nodes of the kind it declared.
 fn analyze_unit(
     unit: &SourceUnit,
     enumeration: &Enumeration,
@@ -730,8 +527,6 @@ fn analyze_unit(
         source: unit.source(),
     };
 
-    // A gated rule's detectors read the unit only when its gate opens. A unit
-    // no manifest describes has no versions to read and opens every gate.
     let mut closed = BTreeSet::new();
     for gated in &registry.gates {
         let gate = enumeration.versions.as_ref().map_or(gates::Gate::Open, |versions| {
@@ -762,8 +557,6 @@ fn analyze_unit(
     }
 }
 
-/// Emission context of a unit. It carries what a candidate must take back from
-/// its unit, so adding a detector adds no parameter.
 struct Emitter<'a> {
     package: Option<String>,
     target: Option<String>,
@@ -796,8 +589,6 @@ impl Emitter<'_> {
             span: source_span(detection.range, &self.line_starts, self.source),
         };
         match candidates.entry(candidate.key()) {
-            // One finding reached from two units keeps only what both name,
-            // which is the same unanimity a unit applies to its own reachers.
             Entry::Occupied(mut occupied) => {
                 let existing = occupied.get_mut();
                 existing.package =

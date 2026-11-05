@@ -1,14 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! EP-001 US-002 to US-004: a pass that panics degrades into one
-//! `pass-panicked` error at its stage, the other passes' findings stay, the
-//! child Clippy started does not outlive the panic, and a panic no pass
-//! contained ends the run with one fixed line and exit 2.
-//!
-//! Every proof runs the debug binary, which panics on request at the site
-//! `RUST_DOCTOR_INJECT_PANIC` names, inside a fresh git repository that gives
-//! each native producer a finding to lose or keep.
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,16 +12,11 @@ use serde_json::Value;
 mod support;
 
 const INJECT: &str = "RUST_DOCTOR_INJECT_PANIC";
-/// What every injected payload says, which nothing the run prints may quote.
 const PAYLOAD: &str = "injected fault";
 const UNUSED: &str = "rust_doctor::cargo::unused_dependency";
 
 static NEXT_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
 
-/// A committed workspace with a finding for every native producer: a release
-/// profile keeping debug symbols, an unused path dependency, a tracked `.env`,
-/// a shell command built from an argument, a crate-level allow and a file no
-/// module declares. `main` replaces `src/main.rs` when given.
 fn workspace(main: Option<&str>, build: Option<&str>) -> PathBuf {
     let root = support::fresh_workspace("pass-containment", &NEXT_WORKSPACE);
     let files = [
@@ -88,8 +74,6 @@ fn workspace(main: Option<&str>, build: Option<&str>) -> PathBuf {
     root
 }
 
-/// The binary's JSON run on `root`, Clippy off unless `clippy` is set, with a
-/// fault injected at `site` when one is given.
 fn scan(root: &Path, site: Option<&str>, clippy: bool) -> Output {
     let mut command = support::rust_doctor();
     command
@@ -132,13 +116,9 @@ fn codes(report: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// A degraded report: incomplete rather than failed, not authoritative, and
-/// one `pass-panicked` error at `stage`, the only error it carries.
 fn assert_degraded(output: &Output, report: &Value, stage: &str) {
     assert_eq!(report["status"], "incomplete", "{}", report["errors"]);
     assert_eq!(report["complete"], false);
-    // A walk that panicked measured no line, so there is no score at all to
-    // call authoritative; every other degraded report keeps one that is not.
     let score = &report["audit"]["score"];
     assert!(score.is_null() || score["authoritative"] == false, "{}", report["audit"]);
     let errors = report["errors"].as_array().unwrap();
@@ -149,7 +129,6 @@ fn assert_degraded(output: &Output, report: &Value, stage: &str) {
         errors[0]["message"],
         format!("The {stage} pass failed; the score is not authoritative.")
     );
-    // An incomplete report exits 1, as a failed producer always made it.
     assert_eq!(output.status.code(), Some(1));
 }
 
@@ -215,8 +194,6 @@ fn a_failing_build_script_keeps_the_native_findings() {
     let report = report(&output);
     assert_eq!(report["status"], "incomplete", "{}", report["errors"]);
     assert_eq!(report["complete"], false);
-    // The errors a failed build always published, as `tests/e2e` pins them,
-    // and no containment error: the pass failed, it did not panic.
     let errors: Vec<String> = report["errors"]
         .as_array()
         .unwrap()
@@ -231,8 +208,6 @@ fn a_failing_build_script_keeps_the_native_findings() {
     }
 }
 
-/// A process the build script leaves sleeping in Cargo's group stands for the
-/// `cargo clippy` tree: the panic in the stream reader has to take it down.
 #[cfg(unix)]
 #[test]
 fn a_panic_in_the_clippy_stream_kills_the_child_tree() {

@@ -1,4 +1,4 @@
-//! A `tests/` target is not production, so none of its lines are counted.
+
 
 #[test]
 fn it_integrates() {

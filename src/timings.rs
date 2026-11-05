@@ -1,38 +1,20 @@
-//! How long each phase of one scan took, published only when asked.
-//!
-//! One recorder is shared by every pass of a run, both sides of a baseline
-//! comparison included, so a phase that runs twice is published as its sum.
-//! Clippy runs beside the native passes, so the phases overlap and their sum
-//! exceeds `total`: the difference is what the overlap saved.
-//!
-//! Nothing here reaches a report unless `--timings` asked for it. A duration
-//! differs on every run, and a default report stays byte-deterministic.
-
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-/// Milliseconds per phase. A phase the run did not reach is absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Timings {
-    /// The three toolchain version probes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub probes: Option<u64>,
-    /// Discovery, `cargo metadata` and the configuration file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<u64>,
-    /// `clippy-driver -W help`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lint_list: Option<u64>,
-    /// Clippy until the last artifact of a package outside the members it lints
-    /// arrived: the dependencies. Zero when the members depend on nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clippy_dependencies: Option<u64>,
-    /// Clippy from that last dependency artifact to its exit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clippy_linting: Option<u64>,
-    /// The workspace walk, its narrowing and the exclusions gathered from it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub walk: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,12 +25,10 @@ pub struct Timings {
     pub cargo_health: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo: Option<u64>,
-    /// Wall-clock milliseconds from the request to the report.
     pub total: u64,
 }
 
 impl Timings {
-    /// The phases the run reached, in the order a scan meets them.
     pub fn phases(&self) -> impl Iterator<Item = (&'static str, u64)> {
         [
             ("probes", self.probes),
@@ -81,8 +61,6 @@ pub(crate) enum Phase {
     Repo,
 }
 
-/// Where every pass of one run adds the time it took. Cheap to clone, and
-/// shared across the threads a run overlaps its passes on.
 #[derive(Debug, Clone)]
 pub(crate) struct TimingRecorder {
     started: Instant,
@@ -123,7 +101,6 @@ impl TimingRecorder {
     }
 }
 
-/// Runs `work` and adds its duration to `phase` when the run records timings.
 pub(crate) fn timed<T>(
     recorder: Option<&TimingRecorder>,
     phase: Phase,

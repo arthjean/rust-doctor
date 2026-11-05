@@ -1,7 +1,3 @@
-// The workspaces of `tasks/e2e-catalog/tui.md` section 1.3, each a fresh copy
-// whose git state is set here rather than inherited: the same fixture scores
-// differently inside and outside a repository, so every interactive-report
-// test names the kind it opens.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { copyWorkspace, sandbox, scratchDir, type Sandbox } from "./e2e-helpers";
@@ -15,10 +11,8 @@ export type TuiKind =
 
 export type TuiWorkspace = {
   kind: TuiKind;
-  // The path the report is opened on.
   path: string;
   sandbox: Sandbox;
-  // Set for the kinds that are git repositories.
   git?: (args: string[]) => Promise<string>;
 };
 
@@ -44,9 +38,6 @@ function fromClone(clone: SelfClone): TuiWorkspace {
   return { kind: "repo", path: clone.path, sandbox: clone.sandbox, git: (args) => clone.git(args) };
 }
 
-// `todo-git` commits the fixture with a `.gitignore` for `target/`, so the
-// only finding git adds is none: the report matches `todo` but offers the CI
-// entry.
 export async function tuiWorkspace(kind: TuiKind): Promise<TuiWorkspace> {
   switch (kind) {
     case "todo-git":
@@ -68,9 +59,6 @@ export async function tuiWorkspace(kind: TuiKind): Promise<TuiWorkspace> {
       writeFileSync(join(path, "tests/pending.rs"), "#[test]\nfn pending() {\n    todo!()\n}\n");
       return { kind, path, sandbox: sandbox(kind) };
     }
-    // Seven rules, one site each, all in production code: enough issues to
-    // step, page and count through, a number this suite fixes rather than
-    // this repository's (FR-12), and few enough to fit one page at 120x40.
     case "many": {
       const path = join(scratchDir(kind), kind);
       mkdirSync(join(path, "src"), { recursive: true });

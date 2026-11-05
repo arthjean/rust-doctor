@@ -1,4 +1,4 @@
-//! The surface of tower-http the fixture calls, with none of its behavior.
+
 
 pub mod cors {
     pub struct Any;

@@ -1,6 +1,3 @@
-// CL-01 to CL-13 of `tasks/e2e-catalog/subcommands.md` section 1: the parser
-// surface every other file builds on. Nothing here compiles a workspace but
-// the one scan that saves the report CL-11 and CL-13 read.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -156,8 +153,6 @@ describe("cli surface", () => {
     expect(run.stdout.length).toBeGreaterThan(0);
   });
 
-  // Last in the file: bun runs a file's tests in order, so this sees every
-  // command above.
   test("CL-12 no command above wrote the fake HOME", () => {
     expect(isEmptyDir(box.home)).toBe(true);
   });

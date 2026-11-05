@@ -1,5 +1,3 @@
-//! The Clippy lints admitted one at a time, outside the `correctness` pack.
-
 use super::{DiffScope, Producer, RuleDefinition, RuleLevel, RuleTier};
 
 pub(crate) static CLIPPY_ARC_WITH_NON_SEND_SYNC: RuleDefinition = RuleDefinition {

@@ -367,9 +367,6 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     current.as_object_mut().unwrap().remove("policy");
     current.as_object_mut().unwrap().remove("scope");
     current.as_object_mut().unwrap().remove("delta");
-    // Both named quantities are added by schema v9, the context of every
-    // diagnostic by v10. The five flat fields of v4 keep their name, their type
-    // and their value.
     for added in ["distinct", "occurrences"] {
         assert!(
             current["summary"]
@@ -379,9 +376,6 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
                 .is_some()
         );
     }
-    // The context is only present outside production, so the projection removes
-    // it when it is there and never requires it.
-    // v18 marks a compiler note `unscored` and names the binary in `toolchain`.
     for diagnostic in current["diagnostics"].as_array_mut().unwrap() {
         diagnostic.as_object_mut().unwrap().remove("context");
         diagnostic.as_object_mut().unwrap().remove("unscored");
@@ -389,7 +383,6 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     for added in ["rust_doctor", "removed_lint_flags"] {
         current["toolchain"].as_object_mut().unwrap().remove(added);
     }
-    // v19 counts what left the report and lists the suppression directives.
     for added in ["ignored", "excluded_generated"] {
         current["scan"].as_object_mut().unwrap().remove(added);
     }
@@ -401,8 +394,6 @@ fn default_v7_report_matches_the_frozen_v4_contract_outside_policy_scope_and_del
     assert_eq!(current, baseline);
 }
 
-/// A directory tree written from `(path, contents)` pairs, under a repository
-/// of its own so the upward walk stops there and never reaches this crate.
 fn discovery_tree(files: &[(&str, &str)]) -> PathBuf {
     let root = support::fresh_workspace("configuration-kernel-discovery", &NEXT_WORKSPACE);
     for (path, contents) in files {
@@ -438,9 +429,6 @@ fn discover(root: &Path) -> (Output, Value) {
     (output, report)
 }
 
-/// US-005: at the root of a Tauri-shaped repository the one workspace below
-/// is scanned and named on stderr; a manifest nested inside it is its member,
-/// not a second candidate, and one in an ignored or skipped tree never counts.
 #[test]
 fn the_one_workspace_below_a_repository_root_is_scanned_and_named() {
     let root = discovery_tree(&[
@@ -464,9 +452,6 @@ fn the_one_workspace_below_a_repository_root_is_scanned_and_named() {
     assert!(!String::from_utf8_lossy(&output.stdout).contains(root.to_str().unwrap()));
 }
 
-/// US-005: several workspaces below are listed, sorted, and the run refuses
-/// to pick one; manifests only in build or ignored trees keep the old error;
-/// and a manifest above the repository is never selected.
 #[test]
 fn several_workspaces_are_refused_and_nothing_qualifies_from_outside_the_repository() {
     let root = discovery_tree(&[
@@ -494,8 +479,6 @@ fn several_workspaces_are_refused_and_nothing_qualifies_from_outside_the_reposit
     assert_eq!(output.status.code(), Some(2), "{report}");
     assert_eq!(report["errors"][0]["code"], "no-manifest", "{report}");
 
-    // An outer workspace with an unrelated repository below it: the walk up
-    // from inside that repository stops at its root.
     let outer = discovery_tree(&[("Cargo.toml", &package("outer")), ("src/lib.rs", "")]);
     fs::create_dir_all(outer.join("inner/docs")).unwrap();
     let status = Command::new("git")

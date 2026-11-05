@@ -1,4 +1,4 @@
-//! An integration test root is a Cargo target, and never an orphan.
+
 
 #[test]
 fn the_crate_publishes_its_table() {

@@ -1,16 +1,7 @@
-//! EP-003 US-013: what keeps a scan off the network. A snapshot is checked out
-//! with Git LFS's filter switched off, so a pointer file is never smudged into
-//! a download, and a scan that Cargo cannot resolve offline ends incomplete on
-//! Cargo's own error rather than hanging.
-
 use super::*;
 
 static NEXT_REPOSITORY: AtomicUsize = AtomicUsize::new(0);
 
-/// A library committed with an LFS pointer file under a `filter=lfs`
-/// attribute, a staged change to it, and the filter configured the way
-/// `git lfs install` leaves it. The configuration comes last, so setting the
-/// repository up never runs the filter.
 fn lfs_repository() -> (PathBuf, PathBuf) {
     let root = support::temporary_target("baseline-network-lfs", &NEXT_REPOSITORY);
     let _ = fs::remove_dir_all(&root);
@@ -50,7 +41,6 @@ fn lfs_repository() -> (PathBuf, PathBuf) {
 
 #[test]
 fn a_snapshot_never_runs_the_lfs_filter() {
-    // A baseline scan here creates a snapshot the locked tests would count.
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (repository, root) = lfs_repository();
     let tools = root.join("tools");
@@ -65,7 +55,6 @@ fn a_snapshot_never_runs_the_lfs_filter() {
     )
     .unwrap();
 
-    // The stand-in is reachable: a plain checkout runs it, and fails on it.
     let probe = root.join("probe");
     let checkout = Command::new("git")
         .arg("checkout-index")
@@ -101,11 +90,8 @@ fn a_snapshot_never_runs_the_lfs_filter() {
     let _ = fs::remove_dir_all(root);
 }
 
-/// `CARGO_NET_OFFLINE=true` forbids Cargo the download a missing dependency
-/// needs: the scan ends incomplete, quoting Cargo, instead of waiting on it.
 #[test]
 fn an_offline_scan_of_an_uncached_dependency_ends_incomplete_on_cargo_s_error() {
-    // A baseline scan here creates a snapshot the locked tests would count.
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let root = support::temporary_target("baseline-network-offline", &NEXT_REPOSITORY);
     let _ = fs::remove_dir_all(&root);
@@ -139,8 +125,6 @@ fn an_offline_scan_of_an_uncached_dependency_ends_incomplete_on_cargo_s_error() 
     let quoted = quoted.unwrap();
     assert!(quoted.contains("rust-doctor-uncached-probe"), "{quoted}");
     assert!(quoted.contains("offline"), "{quoted}");
-    // Cargo's text is cut at 1,020 bytes (`EXCERPT_BYTES`), behind a short
-    // prefix of the scan's own.
     assert!(quoted.len() < 1_200, "{} bytes", quoted.len());
     let _ = fs::remove_dir_all(root);
 }

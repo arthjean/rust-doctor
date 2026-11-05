@@ -1,8 +1,3 @@
-// The planted probe of `tasks/e2e-catalog/failures.md` section PV: a git
-// workspace under a HOME that carries a username, beside a CARGO_HOME, a
-// target directory and a TMPDIR outside it, holding every credential shape
-// the repository pass knows and an environment full of secrets. Every value
-// is built at runtime, so no credential-shaped literal is committed.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CARGO_HOME, runCommand, scratchDir, type Sandbox } from "./e2e-helpers";
@@ -10,17 +5,13 @@ import { credential } from "./git-scenario";
 
 export const USER = "SECRETUSER";
 
-// Every planted value, and the private paths, that no output may carry.
 export type Probe = {
   workspace: string;
   sandbox: Sandbox;
   target: string;
   env: Record<string, string>;
-  // The secrets planted in tracked files.
   planted: Record<string, string>;
-  // Values that live only in the environment.
   environment: Record<string, string>;
-  // Every string no output may contain.
   needles: string[];
 };
 
@@ -58,11 +49,6 @@ function pem(body: string): string {
   return `${header}\n${body}\n${body.split("").reverse().join("")}\n${footer}\n`;
 }
 
-// The probe's tracked files. `src/lib.rs` keeps the access key beside an
-// `unwrap`, so the frame of that finding prints the key's line too, and
-// passes both a credential and plain words through `.to_string()`, so the
-// suggestion Clippy offers for the second shows what is withheld for the
-// first.
 export function probeFiles(planted: Record<string, string>): Record<string, string> {
   return {
     "Cargo.toml": '[package]\nname = "probe"\nversion = "0.1.0"\nedition = "2024"\npublish = false\n\n[workspace]\n',
@@ -146,7 +132,6 @@ export async function buildProbe(): Promise<Probe> {
   return { workspace, sandbox: box, target, env, planted, environment, needles };
 }
 
-// The needles `text` carries, each named once.
 export function leaks(text: string, needles: string[]): string[] {
   return needles.filter((needle) => text.includes(needle));
 }

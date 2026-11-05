@@ -1,15 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! US-021: every adjudication pass after `evidence_cutoff` cites the lines
-//! that decided it.
-//!
-//! Offline the suite holds what the record says about its citations: a dated
-//! pair cites on both passes, each pass covers the site's line on the site's
-//! path, and no new pair slips in undated. The quotes themselves are checked
-//! against the pinned revision by the cache-gated replays of
-//! `corpus_precision.rs`, through `quote_failures`, which these tests drive
-//! with an in-memory checkout.
-
 mod support;
 
 use std::collections::BTreeSet;
@@ -22,8 +12,6 @@ use support::corpus::{Adjudication, artifact};
 
 const DATE: &str = "2026-10-14";
 
-/// The shipped record, with its first agreeing pair dated and cited as the
-/// protocol now requires.
 fn cited() -> (Adjudication, usize) {
     let mut adjudication = artifact().adjudication;
     let index = adjudication
@@ -46,8 +34,6 @@ fn cited() -> (Adjudication, usize) {
     (adjudication, index)
 }
 
-/// The cited file as the in-memory checkout holds it: the flagged call on the
-/// site's line, closed on the next one.
 fn checkout(line: u64) -> String {
     let before = "// filler\n".repeat(usize::try_from(line - 1).unwrap());
     format!("{before}    flagged();\n}}\n")
@@ -114,9 +100,6 @@ fn a_new_undated_pair_is_refused() {
     let mut adjudication = artifact().adjudication;
     let mut extra = adjudication.agreement.pairs[0].clone();
     extra.line += 100_000;
-    // Counted on the undated pairs, not on every pair: the dated ones are
-    // the record's, and a pair past the grandfathered count is what is
-    // refused.
     extra.adjudicated_on = None;
     let undated = |pairs: &[AdjudicatedPair]| {
         pairs.iter().filter(|pair| pair.adjudicated_on.is_none()).count()
@@ -150,7 +133,6 @@ fn a_quote_the_code_does_not_hold_demotes_its_pair_to_an_escalation() {
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures.values().all(|failure| failure.contains("is not what those lines hold")));
 
-    // An unreadable file fails the citation as surely as a wrong quote.
     let unread = quote_failures([pair], |_, _| None);
     assert_eq!(unread.len(), 1);
 

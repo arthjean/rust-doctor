@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.6: resizing. The report repaints on
-// its next key (tui/BUG-08 is that it should not wait for one), so every row
-// but RSZ-01 resizes, sends a key and holds the frame to the one a session
-// opened at the new size draws in the same state.
 import { describe, expect, test } from "bun:test";
 import { copyWorkspace } from "./e2e-helpers";
 import { gitScenario } from "./git-scenario";
@@ -15,8 +11,6 @@ async function resized(session: TmuxSession, cols: number, height: number, key: 
   return press(session, key);
 }
 
-// The visible rows with the blank tail dropped, so two frames of one state
-// compare whatever was left below them.
 function frame(pane: string): string {
   return rows(pane).join("\n").trimEnd();
 }

@@ -1,9 +1,3 @@
-//! Tests of the score block the linear report draws.
-//!
-//! They live in their own file for the reason the block itself exists: the
-//! crate passes its own `oversized_unit` rule, and a module that carried its
-//! renderer and its tests in one file would not.
-
 use super::*;
 use crate::terminal_text::{display_width, sanitize};
 use crate::{ScoreDimensions, ScoreLabel};
@@ -58,19 +52,12 @@ fn render_with(score: &AuditScore, options: TerminalOptions<'_>) -> String {
     String::from_utf8(output).unwrap()
 }
 
-/// The literals this file formats with must match the columns
-/// [`score_block`] budgets for them, since the geometry is computed there
-/// and painted here.
 #[test]
 fn the_padding_this_file_writes_is_the_padding_the_geometry_counts() {
     assert_eq!(display_width(INDENT), score_block::INDENT_COLUMNS);
     assert_eq!(display_width(GAP), score_block::GAP_COLUMNS);
 }
 
-/// The width the linear report guarantees carries the block whole. The
-/// assertion beside `MIN_WIDTH` proves at compile time that the bar fits; this
-/// proves nothing else is cut at that width either: the branding drops its URL
-/// rather than cut it, and carries it whole from 48 columns.
 #[test]
 fn the_width_the_report_guarantees_carries_the_block_whole() {
     let full = format!(
@@ -113,9 +100,6 @@ fn only_a_perfect_colored_score_paints_the_bar_in_truecolor() {
     assert!(!rendered(99, ScoreLabel::Great, 100, true).contains("\u{1b}[38;2;"));
 }
 
-/// The frozen gradient must start from cyan on the left and end on orange
-/// on the right, like the final frame of the reference. A null hue shift
-/// would reverse the direction.
 #[test]
 fn the_frozen_gradient_runs_from_cyan_to_orange() {
     let colors = truecolors(&rendered(100, ScoreLabel::Great, 100, true));
@@ -148,9 +132,6 @@ fn truecolors(output: &str) -> Vec<(u8, u8, u8)> {
         .collect()
 }
 
-/// A score whose core passes could not be judged names itself rather than
-/// publishing a band, and carries the warning style whatever its label would
-/// have been.
 #[test]
 fn a_score_that_is_not_authoritative_names_itself_partial_and_drops_its_band() {
     for label in [
@@ -194,9 +175,6 @@ fn every_line_fits_the_terminal_in_both_color_modes() {
     }
 }
 
-/// The gradient advances one step per character, so a block whose characters
-/// were not all one column wide would scroll at a different speed than it
-/// measures. Every row it draws has to keep the two counts equal.
 #[test]
 fn every_row_measures_as_many_columns_as_it_has_characters() {
     for width in [40usize, 80, 100] {
@@ -218,10 +196,6 @@ fn every_row_measures_as_many_columns_as_it_has_characters() {
     }
 }
 
-/// A row cut inside its second piece keeps the first plain and the cut piece
-/// dimmed. Cutting the painted line instead lost the dimming altogether, on
-/// exactly the terminals the cut serves. The branding no longer cuts, since a
-/// cut link opens nothing, so the rule is proved on a row directly.
 #[test]
 fn a_cut_row_keeps_the_dimming_on_the_piece_it_cut() {
     let row = Row::of([
@@ -237,8 +211,6 @@ fn a_cut_row_keeps_the_dimming_on_the_piece_it_cut() {
     assert!(!painted.contains("tail"), "the tail should have been cut: {painted:?}");
 }
 
-/// The fill rule and the easing are proved in [`score_block`]; what this
-/// file owns is that the bar it paints is exactly `bar_width` cells wide.
 #[test]
 fn the_bar_is_always_exactly_as_wide_as_the_room_it_was_given() {
     assert_eq!(bar(100, 10), "██████████");
@@ -258,14 +230,10 @@ fn animated(value: u8, label: ScoreLabel) -> String {
 
 const REWIND: &str = "\u{1b}[4A\r";
 
-/// The frame an animated render left on the screen: what follows the last
-/// rewind it wrote.
 fn last_frame(output: &str) -> &str {
     output.rsplit(REWIND).next().unwrap_or(output)
 }
 
-/// An animated output must rewind exactly the height of the block between
-/// two frames, otherwise it stacks blocks instead of replacing them.
 #[test]
 fn an_animated_render_rewinds_exactly_one_block_per_frame() {
     assert_eq!(REWIND, format!("\u{1b}[{BLOCK_ROWS}A\r"));
@@ -274,14 +242,9 @@ fn an_animated_render_rewinds_exactly_one_block_per_frame() {
         output.matches(REWIND).count() as u32,
         score_block::COUNT_UP_FRAME_COUNT
     );
-    // The value and the label are painted separately, so the line is only
-    // readable once the sequences are stripped.
     assert!(sanitize(&output).contains("60 / 100 Needs work"));
 }
 
-/// A perfect score counts up scrolling the gradient over the whole block, keeps
-/// scrolling it for [`RAINBOW_FRAME_COUNT`] frames, then freezes on one last
-/// frame whose face is plain and whose bar keeps the gradient.
 #[test]
 fn an_animated_perfect_score_scrolls_then_freezes_on_one_last_frame() {
     let output = animated(100, ScoreLabel::Great);
@@ -302,8 +265,6 @@ fn an_animated_perfect_score_scrolls_then_freezes_on_one_last_frame() {
     assert!(sanitize(last).contains("100 / 100 Great"));
 }
 
-/// The frame the animation freezes on is the frame a non-animated render draws
-/// directly. Two paths computing it apart is how they drifted before.
 #[test]
 fn the_frame_the_animation_freezes_on_is_the_frame_a_static_render_draws() {
     for (value, label) in [(100, ScoreLabel::Great), (60, ScoreLabel::NeedsWork)] {
@@ -312,11 +273,6 @@ fn the_frame_the_animation_freezes_on_is_the_frame_a_static_render_draws() {
     }
 }
 
-/// One bar arithmetic for the two reports. The linear block asks
-/// [`score_block::bar_width`] for its width and [`score_block::bar_fill`] for
-/// its fill, which is what the interactive report draws from: the copy this
-/// module used to keep is how the two once disagreed on the rounding and on
-/// the guard column.
 #[test]
 fn the_two_reports_size_and_fill_their_bar_from_the_same_model() {
     for width in [

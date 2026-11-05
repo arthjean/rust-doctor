@@ -57,9 +57,6 @@ fn repository(scope: &str) -> PathBuf {
     git(&root, &["branch", "baseline"]);
     fs::write(
         root.join("member/src/lib.rs"),
-        // The module declaration is kept: dropping it would leave
-        // `member/src/nested/mod.rs` reached by nothing, which is a structural
-        // finding of its own and not the change this fixture is about.
         "pub mod nested;\n\npub fn configuration_kernel_fixture() -> bool {\n    false\n}\n",
     )
     .unwrap();
@@ -127,8 +124,6 @@ fn project_v9_value_to_v7(report: &mut Value) {
     {
         let rule = rule.as_object_mut().expect("a rule should be an object");
         rule.remove("tier").expect("schema v9 should publish a tier per rule");
-        // v18 published why a rule was not evaluated, and v23 says it of
-        // every rule gated on a crate the workspace does not depend on.
         rule.remove("not_evaluated");
     }
     report["toolchain"]
@@ -280,9 +275,6 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
 
     let mut current_wire = Vec::new();
     rust_doctor::render::render_json(&report, &mut current_wire).unwrap();
-    // The command is compared separately: it deliberately lost `--all-targets`,
-    // and it gains a `-W` with every rule admitted into the catalog. The rest
-    // of the v7 bytes must stay identical.
     let frozen = compact_json_fixture(include_str!(
         "fixtures/rule-scaling-kernel/v7-full-report.json"
     ));
@@ -300,8 +292,6 @@ fn full_v8_preserves_the_frozen_v7_bytes_and_v6_projection() {
     assert!(current["delta"].is_null());
     let mut frozen_v7: Value =
         serde_json::from_str(include_str!("fixtures/git-scope/v7-full-report.json")).unwrap();
-    // Same rule as for the bytes: the command is the record of what ran, not a
-    // clause of the schema contract.
     assert_ne!(current["scan"]["command"], frozen_v7["scan"]["command"]);
     let mut current = current;
     current["scan"].as_object_mut().unwrap().remove("command");
@@ -667,8 +657,6 @@ fn terminal_scope_failure_exposes_only_the_closed_code() {
 
 #[test]
 fn clap_rejects_invalid_scope_combinations_without_a_report_or_inspection() {
-    // A changed scope without `--base` is no longer one of them: the base is
-    // then the default branch the repository answers for.
     for arguments in [
         vec!["--staged"],
         vec!["--scope", "full", "--staged"],

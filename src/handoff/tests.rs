@@ -1,10 +1,3 @@
-//! Tests for the agent handoff.
-//!
-//! They live in a file of their own so that every file of the module stays
-//! under the thousand lines `oversized_unit` reports at.
-
-/// The handoff passes the rule the report it builds from publishes. It was one
-/// file of 1032 lines with no such test.
 #[test]
 fn the_handoff_holds_the_size_bound_the_report_reports_for() {
     for own in [
@@ -144,9 +137,6 @@ fn the_issue_prompt_names_one_rule_bounds_its_sites_and_ends_on_the_rescan() {
     );
 }
 
-/// Report text is neutralized on its way to the clipboard, and the payload
-/// carries the same bound as the agent handoff rather than growing with
-/// whatever the toolchain produced.
 #[test]
 fn the_issue_prompt_sanitizes_report_text_and_stays_inside_the_handoff_bound() {
     let sites = ten_sites();
@@ -190,8 +180,6 @@ fn prompt_uses_bounded_groups_relative_locations_and_rescan_command() {
     );
     assert!(!prompt.as_str().contains("source is deliberately excluded"));
     assert!(prompt.as_str().len() <= MAX_HANDOFF_BYTES);
-    // US-045: the rule's not-a-defect check sits under its help, and the
-    // agent is told to apply it before editing.
     let check = rust_doctor::presentation::canonical_not_a_defect("clippy::todo").unwrap();
     let help_at = prompt.as_str().find("   Help: ").unwrap();
     let check_at = prompt.as_str().find(&format!("   Not a defect when: {check}")).unwrap();
@@ -326,17 +314,6 @@ fn agent_launch_passes_one_argument_and_uses_the_workspace_cwd() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Runs `attempt` until the freshly written script stops being reported
-/// busy.
-///
-/// These tests write a shell script and execute it immediately. The kernel
-/// answers `ETXTBSY` when any process still holds that file open for
-/// writing, and a sibling test thread doing its own `fork` inherits every
-/// descriptor this process had open at that instant, including one this
-/// test just closed (rust-lang/rust#114554). The window is real on a loaded
-/// two-core runner and says nothing about the handoff, so it is waited out
-/// rather than asserted. A failure that is not the race still surfaces,
-/// because it is returned unchanged on the first attempt that shows it.
 #[cfg(unix)]
 fn without_text_busy(
     mut attempt: impl FnMut() -> Result<(), HandoffError>,
@@ -411,8 +388,6 @@ fn missing_agent_is_rejected_before_spawn() {
     );
 }
 
-/// The prompt names what the repairs are worth: the projected value the three groups reach, so
-/// the agent has the stopping condition the skill asks it to rescan for.
 #[test]
 fn the_prompt_names_the_projected_value_the_repairs_reach() {
     let prompt = payload();
@@ -431,8 +406,6 @@ fn the_prompt_names_the_projected_value_the_repairs_reach() {
     assert!(!prompt.as_str().contains("Ceiling:"), "a P2 rule holds no overall ceiling");
 }
 
-/// Under a ceiling the prompt says so first, and names the rules holding it from the catalog the
-/// binary shipped with rather than from report text.
 #[test]
 fn the_prompt_names_the_ceiling_and_the_rules_holding_it_first() {
     let mut report = report();
@@ -450,8 +423,6 @@ fn the_prompt_names_the_ceiling_and_the_rules_holding_it_first() {
     assert!(audit_at < ceiling_at && ceiling_at < group_at, "{text}");
 }
 
-/// A test-context finding of the ceiling's tier weighs nothing and holds nothing, so the prompt
-/// names only the rule whose scored sites impose the ceiling.
 #[test]
 fn the_prompt_never_names_a_test_context_finding_as_holding_the_ceiling() {
     let mut report = report();
@@ -469,8 +440,6 @@ fn the_prompt_never_names_a_test_context_finding_as_holding_the_ceiling() {
     assert!(prompt.as_str().contains(ceiling), "{}", prompt.as_str());
 }
 
-/// US-001: the prompt an agent receives is built from a real scan of a
-/// committed key, and carries the finding without a byte of the value.
 #[test]
 fn the_handoff_prompt_of_a_detected_credential_never_carries_the_value() {
     let root = scratch("handoff-tests", "credential");
@@ -516,7 +485,6 @@ fn the_handoff_prompt_of_a_detected_credential_never_carries_the_value() {
     assert!(prompt.as_str().contains("hardcoded_credential"), "{}", prompt.as_str());
     assert!(!prompt.as_str().contains(&key), "{}", prompt.as_str());
 
-    // US-032: the prompt printed when no clipboard takes it is the same one.
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
     print_instead(&HandoffError::ClipboardUnavailable.to_string(), &prompt, &mut stdout, &mut stderr);
     let printed = String::from_utf8(stdout).unwrap();
@@ -524,8 +492,6 @@ fn the_handoff_prompt_of_a_detected_credential_never_carries_the_value() {
     assert!(!printed.contains(&key), "{printed}");
 }
 
-/// US-032: an agent that cannot start is named on stderr, and the prompt it
-/// would have received prints between the rulers on stdout.
 #[test]
 fn an_agent_that_cannot_start_is_named_and_its_prompt_printed() {
     let root = scratch("handoff-tests", "agent-missing");

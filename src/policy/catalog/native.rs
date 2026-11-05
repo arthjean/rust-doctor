@@ -1,6 +1,3 @@
-//! The rules rust-doctor's own passes produce: the Cargo health, repository,
-//! source kernel and structure rules.
-
 use super::{CrateGate, DiffScope, Producer, RuleDefinition, RuleLevel, RuleTier};
 
 pub(crate) static CARGO_DUPLICATE_MAJOR_VERSIONS: RuleDefinition = RuleDefinition {
@@ -41,10 +38,6 @@ pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
 };
 pub(crate) static CARGO_PERMISSIVE_RUSTFLAGS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::permissive_rustflags",
-    // Reliability at P2: a flag that caps or silences lints neutralizes the
-    // scan itself for every build of the workspace, which is graver than
-    // weakening the shipped artifact. The manifest lint table is a P3 since
-    // the scan honors its allows and reports each one once, as a choice.
     category: "reliability",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
@@ -93,9 +86,6 @@ pub(crate) static CARGO_UNUSED_DEPENDENCY: RuleDefinition = RuleDefinition {
 };
 pub(crate) static CARGO_UNCHECKED_RELEASE_OVERFLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unchecked_release_overflow",
-    // The rule states a tradeoff, not a verdict: the Rust Performance Book
-    // measures overflow checks at a few percent on integer-heavy code, and the
-    // help names that cost so the reader can decline it.
     category: "reliability",
     producer: Producer::CargoHealth,
     default_level: RuleLevel::Warn,
@@ -372,9 +362,6 @@ pub(crate) static STRUCTURE_COMPLEX_FUNCTION: RuleDefinition = RuleDefinition {
 };
 pub(crate) static STRUCTURE_CRATE_LEVEL_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::crate_level_allow",
-    // Reliability, like the manifest lint table: a file-wide allow neutralizes
-    // the scan for everything the file will ever contain, which is a different
-    // act from an untidy exemption on one item.
     category: "reliability",
     producer: Producer::Structure,
     default_level: RuleLevel::Warn,

@@ -1,8 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! The line an agent reads on stderr when its rust-doctor skill is missing or
-//! was written by another version, and the silence when it is current.
-
 mod support;
 
 use std::fs;
@@ -15,7 +12,6 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn workspace() -> PathBuf {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kernel-contract/todo");
     let root = support::fresh_workspace("agent-skill-notice", &COUNTER);
-    // The fixture's lockfile is gitignored, so a fresh checkout has none.
     fs::copy(fixture.join("Cargo.toml"), root.join("Cargo.toml")).unwrap();
     support::copy_tree(&fixture.join("src"), &root.join("src"));
     root

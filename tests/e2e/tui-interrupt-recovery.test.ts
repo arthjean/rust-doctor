@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.10: signals by phase. During the scan
-// the test synchronizes on the sleeping build script's pid file; in the
-// report it asserts on the exit status and on the byte log, the only place a
-// restored cursor shows once the pane is dead.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { copyWorkspace } from "./e2e-helpers";
@@ -13,7 +9,6 @@ const INTERRUPTED = "Scan failed: The scan was interrupted by a signal. (clippy/
 const HIDE = "\x1b[?25l";
 const SHOW = "\x1b[?25h";
 
-// The sleeping workspace in a pane, once its build script runs.
 async function scanning(): Promise<{ session: TmuxSession; sleeper: number }> {
   const ws = await tuiWorkspace("sleeping");
   const pidFile = join(ws.sandbox.dir, "sleeper.pid");
@@ -27,8 +22,6 @@ async function gone(pid: number, timeoutMs = 3_000): Promise<boolean> {
   return !alive(pid);
 }
 
-// The scan ended by `interrupt`: exit 130 within a second, the failure line,
-// no menu, and no build script left behind.
 async function endsInterrupted(interrupt: (session: TmuxSession) => void): Promise<void> {
   const { session, sleeper } = await scanning();
   try {
@@ -46,21 +39,15 @@ async function endsInterrupted(interrupt: (session: TmuxSession) => void): Promi
   }
 }
 
-// A signal while the report waits for a key: exit 130 and a byte log that
-// shows the cursor again after hiding it.
 async function restoresCursor(signal: NodeJS.Signals): Promise<void> {
   const ws = await tuiWorkspace("denied");
   const session = openReport(ws.path, { sandbox: ws.sandbox });
   try {
     await session.waitForPane(MENU_HINT, 15_000);
     process.kill(session.panePid(), signal);
-    // 130 even when the report's quit path wins the race against the signal
-    // watcher (tui/BUG-14), and the terminal is restored.
     expect(await session.waitForExit()).toBe(130);
     const log = await settledLog(session);
     expect(log.lastIndexOf(HIDE)).toBeGreaterThanOrEqual(0);
-    // The main loop can repaint the frame it was drawing once more after the
-    // restore; a repaint never hides the cursor, so the shown cursor stands.
     expect(log.lastIndexOf(SHOW)).toBeGreaterThan(log.lastIndexOf(HIDE));
   } finally {
     session.kill();

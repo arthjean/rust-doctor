@@ -10,20 +10,8 @@ use super::SourceFileInventory;
 use crate::execution::{CapturedMessage, ScanExecution};
 use crate::source_kernel::SourceMeasurement;
 
-// This is one budget for the complete scan, not one allowance per artifact. Otherwise a
-// workspace with many dep-info files could multiply the limit without bound.
 const DEP_INFO_BYTES_LIMIT: u64 = 8 * 1024 * 1024;
 
-/// What the score is computed against.
-///
-/// The file count has three possible sources, preferred in order of exactness:
-/// what the compiler actually built, what the walk actually read, and the
-/// target roots, which are a floor. The line count has one, the walk, because
-/// it is the only pass that decoded the files; a scan with no walk publishes
-/// no lines rather than an estimate of them.
-///
-/// The two are counted against the same workspace but not by the same pass, so
-/// the inventory is complete only when both halves are.
 pub(super) fn collect(
     metadata: &Metadata,
     scan: Option<&ScanExecution>,
@@ -36,10 +24,6 @@ pub(super) fn collect(
         complete: measurement.complete,
     });
 
-    // An incomplete compiler count is a floor, the target roots of a build
-    // that produced no artifact, and so is the walk's: the larger floor is
-    // published. The roots alone put 56 files beside members the walk had
-    // measured at 518 on a workspace Cargo refused to build.
     let files = match (compiler, walked) {
         (Some(compiler), Some(walked)) if !compiler.complete => SourceFileInventory {
             files: compiler.files.max(walked.files),
@@ -61,9 +45,6 @@ fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
         return SourceFileInventory::default();
     };
     let (_, roots, roots_are_complete) = workspace_targets(metadata, &workspace_root);
-    // Target roots are a floor on the source files, never the count: every module a root
-    // reaches is missing from it. Only a workspace with no target at all is counted exactly,
-    // which is why anything but an empty set reports as partial.
     SourceFileInventory {
         files: roots.len(),
         production_lines: 0,
@@ -106,8 +87,6 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
         }
     }
 
-    // Cargo answered with no artifact for a workspace that declares targets, so the dep-info
-    // inventory never happened: fall back to the roots and say the count is a floor.
     if expects_artifact && !saw_artifact {
         files.extend(target_roots);
         complete = false;
@@ -216,12 +195,6 @@ fn dep_info_path(artifact: &Path, custom_build: bool) -> Option<PathBuf> {
 }
 
 fn parse_dep_info(contents: &[u8]) -> Result<Vec<PathBuf>, ()> {
-    // Cargo dep-info is Makefile-like. We need only the first target's dependency list, so this
-    // parser handles its escaping and continuations and fails closed on malformed input instead
-    // of accepting the rest of the file as source inventory.
-    //
-    // The walk consumes the slice rather than indexing it: the bound on where the cursor may
-    // land is then the slice itself, not arithmetic a reader has to replay to trust the end.
     let separator = contents
         .windows(2)
         .position(|window| matches!(window, [b':', byte] if byte.is_ascii_whitespace()))
@@ -231,8 +204,6 @@ fn parse_dep_info(contents: &[u8]) -> Result<Vec<PathBuf>, ()> {
     let mut rest = contents.get(separator + 1..).ok_or(())?;
     while let Some((&byte, tail)) = rest.split_first() {
         rest = match byte {
-            // The first rule ends at its first unescaped line break, and whatever follows
-            // describes another target.
             b'\n' | b'\r' => break,
             b'\\' => escape(tail, &mut token)?,
             _ if byte.is_ascii_whitespace() => {
@@ -249,11 +220,6 @@ fn parse_dep_info(contents: &[u8]) -> Result<Vec<PathBuf>, ()> {
     Ok(dependencies)
 }
 
-/// Consumes one backslash escape and answers what is left after it.
-///
-/// Cargo escapes a space, a tab, a hash, a colon and a backslash inside a path, and continues a
-/// rule across lines with a backslash before the line break. Any other backslash stands for
-/// itself, so the byte after it is handed back unread rather than consumed.
 fn escape<'a>(tail: &'a [u8], token: &mut Vec<u8>) -> Result<&'a [u8], ()> {
     match tail {
         [b'\n', rest @ ..] => Ok(rest),
@@ -280,17 +246,9 @@ fn push_dependency(dependencies: &mut Vec<PathBuf>, token: &mut Vec<u8>) -> Resu
     Ok(())
 }
 
-/// What one candidate path contributes to the inventory.
-///
-/// The three outcomes are not two: a path that is not workspace source is a fact, a path that
-/// could not be resolved is the absence of one. Only the second costs the inventory its
-/// completeness, and spelling them apart is what keeps a caller from trading one for the other.
 enum Confined {
-    /// Workspace source, canonicalized, to count once.
     Counted(PathBuf),
-    /// Not workspace source: not Rust, not a file, or outside the workspace root.
     Excluded,
-    /// The path did not resolve, so nothing can be said about what it holds.
     Unresolved,
 }
 
@@ -352,8 +310,6 @@ mod tests {
         );
     }
 
-    /// A backslash before anything Cargo does not escape stands for itself, and the byte after
-    /// it is read again rather than swallowed: a lone carriage return still ends the rule.
     #[test]
     fn an_unrecognized_escape_keeps_its_backslash_and_yields_the_next_byte() {
         assert_eq!(

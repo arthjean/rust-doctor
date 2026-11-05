@@ -1,7 +1,3 @@
-// Holds the suite to its catalogs: every row of a catalog section the suite
-// claims is automated exactly once, by a test title that starts with the row
-// ID or by a `test.each` table row whose first cell is the ID. A section is
-// claimed here when the story that automates it lands.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -68,8 +64,6 @@ const CLAIMS: Claim[] = [
   },
 ];
 
-// The row IDs of the claimed sections: the first cell of every table row
-// under a matching heading, until the next heading of any level.
 export function catalogRows(markdown: string, sections: RegExp): string[] {
   const rows: string[] = [];
   let claimed = false;
@@ -82,8 +76,6 @@ export function catalogRows(markdown: string, sections: RegExp): string[] {
   return rows;
 }
 
-// The self-scan invariants are a numbered list, not a table: item `n` of a
-// claimed section is row `INV-0n`.
 export function invariantRows(markdown: string, sections: RegExp): string[] {
   const rows: string[] = [];
   let claimed = false;
@@ -99,9 +91,6 @@ function escape(id: string): string {
   return id.replace(/[-]/g, "\\-");
 }
 
-// How many times `source` automates `id`: a title opening a test call, or a
-// table row opening with the ID. A commented-out line, a skipped test and a
-// todo automate nothing.
 export function occurrences(source: string, id: string): number {
   source = source.replace(/^\s*\/\/.*$/gm, "");
   const title = new RegExp(`(?:\\b(?:test|it|failing|only)|\\))\\(\\s*(["'\`])${escape(id)}[\\s:]`, "g");

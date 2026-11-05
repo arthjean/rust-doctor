@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 3, item 3: every way the
-// installed layout can fail to yield a native binary, on the layout npm
-// really produces rather than an injected resolver. Each case breaks its own
-// copy of the installed prefix, and the launcher must answer with one line
-// under 1,024 bytes on stderr, nothing on stdout, and exit 1.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,7 +30,6 @@ describe("the launcher refuses a broken install in one line", () => {
   test("the native binary is gone", async () => {
     const { launcher, native } = await installedCopy("no-binary");
     rmSync(join(native, "bin/rust-doctor"));
-    // The manifest chose this root, so its binary is never looked for elsewhere.
     await expectOneLine(launcher, `Native package ${NATIVE_PACKAGE} is incomplete. Reinstall rust-doctor with its optional dependencies.`);
   });
 

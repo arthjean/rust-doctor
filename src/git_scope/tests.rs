@@ -62,8 +62,6 @@ fn closed_base_grammar_accepts_only_named_selectors_and_full_oids() {
     assert!(ScopeRequest::Full.validate().is_ok());
 }
 
-/// A validated selector never prints the branch it holds, in any trace that
-/// reaches a log or an error.
 #[test]
 fn a_validated_selector_redacts_itself() {
     let scope = validated_files("release/1.2.3");
@@ -134,15 +132,12 @@ fn files_runs_three_exact_calls_and_normalizes_the_result() {
         scope.files(),
         Some(&["src/a.rs".to_owned(), "src/z.rs".to_owned()][..])
     );
-    // The fourth call counts the untracked Rust files the scope left out.
     assert_eq!(calls.borrow()[3][11], OsStr::new("ls-files"));
     assert_eq!(calls.borrow()[3].last().unwrap(), OsStr::new("*.rs"));
     assert_eq!(scope.untracked_unreported(), Some(1));
-    // A base the caller named is never published.
     assert_eq!(scope.base_ref(), None);
 }
 
-/// A baseline scope stops at the merge base and never asks for a diff.
 #[test]
 fn baseline_resolves_the_base_and_carries_no_file_list() {
     let responses = RefCell::new(VecDeque::from([
@@ -207,8 +202,6 @@ fn failures_stop_before_later_calls_and_never_transport_hostile_output() {
         })
         .unwrap_err();
         assert_eq!((error.stage, error.code), ("scope", expected));
-        // A base or a merge base that failed asks once more, whether the
-        // clone is shallow; nothing else runs after a failure.
         let probes = usize::from(failing_call < 2);
         assert_eq!(*calls.borrow(), failing_call + 1 + probes);
         assert!(!error.message.contains("credential=secret"));
@@ -224,8 +217,6 @@ fn missing_and_ambiguous_merge_bases_fail_before_diff() {
             "merge-base-ambiguous",
         ),
         (b"not-an-oid\n".to_vec(), "merge-base-unavailable"),
-        // A merge base of another hash length is not an answer about the
-        // commit that was asked for.
         (
             format!("{}\n", "a".repeat(64)).into_bytes(),
             "merge-base-unavailable",
@@ -242,7 +233,6 @@ fn missing_and_ambiguous_merge_bases_fail_before_diff() {
         })
         .unwrap_err();
         assert_eq!(error.code, expected);
-        // The shallow probe answers nothing here, so the code stands.
         assert_eq!(*calls.borrow(), 2 + usize::from(expected == "merge-base-unavailable"));
     }
 }
@@ -252,8 +242,6 @@ fn all_output_and_path_boundaries_fail_atomically() {
     assert!(parse_single_oid(format!("{BASE}\n{MERGE_BASE}\n").as_bytes()).is_none());
     assert!(parse_single_oid(b"not-an-oid\n").is_none());
     assert_eq!(parse_paths(&[]).unwrap(), Vec::<String>::new());
-    // Normalization is what the parser answers; the ordering is the
-    // constructor's, and `files_scope` is where it is stated.
     assert_eq!(
         parse_paths(b"space name\0tab\tname\0line\nname\0percent%name\0").unwrap(),
         ["space name", "tab%09name", "line%0Aname", "percent%25name"]
@@ -279,8 +267,6 @@ fn all_output_and_path_boundaries_fail_atomically() {
     }
 }
 
-/// One constructor owns the order `includes` searches, so a scope built from
-/// unsorted, duplicated paths still answers correctly.
 #[test]
 fn the_file_constructor_owns_the_order_membership_is_searched_in() {
     let scope = ScopeReport::files_scope(
@@ -302,7 +288,6 @@ fn the_file_constructor_owns_the_order_membership_is_searched_in() {
     assert!(!scope.includes(Some("src/missing.rs")));
     assert!(!scope.includes(None));
 
-    // Every other shape admits everything, with or without a path.
     for open in [
         ScopeReport::full(),
         ScopeReport::baseline_scope(MERGE_BASE.to_owned()),
@@ -333,8 +318,6 @@ fn serialized_scope_limit_accepts_the_last_byte_and_rejects_the_boundary() {
     );
 }
 
-/// A diff inside the transport bound can still normalize past the report bound,
-/// which is why the report is measured after normalization and not before.
 #[test]
 fn normalized_scope_cannot_expand_beyond_the_report_limit() {
     let mut diff = Vec::new();
@@ -362,7 +345,6 @@ fn normalized_scope_cannot_expand_beyond_the_report_limit() {
     assert_eq!((error.stage, error.code), ("scope", "git-output-too-large"));
 }
 
-/// Answers each call by the git operation it runs, recording the operations.
 fn scripted<'a>(
     calls: &'a RefCell<Vec<Vec<String>>>,
     answer: impl Fn(&[String]) -> Result<Vec<u8>, ()> + 'a,
@@ -381,8 +363,6 @@ fn lines_scope(base: Option<&str>, options: ChangeOptions) -> ValidatedScope {
     changed(ChangeMode::Lines, base, options).validate().unwrap()
 }
 
-/// Without `--base`, the first candidate git resolves is the base, and the
-/// report names it.
 #[test]
 fn a_missing_base_is_the_first_default_branch_that_resolves() {
     for (remote_head, resolvable, expected) in [
@@ -417,8 +397,6 @@ fn a_missing_base_is_the_first_default_branch_that_resolves() {
     }
 }
 
-/// On the branch the base names, the work left to judge is what has not been
-/// committed, so the base becomes `HEAD`.
 #[test]
 fn on_the_default_branch_the_base_is_head() {
     let calls = RefCell::new(Vec::new());
@@ -458,7 +436,6 @@ fn no_resolvable_candidate_fails_with_base_undetected() {
     .unwrap_err();
     assert_eq!((error.stage, error.code), ("scope", "base-undetected"));
     assert!(error.message.contains("--base"), "{}", error.message);
-    // The four fallbacks plus origin/HEAD, and no diff.
     assert!(calls.borrow().iter().all(|operation| operation[0] != "diff"));
 }
 
@@ -487,8 +464,6 @@ fn a_merge_base_missing_from_a_shallow_clone_says_so() {
     }
 }
 
-/// A base a depth-1 checkout never fetched is the same missing fetch as a
-/// missing merge base, and gets the same remedy.
 #[test]
 fn a_base_missing_from_a_shallow_clone_says_so() {
     for (shallow, expected) in [("true", "shallow-clone"), ("false", "base-unavailable")] {
@@ -513,8 +488,6 @@ fn a_base_missing_from_a_shallow_clone_says_so() {
     }
 }
 
-/// A staged scan without `--base` compares the index with `HEAD`, through
-/// `diff --cached`, and never asks which branch is the default.
 #[test]
 fn a_staged_scope_diffs_the_index_against_head() {
     let calls = RefCell::new(Vec::new());
@@ -543,9 +516,6 @@ fn a_staged_scope_diffs_the_index_against_head() {
     assert!(!scope.includes_span(Some("src/lib.rs"), Some((3, 3))));
 }
 
-/// A change on lines 10 to 12 leaves a finding on line 40 out of a lines
-/// scope; an untracked file included is changed whole; a finding with no span
-/// or no path is out.
 #[test]
 fn a_lines_scope_keeps_a_finding_only_where_its_span_meets_a_change() {
     let calls = RefCell::new(Vec::new());
@@ -565,8 +535,6 @@ fn a_lines_scope_keeps_a_finding_only_where_its_span_meets_a_change() {
         }),
     )
     .unwrap();
-    // A pure deletion leaves its file changed: listed, with a point and no
-    // line, so no span meets it.
     assert_eq!(
         scope.files(),
         Some(
@@ -580,7 +548,6 @@ fn a_lines_scope_keeps_a_finding_only_where_its_span_meets_a_change() {
     assert!(!scope.includes_span(Some("src/lib.rs"), Some((40, 40))));
     assert!(scope.includes_span(Some("src/lib.rs"), Some((12, 20))));
     assert!(scope.includes_span(Some("src/lib.rs"), Some((1, 10))));
-    // US-002: a span-less finding is about its file, in scope when it changed.
     assert!(scope.includes_span(Some("src/lib.rs"), None));
     assert!(scope.includes_span(Some("src/gone.rs"), None));
     assert!(!scope.includes_span(Some("src/other.rs"), None));
@@ -622,9 +589,6 @@ fn untracked_files_join_only_a_working_tree_files_or_lines_scope() {
     }
 }
 
-/// US-004: a contextual scope widens an item-reach rule to the function
-/// around its site and a file-reach rule to its file, never a line-reach rule,
-/// and a file that does not parse falls back to the line test.
 #[test]
 fn a_contextual_scope_widens_only_the_reach_a_rule_declares() {
     let source = "fn held() {\n    let guard = lock();\n    wait();\n}\n\nfn other() {}\n";
@@ -644,18 +608,13 @@ fn a_contextual_scope_widens_only_the_reach_a_rule_declares() {
     assert!(!lines.includes_reach(guard.0, guard.1, DiffScope::Item, read(source)));
     assert!(!contextual.includes_reach(guard.0, guard.1, DiffScope::Line, read(source)));
     assert!(contextual.includes_reach(guard.0, guard.1, DiffScope::File, read(source)));
-    // Another function of the same file did not change.
     assert!(!contextual.includes_reach(guard.0, Some((6, 6)), DiffScope::Item, read(source)));
-    // A file that does not parse is judged on its line, which did not change.
     let broken = "fn held( {\n    let guard = lock();\n    wait();\n}\n";
     assert!(!contextual.includes_reach(guard.0, guard.1, DiffScope::Item, read(broken)));
     assert!(!contextual.includes_reach(guard.0, guard.1, DiffScope::Item, |_| None));
     assert!(!contextual.includes_reach(Some("src/other.rs"), guard.1, DiffScope::File, read(source)));
 }
 
-/// Every file of the module stays under the bound `oversized_unit` reports at,
-/// tests included: the pass that scopes the scan has to pass the rule it
-/// raises.
 #[test]
 fn the_scope_holds_the_size_bound_it_reports_for() {
     for own in [

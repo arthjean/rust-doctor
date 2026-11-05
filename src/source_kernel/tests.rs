@@ -11,6 +11,9 @@ mod measurement;
 mod registry;
 mod variants;
 
+#[path = "../../tests/support/fixture_inputs.rs"]
+mod fixture_inputs;
+
 use super::walk::enumerate_with_limits;
 use super::*;
 
@@ -22,12 +25,6 @@ use crate::policy::{
     STRUCTURE_STACKED_ALLOW, STRUCTURE_UNREASONED_ALLOW, STRUCTURE_UNREFERENCED_FEATURE,
 };
 
-/// One pass over a fixture, both halves of it.
-///
-/// Production keeps them apart, because the walk runs on every plan and the
-/// detectors only on a plan that solicits them; a test scanning one fixture
-/// wants to assert on both, and on the errors as one list the way the report
-/// publishes them at stage `source`.
 struct Scanned {
     candidates: Vec<Candidate>,
     errors: Vec<SourceError>,
@@ -76,9 +73,7 @@ fn solicitations(counters: &AnalysisCounters, id: &str) -> usize {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/source-kernel")
-        .join(name)
+    fixture_inputs::fixture_dir(&format!("source-kernel/{name}"))
 }
 
 fn metadata(name: &str) -> Metadata {
@@ -104,8 +99,6 @@ static SILENT_RULE: RuleDefinition = RuleDefinition {
     requires: &[],
 };
 
-/// A registered detector that never emits: it proves that a silent
-/// detector costs one solicitation and nothing else.
 static SILENT: Detector = Detector {
     definition: &SILENT_RULE,
     node: SyntaxKind::SOURCE_FILE,
@@ -119,7 +112,6 @@ fn silent(_: &detectors::Context<'_>, _: &SyntaxNode) -> Option<Detection> {
     None
 }
 
-/// Synthetic unit: the registry is exercised without touching the disk.
 fn synthetic_unit(source: &str) -> SourceUnit {
     let parse = SourceFile::parse(source, Edition::Edition2024);
     SourceUnit {
@@ -260,9 +252,6 @@ fn policy_prunes_source_io_and_each_inactive_predicate() {
         .with_rule(STRUCTURE_OVERSIZED_UNIT.id, RuleLevel::Off)
         .with_rule(STRUCTURE_UNREFERENCED_FEATURE.id, RuleLevel::Off);
     let all_off = PolicyPlan::compile(&all_off).expect("policy should compile");
-    // The walk still runs, since the score is measured against the workspace
-    // whatever the plan asked for; what a pruned policy proves is that no
-    // detector was solicited.
     let scanned = scan_for_plan(&metadata, &all_off);
     assert!(scanned.candidates.is_empty());
     assert!(scanned.errors.is_empty());
@@ -295,8 +284,6 @@ fn policy_prunes_source_io_and_each_inactive_predicate() {
     );
 }
 
-/// The imported form and the fully qualified form go through the same
-/// mechanism, and an undecidable provenance silences the detector.
 #[test]
 fn detectors_resolve_written_paths_through_the_alias_map() {
     let both = "use std::process::Command;
@@ -330,14 +317,6 @@ fn build() { let _ = Client::builder().danger_accept_invalid_certs(true); }",
     }
 }
 
-/// `format!` arguments are classified after parsing, never after splitting the
-/// token tree on commas and gluing the remaining tokens back into text.
-///
-/// The generic arguments below carry a comma that separates nothing, and the
-/// explicit `{2}` has to land on the third argument rather than on whatever
-/// fragment a text split left in third position. The named forms are read as
-/// assignment expressions, which is what a hand-written guard against `==` used
-/// to approximate.
 #[test]
 fn format_arguments_are_classified_after_parsing_not_after_splitting_text() {
     let shell = |payload: &str| {
@@ -348,8 +327,6 @@ fn run(user: &str) {{ let _ = Command::new(\"sh\").arg(\"-c\").arg({payload}); }
     };
 
     for constant in [
-        // `{2}` names `\"c\"`, a literal, and the comma inside the generic
-        // arguments shifts no position.
         "format!(\"echo {2}\", \"a\", probe::<u8, u16>(), \"c\")",
         "format!(\"echo {name}\", name = \"literal\")",
         "format!(\"echo {}\", \"a, b\")",
@@ -364,11 +341,8 @@ fn run(user: &str) {{ let _ = Command::new(\"sh\").arg(\"-c\").arg({payload}); }
         "format!(\"echo {user}\")",
         "format!(\"echo {}\", user)",
         "format!(\"echo {name}\", name = user)",
-        // A comparison is not a named argument, whatever splitting its `=`
-        // would have suggested.
         "format!(\"echo {}\", user == \"root\")",
         "format!(\"echo {}\", probe::<u8, u16>(user))",
-        // `format!` means the same by each delimiter pair.
         "format!{\"echo {user}\"}",
     ] {
         assert_eq!(
@@ -379,8 +353,6 @@ fn run(user: &str) {{ let _ = Command::new(\"sh\").arg(\"-c\").arg({payload}); }
     }
 }
 
-/// A unit whose alias map saturates is still analysed, but no provenance
-/// is decidable in it any more.
 #[test]
 fn a_saturated_alias_map_reports_a_bounded_error_and_abstains() {
     let source = "use std::process::Command;
@@ -503,12 +475,6 @@ fn symlinks_outside_the_workspace_are_rejected_before_reading() {
     use std::fs;
     use std::os::unix::fs::symlink;
 
-    // Built outside this repository on purpose. Under `target/` the tree
-    // inherits whatever that path is on the machine, and a `target` symlink
-    // pointing at a build directory elsewhere makes every unit resolve
-    // outside the workspace root cargo reports, so the walk reads nothing
-    // and the test fails for a reason that has nothing to do with symlink
-    // containment.
     let root = std::env::temp_dir()
         .canonicalize()
         .unwrap()
@@ -575,9 +541,6 @@ fn invalid_utf8_is_a_private_read_failure_that_still_charges_the_byte_budget() {
     assert_eq!(scanned.errors.len(), 1);
     assert_eq!(scanned.errors[0].code, "read-failed");
     assert!(!scanned.errors[0].message.contains(env!("CARGO_MANIFEST_DIR")));
-    // The two bytes left the disk, so the budget was charged for them even
-    // though no unit came out. A walk that charged only what decoded could
-    // read the per-file limit over and over with the total never moving.
     assert!(scanned.walk.bytes_read > 0);
     assert!(scanned.walk.bytes_read < clean.walk.bytes_read);
 }
@@ -632,10 +595,6 @@ fn unsupported_package_editions_fail_closed() {
 #[test]
 fn file_total_unit_and_depth_limits_stop_the_required_work() {
     let metadata = metadata("precision");
-    // The last member is whether the limit cost the walk a file. Four of the
-    // five refuse to load one, so the line count is a floor; the alias budget
-    // is spent after the file is a unit, so it truncates what the detectors
-    // resolve and never what the count saw.
     for (limits, limit, exhaustive) in [
         (
             Limits {
@@ -687,10 +646,6 @@ fn file_total_unit_and_depth_limits_stop_the_required_work() {
     }
 }
 
-/// The global byte budget ends the walk rather than skipping one file, and
-/// that decision is carried by `Loaded`, not recovered from the sentence the
-/// limit printed. Exhausting it must leave the walk with fewer units than a
-/// complete run, not merely with an error beside a complete result.
 #[test]
 fn an_exhausted_byte_budget_stops_the_walk_instead_of_skipping_a_file() {
     let metadata = metadata("precision");
@@ -752,24 +707,17 @@ fn twenty_metadata_reachability_permutations_are_identical() {
     }
 }
 
-/// Unanimity is the module's one recurring answer, so it is proved once: an
-/// empty reach and a disagreeing reach both abstain, and only a reach that
-/// agrees publishes a value.
 #[test]
 fn unanimity_abstains_on_disagreement_and_on_an_empty_reach() {
     assert_eq!(unanimous(Vec::<u8>::new()), None);
     assert_eq!(unanimous([7]), Some(7));
     assert_eq!(unanimous([7, 7, 7]), Some(7));
     assert_eq!(unanimous([7, 7, 8]), None);
-    // Options collapse the same way, which is what lets a missing mark and a
-    // disagreeing mark be one case at the call sites.
     assert_eq!(unanimous([Some(1), Some(1)]).flatten(), Some(1));
     assert_eq!(unanimous([Some(1), None]).flatten(), None);
     assert_eq!(unanimous([None::<u8>, None]).flatten(), None);
 }
 
-/// A file two packages reach names neither, and a file one package reaches
-/// through two targets names the package but no target.
 #[test]
 fn a_unit_publishes_only_what_every_reacher_agrees_on() {
     let reach = |package: &str, target: usize| Reachability {
@@ -793,8 +741,6 @@ fn a_unit_publishes_only_what_every_reacher_agrees_on() {
     assert_eq!(unit.package(), None);
     assert_eq!(unit.target(), None);
 
-    // A context every reacher marks the same way survives; one they disagree
-    // on does not, because silencing shipped code is the expensive mistake.
     let agreeing = TargetContexts::from([
         ("alpha:0".to_owned(), Some(DiagnosticContext::Tests)),
         ("alpha:1".to_owned(), Some(DiagnosticContext::Tests)),
@@ -809,8 +755,6 @@ fn a_unit_publishes_only_what_every_reacher_agrees_on() {
     assert!(!unit.is_test_target(&disagreeing));
 }
 
-/// Cargo's target kind is the authority on test material, and the path
-/// convention only adds what no target names on its own.
 #[test]
 fn test_code_is_named_by_cargo_first_and_by_the_path_only_as_a_fallback() {
     let mut unit = synthetic_unit("pub fn probe() {}");
@@ -821,7 +765,6 @@ fn test_code_is_named_by_cargo_first_and_by_the_path_only_as_a_fallback() {
         "synthetic:0".to_owned(),
         Some(DiagnosticContext::Benchmark),
     )]);
-    // A bench target carries no `tests` path segment: only Cargo can say so.
     assert!(!path_contains_tests_segment(unit.relative_path()));
     assert!(unit.is_test_code(&benched));
 
@@ -882,11 +825,6 @@ fn pinned_real_world_evaluation_probe() {
     );
 }
 
-/// The kernel passes the rule it feeds. `oversized_unit` reports a file at a
-/// thousand lines, the structural pass it enumerates for holds that bound, and
-/// so does this one: the walk and these tests have files of their own for that
-/// reason, and a file that grows back past it fails here rather than on a
-/// self-scan nobody reads.
 #[test]
 fn the_kernel_holds_the_size_bound_it_enumerates_for() {
     for own in [
@@ -924,9 +862,6 @@ fn next_permutation(values: &mut [usize]) -> bool {
     true
 }
 
-/// A detection with nothing to point at is not a finding. The guard sits in
-/// the emitter rather than in each detector, so a new detector cannot forget
-/// it and publish a zero-width span the report would render on no character.
 #[test]
 fn an_empty_detection_range_emits_nothing() {
     let emitter = Emitter {

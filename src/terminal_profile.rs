@@ -1,28 +1,11 @@
-//! What the terminal a run writes to can show, decided once per run: whether
-//! the interactive report may open, whether the output is colored, whether the
-//! score counts up, whether the progress line is rewritten in place, and how
-//! wide the linear report is.
-//!
-//! Two terminals prove nothing about who reads them: an agent may hold a PTY,
-//! and a git hook or a CI step may run under one. A run with a marker of
-//! either, with `--yes`, or with `CI` set to anything but `false` or `0`,
-//! gets plain, final output: no count-up and no rewritten line, so a
-//! transcript or a log holds the result instead of frames.
-
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, IsTerminal};
 
-/// The variables that say nobody can drive an interactive report, whatever the
-/// terminals look like: an agent's shell, a git hook, or a CI provider.
-/// `skills/rust-doctor/SKILL.md` names this list.
 pub(crate) const NON_INTERACTIVE_MARKERS: [&str; 26] = [
-    // Coding agents. The first three are the ones rust-doctor shipped with.
     "CLAUDECODE",
     "CODEX_SANDBOX",
     "CURSOR_AGENT",
-    // Agents from react-doctor's `CODING_AGENT_BY_ENVIRONMENT_VARIABLE`
-    // (`packages/react-doctor/src/cli/utils/is-ci-environment.ts`, d1feed112).
     "CLAUDE_CODE",
     "CODEX_CI",
     "OPENCODE",
@@ -31,13 +14,10 @@ pub(crate) const NON_INTERACTIVE_MARKERS: [&str; 26] = [
     "CLINE_ACTIVE",
     "AUGMENT_AGENT",
     "TRAE_AI_SHELL_ID",
-    // The generic agent markers of the same file.
     "AGENT_SESSION_ID",
     "AGENT_THREAD_ID",
-    // Git hooks.
     "GIT_DIR",
     "GIT_INDEX_FILE",
-    // CI providers.
     "GITHUB_ACTIONS",
     "GITLAB_CI",
     "BUILDKITE",
@@ -45,19 +25,14 @@ pub(crate) const NON_INTERACTIVE_MARKERS: [&str; 26] = [
     "TF_BUILD",
     "JENKINS_URL",
     "TEAMCITY_VERSION",
-    // Providers from react-doctor's `CI_PROVIDER_BY_ENVIRONMENT_VARIABLE`, in
-    // the same file.
     "CODEBUILD_BUILD_ID",
     "BITBUCKET_BUILD_NUMBER",
     "TRAVIS",
     "DRONE",
 ];
 
-/// The width a report is laid out at when no terminal says otherwise.
 const DEFAULT_WIDTH: usize = 80;
 
-/// Whether each standard stream is a terminal, and how many columns the
-/// terminal under stdout reports, when it reports any.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Streams {
     pub(crate) stdin: bool,
@@ -83,31 +58,18 @@ impl Streams {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TerminalProfile {
-    /// A reader at both terminals can drive the interactive report.
     pub(crate) interactive: bool,
     pub(crate) color: bool,
-    /// The score counts up: only for a reader watching a colored terminal.
     pub(crate) animate: bool,
-    /// The progress line is rewritten in place rather than printed once per
-    /// phase.
     pub(crate) rewrite_progress: bool,
     pub(crate) width: usize,
 }
 
 impl TerminalProfile {
-    /// The profile of this process's streams and environment.
     pub(crate) fn detect(json: bool, yes: bool) -> Self {
         Self::resolve(json, yes, Streams::current(), |name| env::var_os(name))
     }
 
-    /// The profile, reading the environment through `variable` so every
-    /// decision is tested without touching the process's own.
-    ///
-    /// A marker set to the empty string counts as unset, and so does an empty
-    /// `NO_COLOR`: no-color.org turns color off only for a non-empty value,
-    /// whatever it is, `0` included. `CI` is read by value
-    /// rather than presence, since `CI=false` is how a developer says the shell
-    /// is not one.
     pub(crate) fn resolve(
         json: bool,
         yes: bool,
@@ -148,7 +110,6 @@ impl TerminalProfile {
     }
 }
 
-/// `CI` left empty, or set to `false` or `0` in any case, is not a CI run.
 fn ci_is_off(value: &OsStr) -> bool {
     value
         .to_str()
@@ -180,8 +141,6 @@ mod tests {
         TerminalProfile::resolve(false, yes, streams, with(pairs))
     }
 
-    /// A named case: `--yes`, the streams, the variables set, then the
-    /// expected interactive, color, animate and rewrite-progress.
     type Case = (&'static str, bool, Streams, &'static [(&'static str, &'static str)], [bool; 4]);
 
     #[test]
@@ -231,10 +190,6 @@ mod tests {
         }
     }
 
-    /// The live size wins; a terminal whose size cannot be read falls back to
-    /// `COLUMNS`, then to 80. A redirected or dumb terminal is 80 whatever it
-    /// says. A narrow pane is kept as it is: the renderer clamps it at its own
-    /// floor of 40.
     #[test]
     fn the_width_is_the_terminal_then_columns_then_eighty() {
         let sized = Streams { columns: Some(120), ..TERMINALS };

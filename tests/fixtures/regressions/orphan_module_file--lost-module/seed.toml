@@ -1,0 +1,4 @@
+rule = "rust_doctor::structure::orphan_module_file"
+weakness = "conditional-module"
+source = "US-020, a module request the walk cannot follow"
+verdict = "quiet"

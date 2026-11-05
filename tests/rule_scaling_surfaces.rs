@@ -1,5 +1,5 @@
 #![cfg(unix)]
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::undocumented_unsafe_blocks))]
 
 mod support;
 
@@ -53,11 +53,9 @@ impl EnvironmentGuard {
         let mut previous = Vec::new();
         for (key, value) in values {
             previous.push((*key, env::var_os(key)));
-            // The integration test serializes every in-process inspection.
             unsafe { env::set_var(key, value) };
         }
         previous.push(("CARGO_NET_OFFLINE", env::var_os("CARGO_NET_OFFLINE")));
-        // The integration test serializes every in-process inspection.
         unsafe { env::set_var("CARGO_NET_OFFLINE", "true") };
         Self { values: previous }
     }
@@ -68,11 +66,9 @@ impl Drop for EnvironmentGuard {
         for (key, value) in self.values.drain(..).rev() {
             match value {
                 Some(value) => {
-                    // The integration test serializes every in-process inspection.
                     unsafe { env::set_var(key, value) };
                 }
                 None => {
-                    // The integration test serializes every in-process inspection.
                     unsafe { env::remove_var(key) };
                 }
             }
@@ -81,9 +77,7 @@ impl Drop for EnvironmentGuard {
 }
 
 fn surface_fixture(path: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/rule-scaling-kernel/surface")
-        .join(path)
+    support::fixture_dir("rule-scaling-kernel/surface").join(path)
 }
 
 fn source(state: SourceState) -> String {
@@ -125,8 +119,6 @@ fn repository_from_revisions(
     fs::copy(surface_fixture("Cargo.toml"), root.join("Cargo.toml")).unwrap();
     fs::copy(surface_fixture("Cargo.lock"), root.join("Cargo.lock")).unwrap();
     fs::copy(surface_fixture("clippy.toml"), root.join("clippy.toml")).unwrap();
-    // The repository-hygiene pass is not this pack's subject: the ignore line
-    // keeps `unignored_build_output` out of the delta counts below.
     fs::write(root.join(".gitignore"), "/target\n").unwrap();
     for revision in revisions {
         fs::write(root.join(revision.path), source(revision.baseline)).unwrap();
@@ -413,9 +405,6 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         &candidates,
         "baseline",
     );
-    // The surface files carry a reasoned crate-level allow in both states,
-    // which `crate_level_allow` reports since EP-001 of the suppression PRD:
-    // present on both sides, it lands in `pre_existing`, never in the delta.
     assert_delta(&baseline, 5, 1, 0);
     assert_eq!(baseline.delta.as_ref().unwrap().introduced.len(), 5);
 
@@ -504,11 +493,6 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
             &support::expected_clippy_command(&published["policy"]),
             "{id}"
         );
-        // The rule turned off disappears from the command, and only it: the
-        // frozen command of EP-018 minus that rule stays an ordered subsequence
-        // of the current command. `--all-targets` is the one other argument
-        // that left, when the scope became Cargo's default targets, and it is
-        // named here rather than erased from the oracle.
         const WITHDRAWN: &str = "--all-targets";
         let mut current = report.scan.command.as_ref().unwrap().iter();
         for historical in

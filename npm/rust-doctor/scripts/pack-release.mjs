@@ -1,15 +1,3 @@
-// Assembles the six packages a release publishes, the five native ones from the
-// binaries the build matrix uploaded as workflow artifacts, and the wrapper that
-// depends on them.
-//
-// pack-local.mjs builds one package from a binary it compiles itself, which is
-// what the local proof needs and why it refuses any platform but the host's.
-// A release has no host: it has five binaries produced on five runners, and it
-// only has to lay them out. Both scripts write the same manifest through
-// nativeManifest and stage the wrapper through stageWrapper, so the package a
-// release publishes and the package the smoke test installs cannot drift
-// apart.
-
 import {
   chmodSync,
   copyFileSync,
@@ -79,10 +67,6 @@ export function stageReleasePackages({ artifacts, output, expectVersion } = {}) 
     stageLicenses(directory);
     const embedded = join(bin, name);
     copyFileSync(source, embedded);
-    // A workflow artifact travels as a zip, and the zip the upload action
-    // writes does not carry the executable bit. The launcher rejects a native
-    // package whose binary is not executable, so restore the mode here rather
-    // than trusting what came back from the download.
     chmodSync(embedded, 0o755);
 
     packages.push({ key, packageName, directory, binary: embedded, size: metadata.size });

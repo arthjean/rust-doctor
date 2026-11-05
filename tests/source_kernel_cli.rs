@@ -97,13 +97,6 @@ fn command(path: &Path, json: bool, cargo_home: &Path, target: &Path) -> Command
     command
 }
 
-/// The report, with the one line no two runs can agree on removed.
-///
-/// What the comparison below measures is that two identical scans render the
-/// same report. The header states how long the scan took, to a tenth of a
-/// second, and that is the one thing about it that is legitimately not
-/// deterministic: on a loaded runner the two runs print `0.1s` and `0.2s` and
-/// the assertion fails over the machine rather than over the product.
 fn without_elapsed(stdout: &[u8]) -> String {
     String::from_utf8_lossy(stdout)
         .lines()
@@ -207,12 +200,6 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
         without_elapsed(&terminal_b.stdout)
     );
     let terminal = String::from_utf8_lossy(&terminal_a.stdout);
-    // The default rendering exposes a single group, the one with the strongest
-    // contribution. Every finding weighs one occurrence, since the scan
-    // compiles the library once, so the tie the scale used to break on volume
-    // is now broken on tier and the P0 security finding leads. Both P0 rules
-    // stay named as the cause of the score cap, including the one left
-    // undeveloped.
     assert_eq!(terminal.matches("Rule ID: ").count(), 1, "{terminal}");
     assert!(terminal.contains(&format!("Rule ID: {TLS}")), "{terminal}");
     assert!(

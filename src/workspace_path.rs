@@ -56,25 +56,12 @@ pub(crate) fn decode_normalized_relative(path: &str) -> Option<PathBuf> {
     (normalize_relative(&decoded).as_deref() == Some(path)).then_some(decoded)
 }
 
-/// Whether two metadata readings name the same file on disk.
-///
-/// It lives here rather than beside either caller because canonicalizing a path
-/// and then opening it has a replacement race, and every reader that crosses
-/// into a scanned workspace closes it the same way: open the checked path, then
-/// confirm the handle and the live path still identify one file. The code frame
-/// and the delta evidence loader both do exactly that.
 #[cfg(unix)]
 pub(crate) fn same_file(left: &Metadata, right: &Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     left.dev() == right.dev() && left.ino() == right.ino()
 }
 
-/// Off Unix there is no stable identity to compare: the handle-based file index
-/// and volume serial that would answer this exactly are still unstable in the
-/// standard library. Size, modification time and the read-only bit are what is
-/// reachable, and they are weaker: a swap that reproduces all three passes.
-/// That is the accepted floor rather than an oversight, and it is only ever the
-/// last check, behind canonicalization and the workspace prefix.
 #[cfg(not(unix))]
 pub(crate) fn same_file(left: &Metadata, right: &Metadata) -> bool {
     left.len() == right.len()

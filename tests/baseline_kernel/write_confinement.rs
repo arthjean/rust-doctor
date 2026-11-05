@@ -1,8 +1,3 @@
-//! A committed target directory cannot steer the scan's own writes: a link at
-//! any component the baseline and staged scans write under is refused, the
-//! scan completes on the snapshot's private target, and nothing lands where
-//! the link points.
-
 use super::*;
 
 #[test]
@@ -18,8 +13,6 @@ fn a_symlinked_target_component_takes_no_write_and_the_scan_completes() {
     ] {
         let fixture = fixture(true);
         if arguments == staged {
-            // The index holds a configuration the staged scan refuses; stage
-            // the working one, which every other test leaves unstaged.
             let manifests = ["rust-doctor.toml", "rust-toolchain.toml", "Cargo.toml", "Cargo.lock"];
             git(&fixture.project, &[&["add"][..], &manifests].concat());
         }
@@ -28,10 +21,7 @@ fn a_symlinked_target_component_takes_no_write_and_the_scan_completes() {
         let link = fixture.target.join(component);
         fs::create_dir_all(link.parent().unwrap()).unwrap();
         symlink(&elsewhere, &link).unwrap();
-        // Twice: a cache the first run stored would be read back by the second.
         for _ in 0..2 {
-            // The plain environment: the hostile git variables `inspect` sets
-            // leave a staged scan no index to read.
             let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
                 .args(["inspect", "--json", "--yes"])
                 .args(arguments)

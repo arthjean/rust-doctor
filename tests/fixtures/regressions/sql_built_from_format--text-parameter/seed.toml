@@ -1,0 +1,4 @@
+rule = "rust_doctor::source::sql_built_from_format"
+weakness = "typed-number"
+source = "US-016, text in the same position"
+verdict = "fires"

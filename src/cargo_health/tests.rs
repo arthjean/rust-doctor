@@ -1,9 +1,3 @@
-//! Tests for the dependency pack.
-//!
-//! They live in a file of their own so that every file of the module stays
-//! under the thousand lines `oversized_unit` reports at: the pack that judges a
-//! manifest has to pass the rule it publishes.
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,9 +11,6 @@ use super::*;
 
 use crate::policy::{PolicyInput, RuleLevel};
 
-/// The pack passes the rule it judges a manifest against. It was one file of
-/// 1872 lines with no such test, the largest producer of the crate and the only
-/// one near the bound and unguarded.
 #[test]
 fn the_pack_holds_the_size_bound_it_judges_for() {
     for own in [
@@ -330,7 +321,6 @@ fn every_declaration_kind_is_evaluated_and_nonmembers_are_excluded() {
     }));
 }
 
-/// Every candidate the oracle names, and nothing but them.
 fn assert_positive_oracle(candidates: &[Candidate], positive: &[Value]) {
     assert_eq!(candidates.len(), positive.len());
     for expected in positive {
@@ -354,9 +344,6 @@ fn assert_positive_oracle(candidates: &[Candidate], positive: &[Value]) {
     }
 }
 
-/// Every dependency the oracle expects the pack to stay quiet on is present in
-/// the metadata and produced nothing. Both halves matter: a key the fixture
-/// stopped declaring would pass a silence check on its own.
 fn assert_negative_oracle(member: &Package, candidates: &[Candidate], negative_keys: &[Value]) {
     for key in negative_keys {
         let key = key
@@ -379,10 +366,6 @@ fn assert_negative_oracle(member: &Package, candidates: &[Candidate], negative_k
     }
 }
 
-/// The reason each silence is a silence: the fixture really does declare an
-/// optional, a development, a build and a target-gated entry, and a member
-/// outside the workspace. Without this the negative oracle would pass over a
-/// fixture that had quietly lost the shapes it exists to exercise.
 fn assert_the_negatives_are_the_shapes_they_claim(
     metadata: &Metadata,
     member: &Package,
@@ -418,8 +401,6 @@ fn assert_the_negatives_are_the_shapes_they_claim(
     );
 }
 
-/// Nothing a candidate publishes carries a source URL, a credential, a query,
-/// an escape sequence or an absolute path.
 fn assert_nothing_observable_leaks(candidates: &[Candidate], fixture: &Path) {
     let observable = candidates
         .iter()
@@ -598,10 +579,6 @@ fn git_oracle_rejects_duplicate_empty_and_future_queries_without_leaking_sources
     );
 }
 
-/// US-008: the reader returns the profile values with byte spans that
-/// convert to the same line and column the crate's span helpers publish
-/// elsewhere, and a virtual workspace manifest with no `[package]` still
-/// yields its profiles.
 #[test]
 fn the_profile_reader_returns_values_with_line_accurate_spans() {
     let source = "[workspace]\nmembers = []\n\n[profile.release]\ndebug = 2\nstrip = \"none\"\noverflow-checks = false\n";
@@ -633,8 +610,6 @@ fn the_profile_reader_returns_values_with_line_accurate_spans() {
     assert_eq!((span.line_start, span.line_end), (7, 7));
 }
 
-/// US-008: an absent manifest is an observed fact, an oversized one and an
-/// unparseable one are closed errors, never a partial read.
 #[test]
 fn the_profile_reader_bounds_what_it_opens() {
     let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!(
@@ -668,8 +643,6 @@ fn the_profile_reader_bounds_what_it_opens() {
     fs::remove_dir_all(&scratch).expect("the scratch directory should be removable");
 }
 
-/// US-010: the closed list matches every published spelling and nothing
-/// else, and each hit is returned under its canonical separated form.
 #[test]
 fn the_closed_rustflags_list_matches_every_spelling_and_nothing_else() {
     let arguments = |flags: &[&'static str]| {
@@ -722,9 +695,6 @@ fn the_closed_rustflags_list_matches_every_spelling_and_nothing_else() {
     }
 }
 
-/// US-009: `debug = "full"` is the named spelling of the level `2`, and a
-/// strip mode that removes debug info silences the finding while
-/// `strip = false` does not.
 #[test]
 fn the_debug_symbols_rule_reads_the_named_level_and_the_strip_modes() {
     let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!(
@@ -758,9 +728,6 @@ fn the_debug_symbols_rule_reads_the_named_level_and_the_strip_modes() {
     fs::remove_dir_all(&scratch).expect("the scratch directory should be removable");
 }
 
-/// US-010: a cargo configuration the parser cannot read is a bounded
-/// error, never a partial judgement, and the rest of the pack still
-/// reports.
 #[test]
 fn a_malformed_cargo_config_abstains_with_a_bounded_error() {
     let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!(
@@ -815,8 +782,6 @@ fn resolution_fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// `cargo metadata --no-deps` resolves nothing, so it never writes a
-/// lockfile: the resolution fixtures stay intact.
 fn resolution_scan(name: &str) -> CargoHealthScan {
     let root = resolution_fixture(name);
     let before = fixture_hashes(&root);
@@ -834,8 +799,6 @@ fn candidates_for(scan: &CargoHealthScan, definition: &RuleDefinition) -> Vec<St
         .collect()
 }
 
-/// US-076: two major versions of the same crate in the resolved graph are
-/// named, versions included, and a minor divergence is not.
 #[test]
 fn duplicate_major_versions_are_named_with_their_versions() {
     let scan = resolution_scan("duplicate");
@@ -857,13 +820,10 @@ fn duplicate_major_versions_are_named_with_their_versions() {
     assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.lock"));
     assert_eq!(candidate.definition.category, "dependencies");
 
-    // The fixture also carries two minor versions of the same crate: they
-    // stay compatible, so they are not reported.
     assert!(!candidate.message.starts_with("Crate \"aligned\""));
     assert!(candidates_for(&scan, &CARGO_MISSING_LOCKFILE).is_empty());
 }
 
-/// US-076: a workspace clean on these criteria produces no diagnostic.
 #[test]
 fn a_clean_resolution_produces_no_candidate() {
     let scan = resolution_scan("clean");
@@ -872,8 +832,6 @@ fn a_clean_resolution_produces_no_candidate() {
     assert_eq!(scan.counters.resolved_packages, 2);
 }
 
-/// US-076: a binary with no lockfile is reported, naming the package and
-/// its manifest.
 #[test]
 fn a_binary_without_a_lockfile_is_named() {
     let scan = resolution_scan("absent");
@@ -890,8 +848,6 @@ fn a_binary_without_a_lockfile_is_named() {
     assert!(candidates_for(&scan, &CARGO_DUPLICATE_MAJOR_VERSIONS).is_empty());
 }
 
-/// US-076: a missing resolution section makes the pack abstain with a
-/// bounded error, and the scan stays usable.
 #[test]
 fn an_unusable_resolution_abstains_with_a_bounded_error() {
     let scan = resolution_scan("unusable");
@@ -909,8 +865,6 @@ fn an_unusable_resolution_abstains_with_a_bounded_error() {
     }
 }
 
-/// US-076: a path dependency that leaves the workspace is reported without
-/// publishing the absolute path it points at.
 #[test]
 fn a_path_dependency_leaving_the_workspace_is_named_without_its_path() {
     let scan = resolution_scan("outside-path");

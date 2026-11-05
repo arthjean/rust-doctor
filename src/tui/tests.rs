@@ -1,11 +1,3 @@
-//! The state machine's tests.
-//!
-//! They live in their own file because they carry a small harness: an
-//! `InspectReport`, a `ReportPresentation` and a scratch workspace. What they
-//! cover is the part of the report that has no rendering to assert against,
-//! the transitions between screens and the cursors that index them, which is
-//! where both of the defects this module was rewritten for were living.
-
 use super::*;
 use crate::test_scratch::scratch;
 use console::Key;
@@ -13,10 +5,6 @@ use rust_doctor::presentation::{DiagnosticGroup, GroupDiagnostic, incomplete_mes
 use rust_doctor::{AuditCategoryName, Severity, Status};
 use std::fs;
 
-/// The interactive report passes the rule the linear one publishes. `tui.rs`
-/// carried a 535-line `impl App` that `oversized_unit` reports an impl block
-/// at five hundred, and no test named it: the frames and the input handlers
-/// have files of their own for that reason.
 #[test]
 fn the_interactive_report_holds_the_size_bound_the_report_reports_for() {
     for own in [
@@ -59,10 +47,6 @@ fn an_incomplete_scan_names_the_stages_that_did_not_finish() {
     );
 }
 
-/// A group mixing a shipped and a test site labels only the test site, in the
-/// list the issue prompt copies; a group framed on a test site says so on its
-/// meta line; and a report whose files hold no production line says why it
-/// carries no score.
 #[test]
 fn a_test_site_is_labeled_and_an_unscored_report_says_why() {
     use rust_doctor::{DiagnosticContext, DiagnosticSpan};
@@ -133,14 +117,9 @@ fn a_test_site_is_labeled_and_an_unscored_report_says_why() {
     assert!(framed_on_a_test.contains("tests/only.rs:2 · tests"), "{framed_on_a_test}");
 }
 
-/// Adding the workflow removes the entry that offered it, so coming back to
-/// the landing has to land on an entry that is still there. Keeping a
-/// cursor beside the view left the menu pointing at nothing and Enter inert.
 #[test]
 fn installing_the_workflow_leaves_the_landing_pointing_at_a_real_entry() {
     let workspace = scratch("tui-tests", "landing-cursor");
-    // The entry writes what `rust-doctor ci install` writes, which triggers on
-    // the default branch the repository answers for: it needs one.
     for arguments in [
         &["init", "--quiet", "--initial-branch=main"][..],
         &["-c", "user.name=Rust Doctor", "-c", "user.email=rust-doctor@example.invalid",
@@ -161,11 +140,9 @@ fn installing_the_workflow_leaves_the_landing_pointing_at_a_real_entry() {
     let mut app = App::new(&session);
     app.ci_available = true;
 
-    // Landing: Review, Add to GitHub Actions, Hand off. Walk to the last.
     press(&mut app, &[Key::Char('j'), Key::Char('j'), Key::Enter]);
     assert!(matches!(app.view, View::HandoffCi { selected: 0, .. }));
 
-    // Add the workflow, then leave the agent screen.
     press(&mut app, &[Key::Enter]);
     assert!(app.installed_workflow.is_some());
     assert!(!app.ci_available);
@@ -181,13 +158,8 @@ fn installing_the_workflow_leaves_the_landing_pointing_at_a_real_entry() {
     fs::remove_dir_all(workspace).unwrap();
 }
 
-/// A workflow that could not be written says so where it was offered. The
-/// agent handoff renders no notice, so moving on to it swallowed the reason
-/// and left the reader thinking the file had been added.
 #[test]
 fn a_workflow_that_could_not_be_written_reports_it_on_the_screen_that_offered_it() {
-    // A regular file cannot host `.github/workflows`, so the write fails
-    // without needing an unwritable directory.
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let report = report(Status::Complete, &[]);
     let presentation = presentation(&["clippy::a"]);
@@ -211,8 +183,6 @@ fn a_workflow_that_could_not_be_written_reports_it_on_the_screen_that_offered_it
     assert!(app.installed_workflow.is_none());
     assert!(app.ci_available, "nothing was written, so nothing is done");
 
-    // The same failure on the landing's own CI screen keeps the reader
-    // there rather than quitting on a write that never happened.
     app.view = View::Ci {
         selected: 0,
         notice: None,
@@ -221,8 +191,6 @@ fn a_workflow_that_could_not_be_written_reports_it_on_the_screen_that_offered_it
     assert!(matches!(app.view, View::Ci { notice: Some(_), .. }));
 }
 
-/// Leaving the issue list lands on what to do next, never on the review the
-/// reader just came out of.
 #[test]
 fn escaping_the_issue_list_lands_on_what_to_do_next() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
@@ -242,7 +210,6 @@ fn escaping_the_issue_list_lands_on_what_to_do_next() {
         Some(&LandingAction::AddToCi)
     );
 
-    // With no CI entry left, "next" is the agent handoff.
     app.ci_available = false;
     app.view = View::Issues;
     press(&mut app, &[Key::Escape]);
@@ -254,8 +221,6 @@ fn escaping_the_issue_list_lands_on_what_to_do_next() {
     );
 }
 
-/// `q` and Ctrl-C leave from wherever the reader is, without a screen
-/// having to handle them.
 #[test]
 fn quitting_works_from_every_screen() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
@@ -300,8 +265,6 @@ fn quitting_works_from_every_screen() {
     }
 }
 
-/// Every screen draws at its declared geometry without a row reaching the
-/// last column, whatever the terminal measures.
 #[test]
 fn no_screen_overflows_the_terminal_it_was_resolved_for() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).to_owned();
@@ -339,13 +302,6 @@ fn no_screen_overflows_the_terminal_it_was_resolved_for() {
     }
 }
 
-/// The block at the narrowest terminal the interactive report draws one in.
-///
-/// Forty columns is over `score_block::MIN_BLOCK_COLUMNS`, so the block is
-/// drawn rather than folded into a single line, and every row still leaves the
-/// guard column the rewind needs. The frame comes from `App::frame`, the entry
-/// point the loop paints through, so the geometry asserted here is the geometry
-/// a reader gets.
 #[test]
 fn the_block_fits_forty_columns_at_every_score_the_report_publishes() {
     for value in [0u8, 37, 73, 100] {
@@ -400,8 +356,6 @@ fn the_block_fits_forty_columns_at_every_score_the_report_publishes() {
         }
     }
 }
-
-// ------------------------------------------------------------- fixtures
 
 fn landing_cursor(view: &View) -> Option<usize> {
     match view {
@@ -473,12 +427,6 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
     }
 }
 
-/// The report with a score of `value` on it.
-///
-/// The interactive report validates nothing: it draws the block the audit
-/// published. That the four values below are values core-v3 really produces,
-/// and that each carries the band `score_block::label_for` gives it, is what
-/// the linear report's own test establishes over reports the audit built.
 fn scored_report(value: u8) -> InspectReport {
     use rust_doctor::{AuditScore, ScoreDimensions};
 

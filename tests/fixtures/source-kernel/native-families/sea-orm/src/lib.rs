@@ -1,4 +1,4 @@
-//! The surface of sea-orm the fixture calls, with none of its behavior.
+
 
 pub enum DatabaseBackend {
     Postgres,

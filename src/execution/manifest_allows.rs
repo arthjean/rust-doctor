@@ -1,16 +1,3 @@
-//! The Clippy findings a member's manifest already declined.
-//!
-//! The scan passes every catalogued lint as `-W`, and a command-line level
-//! overrides a `[lints]` table, so an `allow` there silences nothing and the
-//! report used to charge both the site and the allow. The `-W` cannot be
-//! dropped instead: it applies to the whole workspace, and one member's allow
-//! is not every member's. So the findings are filtered per package once Clippy
-//! has run, and the allow itself stays reported, once, by
-//! `permissive_lint_table`.
-//!
-//! A level the request set wins over the manifest: `--rule X=warn` or a
-//! `rust-doctor.toml` entry is a reader asking to see the sites.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use cargo_metadata::Metadata;
@@ -18,8 +5,6 @@ use cargo_metadata::Metadata;
 use super::messages::{CapturedMessage, ScanExecution};
 use crate::policy::PolicyPlan;
 
-/// Drops the compiler messages of `scan` whose package and lint an effective
-/// manifest allow names, unless the plan restamped that lint's level.
 pub(super) fn honor(
     scan: &mut ScanExecution,
     metadata: &Metadata,

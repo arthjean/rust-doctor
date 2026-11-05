@@ -1,6 +1,3 @@
-// `tasks/e2e-catalog/tui.md` section 3.5: the geometry matrix, from 1x1 to
-// 300x80. Every frame a test here captures is kept, and LAY-11, declared
-// last, holds each one to the terminal it was drawn for.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -20,8 +17,6 @@ async function snap(session: TmuxSession, label: string): Promise<string> {
   return pane;
 }
 
-// Opens the issue list and returns its settled frame, at any size: the
-// compact status row is cut before `issue N/M` in the narrowest windows.
 async function viewer(session: TmuxSession, label: string): Promise<string> {
   await session.waitForPane("Revi", 30_000);
   await snap(session, `${label} landing`);
@@ -87,7 +82,6 @@ describe.skipIf(!requireTmux())("interactive report layout", () => {
       const first = index(pane, (line) => /^[A-Z]/.test(line));
       const status = index(pane, (line) => /issue \d+\//.test(line));
       expect(dividerColumns(pane)).toEqual([]);
-      // The list holds every entry up to 15 rows, however many this repository has.
       expect(divider - first).toBe(Math.min(15, listEntries(repo.report)));
       expect(lines.slice(divider + 1, status).filter((line, at, all) => at < all.length - 1 || line !== "").length).toBeLessThanOrEqual(15);
       expect(lines[status + 1]).toContain("unread");
@@ -122,11 +116,7 @@ describe.skipIf(!requireTmux())("interactive report layout", () => {
       const status = index(pane, (line) => /issue 1\//.test(line));
       expect(index(pane, (line) => /^─{50,}$/.test(line))).toBe(-1);
       expect(faces(pane)).toBe(1);
-      // Sixteen rows hold the list, and this repository's own findings are
-      // what fills them: a self-scan with fewer entries ends the list sooner.
       expect(status - (index(pane, (line) => line.includes("└─────┘")) + 1)).toBe(Math.min(16, listEntries(repo.report)));
-      // The cut lands where the issue count's digits push it, a space before
-      // the ellipsis included.
       expect(lines[status]).toMatch(/issue 1\/\d+ {2}· {2}↑\/↓ move · enter copy ?…$/);
       expect(lines.slice(status + 1).join("").trim()).toBe("");
     } finally {
@@ -170,7 +160,6 @@ describe.skipIf(!requireTmux())("interactive report layout", () => {
   ])("LAY-09 at %ix%i the report survives Enter, j, Escape and q, and exits 0", async (width, height, first) => {
     const session = openReport(copyWorkspace("kernel-contract/todo"), { width, height });
     try {
-      // The smallest windows show no marker to wait on: the frame settles once the scan has printed it.
       await session.waitForPane((pane) => rows(pane)[0] === first && session.byteLog().includes("\x1b[J"), 15_000);
       expect(rows(await snap(session, `todo ${width}x${height} landing`))[0]).toBe(first);
       for (const key of ["Enter", "j", "Escape"]) {
@@ -243,9 +232,6 @@ describe.skipIf(!requireTmux())("interactive report layout", () => {
     }
   });
 
-  // The catalog's subject, another workflow already running rust-doctor, is
-  // tui/BUG-10 (an entry offered where the install must fail); a read-only
-  // workflows directory is the failure the entry is right to offer.
   test.skipIf(process.getuid?.() === 0)("LAY-15 a workflow install failure notice is cut at the frame width (root ignores the mode)", async () => {
     const repo = await gitScenario("lay-15").fixture("kernel-contract/todo").write({ ".gitignore": "/target\n" }).commit("base").build();
     const workflows = join(repo.path, ".github/workflows");

@@ -8,6 +8,6 @@ publish = false
 path = "src/lib.rs"
 
 [features]
-# Declared here and read here. The neighbouring package names it too, and does
-# not declare it, which is a finding of that package and not of this one.
+
+
 engine-only = []

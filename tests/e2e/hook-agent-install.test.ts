@@ -1,8 +1,3 @@
-// HA-01 to HA-32 of `tasks/e2e-catalog/subcommands.md` section 6: `hook
-// install claude|cursor` merging one entry into an agent's settings file.
-// Every run has HOME at the sandbox's scratch home, which stays empty: the
-// installers write only under the workspace. US-007 made a missing PATH a
-// refusal, so HA-29 asserts that rather than the catalog's 0.7.0 behavior.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,7 +21,6 @@ const CURSOR = ".cursor/hooks.json";
 const CLAUDE_HOOK = { command: "rust-doctor hook run claude", timeout: 600, type: "command" };
 const CURSOR_HOOK = { command: "rust-doctor hook run cursor" };
 const CLAUDE_ENTRY = JSON.stringify({ hooks: [CLAUDE_HOOK] });
-// What an install without --no-clippy says it grants (US-021).
 const AUTHORITY =
   "Note: this hook runs `cargo clippy`, which executes the build scripts and procedural macros of the tree the agent wrote, at the end of every turn and with your account's authority. `--no-clippy` installs a hook that compiles nothing.\n";
 const SHAPE = (file: string) => `rust-doctor: ${file} does not hold the shape its agent reads: nothing was written.\n`;

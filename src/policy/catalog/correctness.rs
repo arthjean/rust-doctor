@@ -1,12 +1,3 @@
-//! Clippy's `correctness` group, admitted as one pack.
-//!
-//! These are the lints the toolchain denies by default because the code they
-//! match is outright wrong. The scan carries each one as a warning, like every
-//! other catalogued Clippy rule, and switching one off leaves it allowed rather
-//! than denied. `docs/correctness-group-2026-09.md` holds the measurement behind
-//! both claims and the classification that admitted these 64 members out of the
-//! group's 67.
-
 use super::{DiffScope, Producer, RuleDefinition, RuleLevel, RuleTier};
 
 pub(crate) static CLIPPY_ABSURD_EXTREME_COMPARISONS: RuleDefinition = RuleDefinition {

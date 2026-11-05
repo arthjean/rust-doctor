@@ -151,12 +151,12 @@ when the corpus can produce one. Only the first is unconditional.
 
 A confirmed false positive or measured miss of a native rule becomes a
 hand-minimized seed under `tests/fixtures/regressions/<rule-tail>--<slug>/`,
-never corpus code, headed with its rule, a weakness from a closed list, its
-source and its verdict. `tests/regression_seeds.rs` replays every seed on
-`cargo test`, a single file in process, a crate through the binary with every
-Clippy rule off, and refuses a malformed header naming the seed. A false
-positive not yet fixed is declared to fire with a known-false-positive reason,
-so the fix has to flip the header.
+never corpus code, with a `seed.toml` beside it naming its rule, a weakness
+from a closed list, its source and its verdict. `tests/regression_seeds.rs`
+replays every seed on `cargo test`, a single file in process, a crate through
+the binary with every Clippy rule off, and refuses a malformed `seed.toml`
+naming the seed. A false positive not yet fixed is declared to fire with a
+known-false-positive reason, so the fix has to flip the verdict.
 
 ## Opt-in rules
 

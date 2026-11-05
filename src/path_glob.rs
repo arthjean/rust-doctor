@@ -1,18 +1,6 @@
-//! The glob `rust-doctor.toml` writes a path with: `*`, `**` and `?`, relative
-//! to the workspace root, and nothing else.
-//!
-//! A pattern names a file or a directory, and a directory covers everything
-//! under it, so `vendor` and `vendor/**` say the same thing. What a pattern
-//! cannot say is refused rather than read literally: a character class, a
-//! brace, a negation, an absolute path, a `.` or `..` segment, and a `**` that
-//! is not a whole segment. A glob read two ways is an exception nobody wrote.
-
-/// One segment of a pattern.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Segment {
-    /// `**`: any number of whole segments, none included.
     AnyDepth,
-    /// Literal characters, `*` and `?`, matched inside one segment.
     Name(Vec<char>),
 }
 
@@ -23,8 +11,6 @@ pub(crate) struct PathGlob {
 }
 
 impl PathGlob {
-    /// Reads a pattern, or refuses it. The refusal carries nothing: the
-    /// caller names where the pattern was written, never what it said.
     pub(crate) fn parse(pattern: &str) -> Result<Self, ()> {
         let trimmed = pattern.strip_suffix('/').unwrap_or(pattern);
         if trimmed.is_empty()
@@ -50,13 +36,10 @@ impl PathGlob {
         })
     }
 
-    /// The pattern as the configuration wrote it.
     pub(crate) fn as_str(&self) -> &str {
         &self.pattern
     }
 
-    /// Does the pattern name this workspace-relative path, or a directory
-    /// holding it?
     pub(crate) fn matches(&self, path: &str) -> bool {
         let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
         (1..=segments.len()).any(|depth| {

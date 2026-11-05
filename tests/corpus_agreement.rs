@@ -1,14 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! The record of a double pass, and what it is coupled to.
-//!
-//! Every proof here runs from the artifact alone: no clone cache, no network,
-//! no environment variable. What a reproduction run has to confirm is where a
-//! site lives; what a pair asserts is that two passes produced it and that the
-//! published verdict is the one they agreed on, which the file answers by
-//! itself.
-
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,31 +26,12 @@ const CUTOFF: &str = "2026-08-21";
 const EVIDENCE_CUTOFF: &str = "2026-10-14";
 const COMPLEX_FUNCTION: &str = "rust_doctor::structure::complex_function";
 
-/// The three sites the two passes of 2026-08-11 disagreed on.
 const ESCALATED: [(&str, &str, u64); 3] = [
     ("ripgrep", "crates/ignore/src/dir.rs", 340),
     ("thiserror", "impl/src/expand.rs", 31),
     ("thiserror", "impl/src/expand.rs", 221),
 ];
 
-/// The two sites the agent-population passes disagreed on, kept apart from the
-/// three above because it is a different rule on a different population: one
-/// list covering both would let a queue emptied on one side be refilled by the
-/// other and still count.
-///
-/// The second was drawn by the redraw of August 2026, over the population the
-/// out-of-line `#[cfg(test)]` correction shrank. The first survived that
-/// correction and was never re-judged, which is the rule holding: an
-/// escalation is not resolved by giving it to two more agents.
-/// The seven sites the two passes of the deepened healthy `oversized_unit`
-/// scope disagreed on.
-///
-/// Kept apart from the three above for the reason `ESCALATED_AGENT` is: one
-/// list covering two rules lets a queue emptied on one be refilled by the
-/// other and still count. They are what separates `reviewed` from the whole
-/// production subpopulation on that scope, which is thirty-nine sites against
-/// forty-six, and they are open because a disagreement is settled by a human
-/// and by nothing else.
 const ESCALATED_OVERSIZED: [(&str, &str, u64); 7] = [
     ("ripgrep", "crates/core/flags/hiargs.rs", 109),
     ("ripgrep", "crates/matcher/src/lib.rs", 1),
@@ -82,16 +55,11 @@ const ESCALATED_AGENT: [(&str, &str, u64); 2] = [
     ),
 ];
 
-/// The two agent `oversized_unit` sites the passes of the core-v6 replay split
-/// on, 2026-10-29: the first escalations whose passes quote their evidence.
 const ESCALATED_OVERSIZED_AGENT: [(&str, &str, u64); 2] = [
     ("claudes-c-compiler", "src/backend/x86/codegen/intrinsics.rs", 22),
     ("vibesql", "crates/vibesql-ast/src/identifier.rs", 1),
 ];
 
-/// The five sites of `clippy::undocumented_unsafe_blocks` its two passes split
-/// on, the first Clippy scope judged under the protocol. Named by position for
-/// the reason the lists above are.
 const ESCALATED_UNSAFE: [(&str, &str, u64); 5] = [
     ("anyhow", "src/error.rs", 478),
     ("anyhow", "src/error.rs", 823),
@@ -139,12 +107,10 @@ fn pair(line: u64, first: Pass, second: Pass) -> AdjudicatedPair {
     }
 }
 
-/// A pair both passes judged the same way.
 fn agreeing(line: u64, verdict: Verdict) -> AdjudicatedPair {
     pair(line, pass("judge-a", verdict), pass("judge-b", verdict))
 }
 
-/// A pair the two passes split on, which is what an escalation is.
 fn disagreeing(line: u64) -> AdjudicatedPair {
     pair(
         line,
@@ -165,8 +131,6 @@ fn adjudication(reviewed: Vec<ReviewedSite>, pairs: Vec<AdjudicatedPair>) -> Adj
         agreement,
         criterion: "probe".to_owned(),
         evidence_cutoff: EVIDENCE_CUTOFF.to_owned(),
-        // A synthetic record is anchored to no run at all: what the proof is
-        // worth is asserted in `corpus_position.rs`, against the shipped one.
         position_proof: PositionProof {
             date: CUTOFF.to_owned(),
             digest: "probe".to_owned(),
@@ -233,19 +197,12 @@ fn defect_naming(defects: &[String], needle: &str) -> String {
     named.cloned().unwrap_or_default()
 }
 
-/// The version is asserted, not merely deserialized.
-///
-/// Versions 1 through 3 were bumped by hand against no constant at all, so the
-/// field cost nothing to move and proved nothing once moved. A schema change
-/// that forgets the bump, or a bump with no schema change behind it, now fails
-/// here rather than travelling as a number nobody reads.
 #[test]
 fn the_artifact_declares_the_schema_version_the_harness_reads() {
     assert_eq!(artifact().schema_version, SCHEMA_VERSION);
     assert_eq!(SCHEMA_VERSION, 8);
 }
 
-/// Exactly two passes, enforced by the shape.
 #[test]
 fn a_pair_holds_exactly_two_passes_under_a_closed_schema() {
     let two = serde_json::to_string(&agreeing(1, Verdict::TruePositive)).unwrap();
@@ -268,8 +225,6 @@ fn a_pair_holds_exactly_two_passes_under_a_closed_schema() {
     assert!(serde_json::from_str::<AdjudicatedPair>(&unknown).is_err());
 }
 
-/// `independence` is a closed vocabulary, so an unrecognized value is a
-/// deserialization failure rather than a string nobody reads.
 #[test]
 fn an_unknown_independence_value_fails_deserialization() {
     let encoded = serde_json::to_string(&agreeing(1, Verdict::TruePositive)).unwrap();
@@ -284,10 +239,6 @@ fn an_unknown_independence_value_fails_deserialization() {
     assert!(serde_json::from_str::<AdjudicatedPair>(&refused).is_err());
 }
 
-/// An agreeing pair has exactly one reviewed site carrying its verdict.
-///
-/// This is the half of the coupling that is intuitive, and the one a reader
-/// checks: a verdict two passes produced has to be published somewhere.
 #[test]
 fn an_agreeing_pair_with_no_reviewed_site_is_named() {
     let record = adjudication(Vec::new(), vec![agreeing(7, Verdict::TruePositive)]);
@@ -308,11 +259,6 @@ fn an_agreeing_pair_contradicting_its_reviewed_verdict_is_named() {
     assert!(named.contains("probe/src/lib.rs:7"), "{named}");
 }
 
-/// A disagreeing pair has no reviewed site, and that absence is escalation.
-///
-/// This is the half nobody checks by reflex, and the one that matters: a site
-/// present here is a tie an agent broke, which is exactly the information the
-/// second pass existed to produce.
 #[test]
 fn a_disagreeing_pair_carrying_a_published_verdict_is_named() {
     let record = adjudication(vec![site(7, Verdict::TruePositive)], vec![disagreeing(7)]);
@@ -333,11 +279,6 @@ fn two_pairs_of_one_identity_are_refused_naming_it() {
     assert!(named.contains("probe/src/lib.rs:7"), "{named}");
 }
 
-/// An artifact with no pair yet is a valid artifact.
-///
-/// The protocol applies forward, so the record has to be empty and clean
-/// before it is anything else: a shape that only validates once it is
-/// populated forces the first pair and the schema to land together.
 #[test]
 fn an_empty_pair_list_carries_no_defect() {
     let record = adjudication(vec![site(7, Verdict::TruePositive)], Vec::new());
@@ -354,21 +295,11 @@ fn the_published_record_of_the_double_pass_carries_no_defect() {
     assert_eq!(sampling_defects(&artifact.adjudication), Vec::<String>::new());
 }
 
-/// The three sites of 2026-08-11 are findable, with both verdicts and both
-/// justifications.
-///
-/// They were excluded from `reviewed`, named in one sentence of one document
-/// and in no field of the artifact, and open ten days later. Nothing in the
-/// repository could tell a reader they existed.
 #[test]
 fn the_three_escalations_of_the_double_pass_are_findable_with_both_justifications() {
     let artifact = artifact();
     let pairs = &artifact.adjudication.agreement.pairs;
     for (repository, path, line) in ESCALATED {
-        // Keyed on the rule as well as the position: `oversized_unit` anchors a
-        // file at the line its first item starts on, which is where
-        // `complex_function` reports the function that made the file oversized,
-        // so two of these three positions now carry a site of each rule.
         let found = pairs.iter().find(|pair| {
             pair.rule == COMPLEX_FUNCTION
                 && pair.repository == repository
@@ -404,13 +335,6 @@ fn the_three_escalations_of_the_double_pass_are_findable_with_both_justification
     }
 }
 
-/// The escalation of the agent population is findable the same way.
-///
-/// One site of the twenty drawn for `duplicate_function_body` split on whether
-/// a module note about the GROUP BY path covers the map builder beside the
-/// validator it was written for. It stays out of `reviewed`, which is why that
-/// rate rests on nineteen sites and not twenty, and it is not settled toward
-/// the verdict the other nineteen carry.
 #[test]
 fn the_escalation_of_the_agent_population_is_findable_with_both_justifications() {
     let artifact = artifact();
@@ -434,9 +358,6 @@ fn the_escalation_of_the_agent_population_is_findable_with_both_justifications()
             assert!(!judged.justification.trim().is_empty());
         }
 
-        // Escalated means unpublished: a site the passes split on carries no
-        // verdict in `reviewed`, which is the whole difference between an open
-        // escalation and a settled one.
         assert!(
             !artifact.adjudication.reviewed.iter().any(|site| {
                 site.repository == repository && site.path == path && site.line == line
@@ -446,15 +367,6 @@ fn the_escalation_of_the_agent_population_is_findable_with_both_justifications()
     }
 }
 
-/// The seven escalations of the deepened healthy `oversized_unit` scope are
-/// findable the same way.
-///
-/// Named by position rather than counted, for the reason the two lists above
-/// are: seven is also the arithmetic of forty-six drawn against thirty-nine
-/// published, so a count alone agrees with itself whichever seven sites the
-/// record actually holds. These are the sites, and this is where the claim that
-/// they are what separates the draw from the verdicts is checked rather than
-/// written down.
 #[test]
 fn the_seven_escalations_of_the_deepened_healthy_scope_are_findable() {
     let artifact = artifact();
@@ -490,8 +402,6 @@ fn the_seven_escalations_of_the_deepened_healthy_scope_are_findable() {
         );
     }
 
-    // The seven are the whole queue on that scope, so nothing else the two
-    // passes split on is left unnamed here.
     let split = artifact
         .adjudication
         .agreement
@@ -504,7 +414,6 @@ fn the_seven_escalations_of_the_deepened_healthy_scope_are_findable() {
     assert_eq!(split, ESCALATED_OVERSIZED.len());
 }
 
-/// The queue is a number a test recomputes, not a sentence in a document.
 #[test]
 fn escalations_open_is_recomputed_from_the_disagreeing_pairs() {
     let artifact = artifact();
@@ -525,8 +434,6 @@ fn escalations_open_is_recomputed_from_the_disagreeing_pairs() {
     assert!(named.contains('0'), "{named}");
 }
 
-/// The escalations of the core-v6 replay are findable, split, dated, cited and
-/// unpublished.
 #[test]
 fn the_escalations_of_the_core_v6_replay_are_findable_and_unpublished() {
     let artifact = artifact();
@@ -556,8 +463,6 @@ fn the_escalations_of_the_core_v6_replay_are_findable_and_unpublished() {
     }
 }
 
-/// The escalations of the undocumented-unsafe scope are findable, split, judged
-/// by the model that produced them, and unpublished.
 #[test]
 fn the_five_escalations_of_the_undocumented_unsafe_scope_are_findable() {
     let artifact = artifact();
@@ -583,12 +488,6 @@ fn the_five_escalations_of_the_undocumented_unsafe_scope_are_findable() {
     }
 }
 
-/// Escalation is derived from a disagreement, never stored beside it.
-///
-/// A pair carrying two identical verdicts and a flag saying it is open would
-/// let agreement and escalation both hold, and nothing in the file could say
-/// which of the two was the lie. The flag does not exist: `deny_unknown_fields`
-/// refuses one on the way in, and the count is recomputed on the way out.
 #[test]
 fn no_field_records_an_escalation() {
     let published = fs::read_to_string(artifact_path()).unwrap();
@@ -603,10 +502,6 @@ fn no_field_records_an_escalation() {
     );
 }
 
-/// Recording the escalations moves no rate.
-///
-/// The three sites were already out of the sample; entering `pairs` is what
-/// makes their absence legible, and it must not make it arithmetic.
 #[test]
 fn the_escalation_record_leaves_the_complex_function_rate_untouched() {
     let artifact = artifact();
@@ -637,11 +532,6 @@ fn a_pair_with_an_empty_judge_is_named() {
     assert!(named.contains("probe/src/lib.rs:7"), "{named}");
 }
 
-/// Two passes of one model are not two models.
-///
-/// `separate_model` is the claim that the pair reduced self-preference bias
-/// rather than merely variance. A pair naming one judge twice makes that claim
-/// against its own evidence.
 #[test]
 fn a_pair_declaring_separate_model_with_one_judge_is_named() {
     let mut declared = agreeing(7, Verdict::TruePositive);
@@ -660,11 +550,6 @@ fn a_pair_declaring_separate_model_with_one_judge_is_named() {
     assert!(agreement_defects(&clean).is_empty());
 }
 
-/// A rate names the judges behind it, the way it already names the provenances.
-///
-/// Two passes of one model and two passes of two models produce the same
-/// agreement figure and do not carry the same weight. A reader who cannot see
-/// which of the two a rate rests on cannot discount it.
 #[test]
 fn a_published_rate_names_the_judges_behind_it() {
     let reviewed: Vec<ReviewedSite> = (1..=5).map(|line| site(line, Verdict::TruePositive)).collect();
@@ -683,10 +568,6 @@ fn a_published_rate_names_the_judges_behind_it() {
     assert_eq!(rate.status, PrecisionStatus::Measured);
     assert_eq!(rate.judges, vec!["judge-a", "judge-b", "judge-c"]);
 
-    // A healthy rate outside the enrolment rests on no pair, so its judge list
-    // is empty and says so rather than naming a judge nobody recorded. The two
-    // deepened healthy scopes are the other case, and both sides of the
-    // enrolment are asserted where the enrolment is.
     for rate in artifact().precision {
         if ENROLLED_SCOPES
             .iter()
@@ -698,11 +579,6 @@ fn a_published_rate_names_the_judges_behind_it() {
     }
 }
 
-/// `ReviewedSite` gains no field and `Provenance` no variant.
-///
-/// The hundred and ten verdicts judged before the field existed keep the only
-/// truthful value they have. A pair is where the second pass goes, precisely so
-/// that recording it costs the site list nothing.
 #[test]
 fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     let artifact = artifact();
@@ -710,20 +586,12 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     for site in &artifact.adjudication.reviewed {
         *counts.entry(site.provenance).or_default() += 1;
     }
-    // 369 until US-020 fixed the walk behind the one false positive of the
-    // orphan census, whose site the rule no longer produces. The core-v6
-    // replay of 2026-10-29 then dropped the sites whose family or allow the
-    // detector changes of the self-scan remediation took away, four of them
-    // unrecorded `crate_level_allow` verdicts and two unrecorded duplicate
-    // families, and added the agreeing pairs of its redrawn strides.
     assert_eq!(counts.get(&Provenance::Agent), Some(&399));
     assert_eq!(counts.get(&Provenance::Unrecorded), Some(&92));
     assert_eq!(counts.get(&Provenance::Human), None);
     assert_eq!(artifact.adjudication.reviewed.len(), 491);
 }
 
-/// A verdict produced under the protocol has a pair behind it, or the suite
-/// says which of the two conditions it violated.
 #[test]
 fn a_site_adjudicated_after_the_cutoff_without_a_pair_is_named_with_the_cutoff() {
     let mut record = adjudication(vec![site(7, Verdict::TruePositive)], Vec::new());
@@ -752,15 +620,6 @@ fn a_sample_adjudicated_under_the_protocol_passes_when_every_site_carries_a_pair
     assert!(protocol_defects(&record).is_empty());
 }
 
-/// Only an enrolled scope is judged under the protocol, and every site of one
-/// carries a pair.
-///
-/// The two directions are one assertion. A rate outside the enrolment resting
-/// on a double pass would be a protocol claimed over verdicts nobody enrolled;
-/// a rate inside it whose sites are not all backed would be an enrolment
-/// claimed over verdicts nobody judged twice. `protocol_defects` refuses the
-/// second, and `doubly_judged` counted against the enrolment is what refuses
-/// the first.
 #[test]
 fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
     let artifact = artifact();
@@ -782,12 +641,6 @@ fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
             .iter()
             .any(|scope| scope.0 == population && scope.1 == id)
     };
-    // Both lists under the same predicate, keyed on the population as well as
-    // on the rule. A rule id is no longer enough to decide: the two healthy
-    // scopes deepened to their whole production subpopulation carry the same
-    // two ids the agent population was already enrolled at, so a check on the
-    // id alone would read the healthy `orphan_module_file` rate as enrolled
-    // and the two deepened healthy rates as not doubly judged.
     for (population, precision) in [
         (Population::Healthy, &artifact.precision),
         (Population::Agent, &artifact.agent_population.precision),
@@ -795,8 +648,6 @@ fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
         for rate in precision {
             if enrolled(population, rate.id.as_str()) {
                 assert_eq!(rate.doubly_judged, rate.reviewed, "{}", rate.id);
-                // A scope re-drawn after a detector change carries the sites
-                // each run judged, so it may name one judge per run.
                 assert!(!rate.judges.is_empty(), "{}", rate.id);
                 assert!(
                     rate.judges.iter().all(|judge| PROTOCOL_JUDGES.contains(&judge.as_str())),
@@ -810,7 +661,6 @@ fn only_an_enrolled_scope_is_doubly_judged_and_every_site_of_one_is() {
     }
 }
 
-/// A rate counts the sites a pair backs, recomputed where the rate is.
 #[test]
 fn a_rate_counts_the_sites_a_pair_backs() {
     let reviewed: Vec<ReviewedSite> = (1..=5).map(|line| site(line, Verdict::TruePositive)).collect();
@@ -832,7 +682,6 @@ fn a_rate_counts_the_sites_a_pair_backs() {
     assert_eq!(computed.first().unwrap().doubly_judged, 0);
 }
 
-/// A pair of one population never backs a site of the other.
 #[test]
 fn a_pair_of_one_population_never_backs_a_site_of_the_other() {
     let mut crossed = agreeing(1, Verdict::TruePositive);
@@ -871,15 +720,6 @@ fn an_unsorted_or_repeated_enrolment_is_named() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// US-009: the draw, replayed rather than described
-// ---------------------------------------------------------------------------
-
-/// A plan drawing `target` sites out of `observed`, its indices computed.
-///
-/// Built through `stride` rather than with a literal list, because a helper
-/// that states the indices is a helper that can agree with a wrong plan: what
-/// the tests below forge is always the published list, never the arithmetic.
 fn plan(observed: u64, target: u64) -> SamplingPlan {
     SamplingPlan {
         carried_over: Vec::new(),
@@ -891,14 +731,10 @@ fn plan(observed: u64, target: u64) -> SamplingPlan {
     }
 }
 
-/// The stride spreads the draw over the whole population and never past it.
 #[test]
 fn the_stride_selects_positions_across_the_ordered_population() {
     assert_eq!(stride(10, 4), vec![0, 2, 5, 7]);
     assert_eq!(stride(9, 3), vec![0, 3, 6]);
-    // A target the population cannot supply draws the population, which is what
-    // `k = min(target, n)` means and why an exhaustive sample is not a special
-    // case anyone has to write down.
     assert_eq!(stride(3, 5), vec![0, 1, 2]);
     assert_eq!(stride(0, 5), Vec::<u64>::new());
     assert_eq!(stride(5, 0), Vec::<u64>::new());
@@ -911,7 +747,6 @@ fn the_stride_selects_positions_across_the_ordered_population() {
     }
 }
 
-/// The published indices are the ones the stride selects, not a list beside it.
 #[test]
 fn a_plan_publishes_the_indices_its_own_stride_selects() {
     let honest = adjudication_planned(20, plan(25, 20));
@@ -923,7 +758,6 @@ fn a_plan_publishes_the_indices_its_own_stride_selects() {
     assert!(named.contains(RULE), "{named}");
 }
 
-/// A target the observed population cannot supply is named with the rule.
 #[test]
 fn a_target_over_the_observed_population_is_named_with_the_rule() {
     let mut forged = adjudication_planned(20, plan(25, 20));
@@ -938,13 +772,6 @@ fn a_target_over_the_observed_population_is_named_with_the_rule() {
     defect_naming(&sampling_defects(&empty), "publishes a target of zero");
 }
 
-/// A target under the protocol's floor is named with the scope and both numbers.
-///
-/// The floor is what separates a scope reviewed exhaustively from a scope
-/// reviewed shallowly: both publish a target that is not `PROTOCOL_TARGET`, and
-/// only one of them is a measurement. A plan asking for fewer sites than the
-/// protocol takes, over a population that could have supplied them, is a sample
-/// drawn short and the rate computed over it is narrower than it earned.
 #[test]
 fn a_target_under_the_protocol_floor_is_named_with_the_rule() {
     let mut shallow = adjudication_planned(20, plan(25, 20));
@@ -955,22 +782,12 @@ fn a_target_under_the_protocol_floor_is_named_with_the_rule() {
     assert!(named.contains("12"), "{named}");
     assert!(named.contains("20"), "{named}");
 
-    // A population smaller than the protocol's target floors at itself: the
-    // stride draws every site there is, so an exhausted scope is not a scope
-    // that under-asked.
     let exhausted = adjudication_planned(9, plan(9, 9));
     assert_eq!(sampling_defects(&exhausted), Vec::<String>::new());
     assert_eq!(target_floor(9), 9);
     assert_eq!(target_floor(25), PROTOCOL_TARGET);
 }
 
-/// A plan whose target is absent reads at the protocol's, never at zero.
-///
-/// The target is the one member of a plan a reader could plausibly leave out,
-/// since every scope of the record published the same number until one of them
-/// did not. Defaulting to the protocol is what makes the omission legible: a
-/// plan with no target describes the ordinary draw, and a plan describing any
-/// other draw has to say so.
 #[test]
 fn a_plan_with_no_target_reads_at_the_protocol_target() {
     let honest = plan(25, PROTOCOL_TARGET);
@@ -981,12 +798,6 @@ fn a_plan_with_no_target_reads_at_the_protocol_target() {
     assert_eq!(read, honest);
 }
 
-/// The sites the plan selected are the sites the record adjudicated.
-///
-/// An open escalation counts: the stride drew it, two passes judged it, and it
-/// stays out of `reviewed` until a human settles it. Counting only the
-/// published verdicts would report a scope with three escalations as a draw
-/// three sites short of what it selected, which is the opposite of the fact.
 #[test]
 fn the_sites_a_plan_selected_are_the_sites_the_record_adjudicated() {
     let escalating = {
@@ -1010,13 +821,6 @@ fn the_sites_a_plan_selected_are_the_sites_the_record_adjudicated() {
     assert!(named.contains(RULE), "{named}");
 }
 
-/// A deepened scope accounts for its stride and for what it carried over.
-///
-/// The carry-over is the mechanism a scope reaches for when its population
-/// moved under it: the stride is redrawn at the same target over the corrected
-/// order, and the sites the previous draw judged that the new one does not
-/// select stay in the record at their corrected positions. Both halves are
-/// sites somebody opened, so both count against what the record adjudicated.
 #[test]
 fn a_plan_accounts_for_its_carry_over_as_well_as_its_stride() {
     let carried = {
@@ -1033,12 +837,6 @@ fn a_plan_accounts_for_its_carry_over_as_well_as_its_stride() {
     assert!(named.contains(RULE), "{named}");
 }
 
-/// A carried position the stride also selects is one site counted twice.
-///
-/// The carry-over extends the sample, it never edits the draw, so the two lists
-/// are disjoint by construction. A position in both would inflate what the plan
-/// says it accounts for without a single extra site having been opened, which
-/// is the one way a carry-over could launder a short sample into a full one.
 #[test]
 fn a_carried_position_the_stride_also_draws_is_named() {
     let mut forged = adjudication_planned(20, plan(25, 20));
@@ -1058,7 +856,6 @@ fn a_carried_position_the_stride_also_draws_is_named() {
     defect_naming(&sampling_defects(&outside), "outside a population of 25");
 }
 
-/// A scope adjudicated under the protocol publishes its draw, or is named.
 #[test]
 fn an_enrolled_scope_with_no_sampling_plan_is_named_with_the_cutoff() {
     let mut record = adjudication_planned(20, plan(25, 20));
@@ -1068,7 +865,6 @@ fn an_enrolled_scope_with_no_sampling_plan_is_named_with_the_cutoff() {
     assert!(named.contains(RULE), "{named}");
 }
 
-/// Two plans for one scope are two accounts of one draw.
 #[test]
 fn two_plans_for_one_scope_are_named() {
     let mut record = adjudication_planned(20, plan(25, 20));
@@ -1076,9 +872,6 @@ fn two_plans_for_one_scope_are_named() {
     defect_naming(&sampling_defects(&record), "publishes two sampling plans");
 }
 
-/// The scopes carrying a plan are the enrolled ones, and a scope adjudicated
-/// before the cutoff carries none: the absence is the fact rather than a row of
-/// zeros.
 #[test]
 fn the_planned_scopes_are_the_enrolled_ones_and_nothing_else() {
     let artifact = artifact();
@@ -1090,13 +883,6 @@ fn the_planned_scopes_are_the_enrolled_ones_and_nothing_else() {
         .collect();
     assert_eq!(planned, ENROLLED_SCOPES.to_vec());
     for plan in &artifact.adjudication.sampling_plan {
-        // The target is the scope's own, at or above the protocol's floor and
-        // never past what the population can supply. Read as a floor rather
-        // than as an equality, because a scope reviewed exhaustively asks for
-        // more than the protocol takes and is still drawn under it:
-        // `orphan_module_file` observes twelve production sites and asks for
-        // twelve, and a healthy scope reviewed at its whole subpopulation asks
-        // for all of it.
         assert!(
             plan.target >= target_floor(plan.observed),
             "{} asks for {} below the floor of {}",
@@ -1119,7 +905,6 @@ fn the_planned_scopes_are_the_enrolled_ones_and_nothing_else() {
     assert!(named.contains(CUTOFF), "{named}");
 }
 
-/// A plan is a member of the record, refused at read time like the rest of it.
 #[test]
 fn a_plan_with_an_unknown_member_fails_deserialization() {
     let honest = plan(25, 20);
@@ -1132,7 +917,6 @@ fn a_plan_with_an_unknown_member_fails_deserialization() {
     assert!(refused.is_err(), "{refused:?}");
 }
 
-/// A record whose enrolled scope carries `sites` agreeing pairs and one plan.
 fn adjudication_planned(sites: u64, drawn: SamplingPlan) -> Adjudication {
     let reviewed: Vec<ReviewedSite> = (1..=sites).map(|line| site(line, Verdict::TruePositive)).collect();
     let pairs: Vec<AdjudicatedPair> = (1..=sites)

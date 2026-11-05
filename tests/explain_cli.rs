@@ -1,9 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! `rules explain` and `why`, run from the binary: what a rule is and how a
-//! workspace sets it, without a process; and why a line is reported, from a
-//! scan of its member or from a saved report.
-
 mod support;
 
 use std::fs;
@@ -19,7 +15,6 @@ fn text(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// A two-member workspace whose `a` member leaves a `todo!()` on line 2.
 fn workspace() -> PathBuf {
     let root = support::fresh_workspace("explain-cli", &COUNTER);
     let write = |path: &str, contents: &str| {
@@ -43,8 +38,6 @@ fn workspace() -> PathBuf {
     root
 }
 
-/// Every run below starts with an empty `PATH`: given the workspace root
-/// itself, an answer needs neither Cargo, git nor any other process.
 #[test]
 fn rules_explain_resolves_a_suffix_and_reads_the_workspace_without_a_process() {
     let root = workspace();
@@ -79,8 +72,6 @@ fn rules_explain_resolves_a_suffix_and_reads_the_workspace_without_a_process() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("`clippy::todo`"));
 
-    // `rules list` takes no path and reads none: it answers from an empty
-    // directory as from anywhere.
     let empty = support::fresh_workspace("explain-cli", &COUNTER);
     let output = support::rust_doctor()
         .args(["rules", "list", "--json"])
@@ -120,8 +111,6 @@ fn why_explains_a_reported_line_live_and_from_a_saved_report() {
     assert!(printed.contains("> 2 |     todo!()"), "{printed}");
     assert!(printed.contains("To suppress this site: #[expect(clippy::todo"), "{printed}");
 
-    // A report saved earlier answers the same, and nothing is spawned: the
-    // run below has no `PATH` at all.
     let scan = support::rust_doctor()
         .arg(&root)
         .args(["--json", "--yes"])
@@ -158,9 +147,6 @@ fn why_says_why_a_line_has_nothing_and_refuses_a_non_positive_line() {
     }
 }
 
-/// EP-002 US-008: a member's PATH explains with the configuration a scan of
-/// it reads, the workspace root's. The member's own `rust-doctor.toml`, which
-/// scans ignore, is not read.
 #[test]
 fn rules_explain_on_a_member_reads_the_workspace_roots_configuration() {
     let root = workspace();

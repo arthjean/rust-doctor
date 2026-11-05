@@ -204,12 +204,6 @@ fn terminal_gate_exposes_effective_policy_threshold_and_count() {
     assert!(stdout.contains("Gate failed: blocking error, 3 blocking diagnostic(s)"));
 }
 
-/// The catalog the CLI publishes is the catalog the scan compiles against.
-///
-/// This is the surface the website reads to state what the tool checks, so a
-/// rule added to `src/policy/catalog.rs` has to reach it without anyone
-/// republishing a list by hand. Comparing against the library's own catalog
-/// rather than a frozen count is what keeps that true as the catalog grows.
 #[test]
 fn rules_list_publishes_the_shipped_catalog() {
     let output = cli(&["rules", "list", "--json"]);
@@ -227,15 +221,11 @@ fn rules_list_publishes_the_shipped_catalog() {
         assert_eq!(entry["tier"], rule.tier.as_str());
         assert_eq!(entry["help"], rule.help);
         assert_eq!(entry["diff_scope"], serde_json::to_value(rule.diff_scope).unwrap());
-        // US-045 and US-038: a title, the check an agent applies before
-        // fixing, and the crates the rule was validated on.
         assert_eq!(entry["title"], rule.title);
         assert!(entry["title"].as_str().unwrap().split_whitespace().count() <= 8);
         assert_eq!(entry["not_a_defect_when"], rule.not_a_defect_when);
         assert!(!rule.not_a_defect_when.is_empty());
         assert_eq!(entry["requires"], serde_json::to_value(rule.requires).unwrap());
-        // A catalogued rule ships at warn or opt-in at off: an error by
-        // default would be a policy the reader never chose.
         assert_eq!(entry["default_level"], serde_json::to_value(rule.default_level).unwrap());
         assert_ne!(entry["default_level"], "error", "{}", rule.id);
     }
@@ -247,8 +237,6 @@ fn rules_list_publishes_the_shipped_catalog() {
     assert!(tls["not_a_defect_when"].as_str().unwrap().contains("self-signed certificate"));
     assert_eq!(tls["requires"], serde_json::json!([{ "crate": "reqwest", "versions": "*" }]));
 
-    // EP-005 US-027: the two rules the corpus found wrong on every reviewed
-    // site are published opt-in, and they are the only ones.
     let opt_in: Vec<_> = entries
         .iter()
         .filter(|entry| entry["default_level"] == "off")
@@ -256,9 +244,6 @@ fn rules_list_publishes_the_shipped_catalog() {
         .collect();
     assert_eq!(opt_in, ["clippy::indexing_slicing", "clippy::string_slice"]);
 
-    // US-004: the rules whose cause can sit above their site reach their
-    // function under `--scope contextual`; the span-less lockfile rules reach
-    // their file; every other rule is judged on its line.
     let reaching = |reach: &str| -> Vec<&str> {
         entries
             .iter()
@@ -294,9 +279,6 @@ fn rules_list_publishes_the_shipped_catalog() {
     );
     assert_eq!(reaching("line").len(), entries.len() - 16);
 
-    // A producer is named by the identifier's prefix, and the published field
-    // has to agree with it, since the website groups by one and explains the
-    // other.
     for entry in entries {
         let id = entry["id"].as_str().unwrap();
         let producer = entry["producer"].as_str().unwrap();
@@ -307,8 +289,6 @@ fn rules_list_publishes_the_shipped_catalog() {
                 "source" => "source-kernel",
                 "structure" => "structure",
                 "repo" => "repo",
-                // An unknown segment fails the assertion below rather than
-                // unwinding, so the report names the rule that introduced it.
                 other => other,
             },
         };
@@ -316,7 +296,6 @@ fn rules_list_publishes_the_shipped_catalog() {
     }
 }
 
-/// The human listing is the same catalog, one rule per line.
 #[test]
 fn rules_list_without_json_stays_line_oriented() {
     let output = cli(&["rules", "list"]);

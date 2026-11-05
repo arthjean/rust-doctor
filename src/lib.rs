@@ -55,43 +55,24 @@ pub use policy::{
     BlockingLevel, BlockingLevelSource, CatalogEntry, CategoryOverride, CrateGate, DiffScope,
     PathOverrideReport, RuleLevel, RuleLevelSource, RuleOverride, RuleTier, catalog,
 };
-/// The file length `rust_doctor::structure::oversized_unit` reports at.
-///
-/// Published because the binary crate holds the same bound over its own files
-/// and must not restate the number: `src/tui/` and `src/handoff.rs` are
-/// compiled into the binary, not the library, and a second `1000` written
-/// there is a second place to keep in step with the rule.
 pub use cargo_health::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
 pub use structure::FILE_LINES as OVERSIZED_UNIT_FILE_LINES;
 pub use timings::Timings;
 pub use execution::CacheOutcome;
 
-/// The fault a debug build injects at a named site, for the tests that prove
-/// a panic is contained; a release build compiles it to nothing.
 #[doc(hidden)]
 pub use execution::containment::inject as inject_fault;
 
-/// The native source detectors run in process on one unit, for the regression
-/// seeds `tests/regression_seeds.rs` replays. Not a stable interface.
 #[doc(hidden)]
 pub mod seed_harness {
     pub use crate::source_kernel::harness::{CaseUnit, Detected, run_detectors};
 }
-/// The baseline comparison run on two reports already written, for the
-/// pairing measurement `tests/delta_pairing.rs` replays. Not a stable
-/// interface.
 #[doc(hidden)]
 pub mod delta_harness {
     use std::path::Path;
 
     use crate::{DeltaReport, Diagnostic};
 
-    /// Pairs `current`, whose sources live under `current_root`, against
-    /// `baseline`, whose sources live under `baseline_root`.
-    ///
-    /// # Errors
-    ///
-    /// The comparison's own error message, when a side exceeds its limit.
     pub fn pair(
         baseline: &[Diagnostic],
         baseline_root: &Path,
@@ -120,49 +101,28 @@ pub fn inspect(request: InspectRequest) -> InspectReport {
     }
 }
 
-/// The root of the Cargo workspace a scan of `path` would judge, found the
-/// way a scan finds it, through `cargo metadata`, or `None` when none
-/// resolves. `why` scans that root right after, so it asks Cargo as the scan
-/// will.
 pub fn cargo_workspace_root(path: &Path) -> Option<PathBuf> {
     scan_target::resolve(path, Path::new("cargo"), false, None)
         .ok()
         .map(|target| target.workspace_root().to_path_buf())
 }
 
-/// The root of the Cargo workspace `path` belongs to, found by reading
-/// manifests alone, or `None` when none resolves. `rules explain` reads its
-/// configuration there and `ci install` places the workflow's scan from it:
-/// neither starts a toolchain process, so no `rust-toolchain.toml` or Cargo
-/// configuration the tree ships can run through them.
 pub fn manifest_workspace_root(path: &Path) -> Option<PathBuf> {
     scan_target::manifest_workspace_root(path)
 }
 
-/// Installs SIGINT, SIGTERM and SIGHUP handlers for a binary that scans. Every child
-/// a scan starts then leads a process group the handlers kill, the scan
-/// publishes a failed report with code `interrupted`, and [`interrupted`]
-/// answers true so the binary can exit 130. A second signal exits at once,
-/// and a signal outside a scan exits 130 straight away. Unix only: elsewhere
-/// it does nothing.
 pub fn handle_interrupts() {
     execution::interrupt::install();
 }
 
-/// Whether a signal the handlers of [`handle_interrupts`] caught stopped the
-/// run.
 pub fn interrupted() -> bool {
     execution::interrupt::requested()
 }
 
-/// The exit status of a run a handled signal stopped.
 pub const INTERRUPTED_EXIT_STATUS: u8 = execution::interrupt::EXIT_STATUS;
 
 pub use execution::interrupt::TerminalGuard;
 
-/// Marks the terminal as held by an interactive screen: a signal the handlers
-/// of [`handle_interrupts`] catch while the value lives restores the terminal
-/// mode found here, and shows the cursor, before the process exits.
 pub fn hold_terminal() -> TerminalGuard {
     TerminalGuard::take()
 }
@@ -171,17 +131,12 @@ pub fn hold_terminal() -> TerminalGuard {
 pub struct InspectionSession {
     prepared: execution::PreparedInspection,
     plan: policy::PolicyPlan,
-    /// What the plan was compiled from, kept to compile it again from the
-    /// configuration a `--staged` scan reads out of the index.
     policy: policy::PolicyInput,
     scope: git_scope::ValidatedScope,
     options: execution::RunOptions,
     _scan: execution::interrupt::ScanGuard,
 }
 
-/// Where a report's code frames read source: the workspace, or, after a
-/// `--staged` scan, the tree the index was written into, which stays on disk
-/// until [`FrameSource::close`] or the drop of this value removes it.
 #[derive(Debug)]
 pub struct FrameSource {
     root: PathBuf,
@@ -193,7 +148,6 @@ impl FrameSource {
         &self.root
     }
 
-    /// Removes the staged tree, answering why it could not be.
     pub fn close(self) -> Result<(), String> {
         self.close_internal().map_err(|error| error.message)
     }
@@ -203,8 +157,6 @@ impl FrameSource {
     }
 }
 
-/// The report a handled signal leaves: one failed report naming the
-/// interruption, whatever the run had reached.
 fn settle(report: InspectReport) -> InspectReport {
     if interrupted() {
         report::interrupted_failure(report)
@@ -224,19 +176,8 @@ impl InspectionSession {
         policy: &policy::PolicyInput,
     ) -> Result<Self, Box<InspectReport>> {
         let scan = execution::interrupt::ScanGuard::enter();
-        // Each scan reads the filter drivers its repository configures afresh:
-        // the configuration may have changed since the last scan of this
-        // process.
         git::forget_filter_drivers();
-        // The deadline starts here, before Cargo is first asked anything, so
-        // the time metadata and the baseline snapshot take counts against it,
-        // and every child the run starts, `cargo metadata`, the toolchain
-        // probes and git included, is killed at it.
         let options = request.run_options();
-        // The overrides are read once, before any path is discovered and any
-        // process is started. What comes back is what the plan compiles from,
-        // so the compilation below cannot fail a second time over the same
-        // answer.
         let validated = match policy.validate() {
             Ok(validated) => validated,
             Err(error) => {
@@ -246,9 +187,6 @@ impl InspectionSession {
                 )));
             }
         };
-        // The base selector is checked once, here, and resolution takes what
-        // came back rather than the request, so it cannot fail a second time
-        // over the same answer.
         let scope = match request.scope().validate() {
             Ok(scope) => scope,
             Err(error) => {
@@ -258,12 +196,6 @@ impl InspectionSession {
                 )));
             }
         };
-        // A staged scan reads its configuration from the index, once it is
-        // written out, and never from the working tree. Whether Cargo is
-        // pinned by name is settled by the request alone: the workspace's
-        // configuration is read once metadata names its root, and a request
-        // override outranks it, so a request that turns every Clippy rule off
-        // holds whatever that file says.
         let name_only = validated.turns_off(policy::Producer::Clippy);
         let prepared = match execution::prepare(&request.path, &options, !scope.staged(), name_only)
         {
@@ -278,8 +210,6 @@ impl InspectionSession {
         if let (Some(directory), Some(progress)) = (prepared.discovered(), &options.progress) {
             progress.report(progress::Progress::Discovered { directory });
         }
-        // A member name is checked here, once the workspace answered which
-        // members it has, and before any process is started for it.
         if let Some(Err(error)) = request
             .packages()
             .map(|selected| prepared.check_packages(selected))
@@ -313,9 +243,6 @@ impl InspectionSession {
         }
     }
 
-    /// The report, and where its code frames read source. A `--staged` scan
-    /// judged the index, so its frames are drawn from the tree the index was
-    /// written into rather than from a working tree that may say otherwise.
     pub fn inspect_with_frames(self) -> (InspectReport, FrameSource) {
         let timings = self.options.timings.clone();
         let workspace_root = self.workspace_root().to_path_buf();
@@ -337,7 +264,6 @@ fn inspect_with(request: InspectRequest, policy: &policy::PolicyInput) -> Inspec
     }
 }
 
-/// The report, and the staged tree it judged, left on disk for its frames.
 fn inspect_prepared(session: InspectionSession) -> (InspectReport, Option<baseline::Snapshot>) {
     let InspectionSession {
         mut prepared,
@@ -347,9 +273,6 @@ fn inspect_prepared(session: InspectionSession) -> (InspectReport, Option<baseli
         options,
         _scan,
     } = session;
-    // The index is located and read before the scope, so the staged diff and
-    // the staged tree are the same index, and a conflicted or unreadable one
-    // fails the scan rather than passing it empty.
     let index = if requested.staged() {
         match baseline::locate_index(prepared.workspace_root(), options.deadline) {
             Ok(index) => Some(index),
@@ -384,9 +307,6 @@ fn inspect_prepared(session: InspectionSession) -> (InspectReport, Option<baseli
             return (report::from_execution_scoped(prepared.fail(error), &plan, scope), None);
         }
     };
-    // The commit records the configuration the index holds, so that is the
-    // one a staged scan obeys: an unstaged edit or an untracked file decides
-    // nothing about it.
     if let Some(path) = staged
         .as_ref()
         .map(|(snapshot, _)| snapshot.workspace().join(configuration::CONFIG_FILE_NAME))
@@ -428,8 +348,6 @@ fn inspect_prepared(session: InspectionSession) -> (InspectReport, Option<baseli
     (report, staged.map(|(snapshot, _)| snapshot))
 }
 
-/// A `--scope baseline` comparison: the base side read from the side cache
-/// when it holds it, scanned from a snapshot otherwise, then the current side.
 fn inspect_baseline(
     prepared: execution::PreparedInspection,
     comparison_base: &str,
@@ -438,8 +356,6 @@ fn inspect_baseline(
     options: &execution::RunOptions,
     scope: git_scope::ScopeReport,
 ) -> InspectReport {
-    // What the diff did is read before either side runs: the renames and the
-    // line map the pairing places the base side through.
     let map = delta::DiffMap::read(prepared.workspace_root(), comparison_base, index, options.deadline);
     let setup = match execution::setup_baseline(&prepared, comparison_base, plan, options) {
         Ok(setup) => setup,
@@ -448,8 +364,6 @@ fn inspect_baseline(
             return report::from_baseline_execution(failed, plan, scope, &map);
         }
     };
-    // A hit needs no snapshot: the cache holds the base side's findings and
-    // the evidence the delta pairs them on.
     let snapshot = if setup.needs_snapshot() {
         match baseline::materialize(prepared.workspace_root(), comparison_base, options.deadline) {
             Ok(snapshot) => Some(snapshot),

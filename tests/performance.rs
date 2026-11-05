@@ -1,18 +1,3 @@
-//! The whole-binary benchmark: the release binary scans this repository and
-//! the corpus clone cache cold and warm, and every phase `--timings` publishes
-//! is summarized as a median and a median absolute deviation.
-//!
-//! It never runs as a pull request gate. Run it on a quiet machine with
-//! `cargo test --release --test performance -- --ignored --nocapture`, after
-//! the clone cache is in place (`RUST_DOCTOR_CORPUS_DIR`, else
-//! `~/.cache/rust-doctor/corpus`). `RUST_DOCTOR_PERF_SUBJECTS=a,b` narrows the
-//! run to the named subjects, `rust-doctor` being this repository, and
-//! `RUST_DOCTOR_PERF_BINARY` measures another build than this one. Results land
-//! in `target/performance/results.json`. They are compared with
-//! `tests/fixtures/performance/baseline.json` only when the CPU model, the core
-//! count and the toolchain match, since a number measured elsewhere says
-//! nothing about this host.
-
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -26,20 +11,14 @@ use std::process::Command;
 
 use serde_json::{Value, json};
 
-/// Runs thrown away before the samples of each cohort.
 const WARMUPS: usize = 1;
 const SAMPLES: usize = 5;
-/// A regression is a median at least this many percent slower...
 const REGRESSION_PERCENT: u64 = 10;
-/// ...and at least this many milliseconds slower, so noise on a short phase
-/// never fails the run.
 const REGRESSION_MILLISECONDS: u64 = 250;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Cohort {
-    /// Every run starts from an empty target directory.
     Cold,
-    /// Every run reuses the target directory the warmup filled.
     Warm,
 }
 
@@ -143,9 +122,6 @@ fn the_release_binary_scans_every_subject_within_its_recorded_budget() {
     assert!(regressions.is_empty(), "regressions: {regressions:#?}");
 }
 
-/// This repository at its `HEAD`, then every curated corpus repository the
-/// clone cache holds, each materialized at its pinned commit so the measured
-/// tree never moves under the binary being measured.
 fn subjects(output: &Path) -> Vec<Subject> {
     let selected: Option<Vec<String>> = env::var("RUST_DOCTOR_PERF_SUBJECTS")
         .ok()
@@ -186,16 +162,12 @@ fn scan(workspace: &Path, target: &Path) -> Value {
         .arg(workspace)
         .args(["--json", "--yes", "--timings", "--advisory-db", "/dev/null"])
         .env("CARGO_TARGET_DIR", target)
-        // A wall-clock cutoff would make a large subject's findings depend on
-        // machine load, and the digest check would read that as a defect.
         .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600")
         .output()
         .expect("the release binary should start");
     serde_json::from_slice(&output.stdout).expect("every scan should print a report")
 }
 
-/// The binary under measurement: `RUST_DOCTOR_PERF_BINARY` when a run
-/// compares two builds, else the release binary this test was built with.
 fn binary() -> PathBuf {
     env::var_os("RUST_DOCTOR_PERF_BINARY")
         .map_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_rust-doctor")), PathBuf::from)
@@ -223,7 +195,6 @@ fn cpu_model() -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
-/// The median and the median absolute deviation of one phase's samples.
 fn summarize(mut values: Vec<u64>) -> Value {
     let center = median(&mut values);
     let mut deviations: Vec<u64> = values.iter().map(|value| value.abs_diff(center)).collect();
@@ -239,8 +210,6 @@ fn median(values: &mut [u64]) -> u64 {
     }
 }
 
-/// Every phase whose median grew by at least both bounds against the
-/// baseline, named `subject/cohort/phase`.
 fn regressions(baseline: &Value, results: &Value) -> Vec<String> {
     let mut found = Vec::new();
     let Some(subjects) = results["subjects"].as_object() else {

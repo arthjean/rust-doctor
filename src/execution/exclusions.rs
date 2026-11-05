@@ -1,10 +1,3 @@
-//! What a run gathers so the report can leave findings out: the files the
-//! repository declares generated, the suppression directives written in the
-//! files the scan read, and the members `--package` selected.
-//!
-//! Nothing is decided here. The report applies all three, beside the ignored
-//! paths and the overrides the plan carries, in one place.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -18,20 +11,13 @@ use crate::workspace_path;
 
 #[derive(Debug, Default)]
 pub(crate) struct ScanExclusions {
-    /// Workspace-relative paths `.gitattributes` marks generated or vendored,
-    /// or whose Rust source opens on a generator header.
     pub(crate) generated: BTreeSet<String>,
     pub(crate) directives: Vec<Directive>,
-    /// The members `--package` selected, `None` when every member is scanned.
     pub(crate) packages: Option<BTreeSet<String>>,
 }
 
-/// How many member names an unknown `--package` lists before it stops.
 const LISTED_MEMBERS: usize = 20;
 
-/// Refuses a selection naming anything but a workspace member, listing the
-/// members it could have named. The name that was refused is not repeated:
-/// the reader wrote it.
 pub(crate) fn check_packages(
     metadata: &Metadata,
     selected: &BTreeSet<String>,
@@ -64,7 +50,6 @@ pub(crate) fn check_packages(
     ))
 }
 
-/// The TOML files a directive may sit in besides the member manifests.
 const CARGO_CONFIG: &str = ".cargo/config.toml";
 
 pub(super) fn gather(
@@ -76,8 +61,6 @@ pub(super) fn gather(
     let workspace_root = metadata.workspace_root.as_std_path();
     let mut generated = declared.clone();
     let mut directives = Vec::new();
-    // Read over every unit the walk loaded: a headed file is already out of
-    // the scanned ones, and its Clippy findings still have to be left out.
     for unit in enumeration.reached() {
         if generated::has_generator_header(unit.source()) {
             generated.insert(unit.relative_path().to_owned());
@@ -106,8 +89,6 @@ pub(super) fn gather(
             directives.extend(directive::in_toml_file(&relative, Path::new(&manifest)));
         }
     }
-    // The same file parsed under two editions is two units and one set of
-    // comments.
     directives.sort_by(|left, right| (&left.path, left.line).cmp(&(&right.path, right.line)));
     directives.dedup();
     ScanExclusions {

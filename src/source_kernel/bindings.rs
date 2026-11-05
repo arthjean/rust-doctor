@@ -1,19 +1,3 @@
-//! What an identifier was bound to, read from the function body it sits in.
-//!
-//! The alias map answers which item a path names; this answers the question
-//! one step closer to the code: which expression a bare identifier holds. It
-//! follows a `let` to its initializer and a `const` item of the enclosing
-//! module or block to its value, and nothing further. The answer is closed
-//! like the alias map's: whenever the binding could hold something other than
-//! its initializer, the answer is `Indeterminate` and the detector abstains.
-//! That covers a binding reassigned after it was made, one bound by a pattern
-//! other than a plain name, one taken from a parameter, and one shadowed by a
-//! second binding between it and the use, in a branch or anywhere else. A
-//! parameter, or a `let`, whose type is written still says that much: the
-//! answer is then `Typed`, which no reassignment can change.
-//! Closures, loops and method calls taking `&mut self` are not followed: a
-//! builder mutated through a method is still the builder it was initialized to.
-
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
@@ -22,35 +6,20 @@ use ra_ap_syntax::{AstNode, SyntaxNode, TextSize, WalkEvent};
 
 use super::aliases::{AliasMap, Provenance};
 
-/// What an identifier holds at one point of the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Binding {
-    /// A `let` binding or a `const` item, initialized to this expression.
     Value(ast::Expr),
-    /// A plain-name parameter, or a `let` whose value cannot be read, with the
-    /// type written on it.
     Typed(ast::Type),
-    /// Bound, but not to something the detectors can read: a parameter, a
-    /// pattern, a reassignment, a shadowing between the binding and the use,
-    /// two `const` items of one name, or a glob that may bind it.
     Indeterminate,
-    /// No local binding and no `const` item of the module carries the name.
     Unbound,
 }
 
-/// Answers `binding` for one unit, indexing each function body once.
-///
-/// The detectors ask about the bindings of the body they are in, one call
-/// site after the other, and the walk visits a body's call sites together:
-/// a single-slot cache of the last body indexed turns a scan of the body per
-/// question into one scan per body.
 #[derive(Debug, Default)]
 pub(super) struct Resolver {
     body: RefCell<Option<BodyIndex>>,
 }
 
 impl Resolver {
-    /// Binding of `name` where `site` sits.
     pub(super) fn binding(&self, aliases: &AliasMap, site: &SyntaxNode, name: &str) -> Binding {
         self.local(site, |index| {
             index
@@ -60,13 +29,10 @@ impl Resolver {
         .unwrap_or_else(|| constant(aliases, site, name))
     }
 
-    /// Does a pattern of the enclosing function, a `let`, a parameter or a
-    /// closure parameter, bind `name` before `site`?
     pub(super) fn bound_locally(&self, site: &SyntaxNode, name: &str) -> bool {
         self.local(site, |index| index.nearest(site, name).map(|_| ())).is_some()
     }
 
-    /// `answer` asked of the index of the function body `site` sits in.
     fn local<T>(&self, site: &SyntaxNode, answer: impl FnOnce(&BodyIndex) -> Option<T>) -> Option<T> {
         let body = site.ancestors().find_map(ast::Fn::cast)?;
         let mut cache = self.body.borrow_mut();
@@ -77,14 +43,10 @@ impl Resolver {
     }
 }
 
-/// The bindings and assignments of one function body, nested items left out.
 #[derive(Debug)]
 struct BodyIndex {
     body: ast::Fn,
-    /// Identifier patterns by name, in source order. A parameter, a closure
-    /// parameter, a match arm and a `let` are all identifier patterns.
     patterns: BTreeMap<String, Vec<ast::IdentPat>>,
-    /// Where an assignment, plain or compound, targets a bare identifier.
     assignments: BTreeMap<String, Vec<TextSize>>,
 }
 
@@ -97,8 +59,6 @@ impl BodyIndex {
             let WalkEvent::Enter(node) = event else {
                 continue;
             };
-            // A function nested in the body is a scope of its own: nothing it
-            // binds is visible outside it.
             if node != *body.syntax() && ast::Fn::can_cast(node.kind()) {
                 walk.skip_subtree();
             } else if let Some(pattern) = ast::IdentPat::cast(node.clone()) {
@@ -122,9 +82,6 @@ impl BodyIndex {
         }
     }
 
-    /// The last binding of `name` written before `site`, whatever its form.
-    /// A `let` whose own initializer holds the use is skipped, since `let cmd
-    /// = cmd.arg(..)` reads the binding before it.
     fn nearest(&self, site: &SyntaxNode, name: &str) -> Option<&ast::IdentPat> {
         let start = site.text_range().start();
         self.patterns.get(name)?.iter().rev().find(|pattern| {
@@ -139,12 +96,6 @@ impl BodyIndex {
         })
     }
 
-    /// The initializer of the `let` that binds `pattern`, when that `let` is
-    /// the only thing the name can hold at `site`: a plain name, in a block
-    /// enclosing the use, never assigned again. `insecure &= check` counts as
-    /// an assignment, since it leaves a flag nobody can read off its `let`.
-    /// When the value cannot be read but the binding's type is written, on a
-    /// parameter or on the `let`, the type is the answer.
     fn let_value(&self, pattern: &ast::IdentPat, site: &SyntaxNode, name: &str) -> Binding {
         let plain = pattern.ref_token().is_none() && pattern.pat().is_none();
         let typed = || {
@@ -178,9 +129,6 @@ impl BodyIndex {
     }
 }
 
-/// The type written on the parameter or the `let` that `pattern` is the whole
-/// pattern of, when the function, closure or block it binds in encloses
-/// `site`.
 fn declared_type(pattern: &ast::IdentPat, site: &SyntaxNode) -> Option<ast::Type> {
     let parent = pattern.syntax().parent()?;
     if let Some(statement) = ast::LetStmt::cast(parent.clone()) {
@@ -195,15 +143,10 @@ fn declared_type(pattern: &ast::IdentPat, site: &SyntaxNode) -> Option<ast::Type
         .flatten()
 }
 
-/// A `const` item named `name`, in the nearest block or module scope around
-/// `site` that declares one. An item is visible anywhere in its scope, so the
-/// order does not matter; two items of one name, which `cfg` makes possible,
-/// are indeterminate.
 fn constant(aliases: &AliasMap, site: &SyntaxNode, name: &str) -> Binding {
     match aliases.provenance(site, name) {
         Provenance::Unbound => {}
         Provenance::Item(_) => return Binding::Unbound,
-        // A glob may bring in a `const` of this name.
         Provenance::GlobMasked(_) | Provenance::Indeterminate => return Binding::Indeterminate,
     }
     for scope in site.ancestors() {
@@ -235,8 +178,6 @@ fn constant(aliases: &AliasMap, site: &SyntaxNode, name: &str) -> Binding {
     Binding::Unbound
 }
 
-/// The name an expression reads when it is a bare identifier: one plain path
-/// segment, no qualifier, no generic arguments.
 pub(super) fn identifier(expression: &ast::Expr) -> Option<String> {
     let ast::Expr::PathExpr(path) = expression else {
         return None;

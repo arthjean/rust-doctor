@@ -1,8 +1,3 @@
-// rule: rust_doctor::source::sql_built_from_format
-// weakness: typed-number
-// source: EP-003 review, the type written on a let was lost through a format capture
-// verdict: quiet
-
 pub struct Page {
     pub limit: i64,
 }

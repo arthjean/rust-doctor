@@ -1,0 +1,4 @@
+rule = "rust_doctor::source::unchecked_http_status"
+weakness = "api-variant"
+source = "EP-006 review, the status checked inside and_then"
+verdict = "quiet"

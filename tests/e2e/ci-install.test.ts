@@ -1,7 +1,3 @@
-// CI-01 to CI-34 of `tasks/e2e-catalog/subcommands.md` section 10: `ci
-// install`. The workflow it writes is parsed with `Bun.YAML`, every `run:`
-// block goes through `bash -n`, and the two steps that matter on a pull
-// request run under bash with a fake `gh`.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +13,7 @@ import {
   treeFingerprint,
   type DoctorOptions,
 } from "./e2e-helpers";
-import { fakeCalls, fakeEnv } from "./fakes";
+import { fakeCalls, fakeEnv, fakeProgram } from "./fakes";
 import { gitScenario, type Repo } from "./git-scenario";
 import { actionTools } from "./action-support";
 
@@ -62,14 +58,12 @@ async function installed(name: string, args: string[] = []): Promise<Repo> {
 const written = (repo: Repo) => readFileSync(join(repo.path, WORKFLOW), "utf8");
 const parse = (text: string) => Bun.YAML.parse(text) as Workflow;
 const steps = (text: string) => parse(text).jobs.inspect.steps;
-// A run step of any job.
 const step = (text: string, name: string) => {
   const found = Object.values(parse(text).jobs).flatMap((job) => job?.steps ?? []).find((candidate) => candidate.name === name);
   if (!found?.run) throw new Error(`no run step named ${name}`);
   return found;
 };
 
-// The workflow a dry run previews, without the preview's heading.
 async function preview(repo: Repo, args: string[], options: DoctorOptions = {}): Promise<string> {
   const run = await ci(repo, [...args, "--dry-run"], options);
   expect(run.exitCode).toBe(0);
@@ -78,7 +72,6 @@ async function preview(repo: Repo, args: string[], options: DoctorOptions = {}):
   return run.stdout.slice(PREVIEW.length, -1);
 }
 
-// A refusal: its exit code, its one stderr line, and a tree left as it was.
 async function refused(repo: Repo, args: string[], exitCode: number, stderr: string, options: DoctorOptions = {}) {
   const before = treeFingerprint(repo.path);
   const run = await ci(repo, args, options);
@@ -88,22 +81,18 @@ async function refused(repo: Repo, args: string[], exitCode: number, stderr: str
   expect(treeFingerprint(repo.path)).toBe(before);
 }
 
-// Runs one step's script the way a GitHub runner does, in `cwd`.
 async function runStep(script: string, cwd: string, env: Record<string, string>, timeoutMs?: number) {
   const dir = scratchDir("step");
   writeFileSync(join(dir, "step.sh"), script);
   return runCommand(["bash", "--noprofile", "--norc", "-eo", "pipefail", join(dir, "step.sh")], { cwd, env, timeoutMs });
 }
 
-// A `gh` that records every call through the shared fake, answers the
-// comment listing with RD_GH_COMMENTS and fails a POST with RD_GH_POST_EXIT,
-// next to the machine's `jq`.
 function ghPath(): string {
   const dir = join(scratchDir("gh"), "bin");
   mkdirSync(dir);
   writeFileSync(
     join(dir, "gh"),
-    `#!/bin/sh\n"${join(import.meta.dir, "fakes/gh")}" "$@" || exit $?\n` +
+    `#!/bin/sh\n"${fakeProgram("gh")}" "$@" || exit $?\n` +
       `if [ "$2" = --paginate ]; then printf '%s' "\${RD_GH_COMMENTS:-[]}"; fi\n` +
       `if [ "$3" = POST ]; then exit "\${RD_GH_POST_EXIT:-0}"; fi\n`,
     { mode: 0o755 },
@@ -285,8 +274,6 @@ describe("ci install", () => {
     }
   });
 
-  // The refusal half of CI-15, apart so the open defect cannot hide a
-  // regression on the names above.
   test.failing("subcommands/F18 --branch refuses a..b, as git check-ref-format does (CI-15)", async () => {
     const repo = await clean("ci-15-dots");
     await refused(repo, ["--branch", "a..b"], 2, `${NOT_INSTALLED}--branch is not a branch name.`);
@@ -469,7 +456,6 @@ describe("ci install steps", () => {
           BASE_REF: baseRef,
           EVENT_NAME: eventName,
           CARGO_TARGET_DIR: repo.target("ci-32"),
-          // `npm prefix -g` answers a prefix whose launcher is the binary under test.
           PATH: `${actionTools()}:${toolchainBin()}`,
         },
         150_000,

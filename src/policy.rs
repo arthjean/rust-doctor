@@ -97,11 +97,6 @@ impl fmt::Display for BlockingLevel {
     }
 }
 
-/// The two override kinds are the same pair, a selector and a level, read from
-/// the same `KEY=LEVEL` syntax and rendered back the same way. They stay
-/// distinct types so a category selector cannot reach `with_rule_override`, and
-/// they share one body so their parsing, their rendering and their shape cannot
-/// drift apart.
 macro_rules! selector_override {
     ($name:ident) => {
         #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +113,6 @@ macro_rules! selector_override {
                 }
             }
 
-            /// The pair validation reads, so the two kinds go through one loop.
             fn parts(&self) -> (&str, RuleLevel) {
                 (&self.selector, self.level)
             }
@@ -198,9 +192,6 @@ impl PolicyInput {
         self.blocking.unwrap_or_default()
     }
 
-    /// Reads the overrides once, against the shipped catalog. What comes back
-    /// is the only thing a plan compiles from, so a plan cannot be built out of
-    /// overrides nobody validated and validation cannot run twice.
     pub(crate) fn validate(&self) -> Result<ValidatedPolicy<'_>, PolicyError> {
         ValidatedPolicy::of(self, &CATALOG)
     }
@@ -217,7 +208,6 @@ pub enum RuleLevelSource {
 }
 
 impl RuleLevelSource {
-    /// The name the report's `policy.rules[].source` publishes.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Default => "default",
@@ -245,10 +235,6 @@ struct PlannedRule {
 }
 
 impl PlannedRule {
-    /// A level the reader chose, at the request or through a configuration
-    /// file, rather than the one the catalog ships. It is read from the source
-    /// instead of being stored beside it: a second field for the same fact is
-    /// a second field to keep true.
     const fn restamped(&self) -> bool {
         !matches!(self.source, RuleLevelSource::Default)
     }
@@ -350,14 +336,10 @@ impl PolicyPlan {
         &self.paths
     }
 
-    /// Does the configuration ignore this workspace-relative path?
     pub(crate) fn is_ignored(&self, path: &str) -> bool {
         self.paths.is_ignored(path)
     }
 
-    /// The level an `[[overrides]]` table sets for this rule under `path`,
-    /// unless the request set the rule's level itself, which no file
-    /// overrides.
     pub(crate) fn path_level(&self, id: &str, path: &str) -> Option<RuleLevel> {
         let planned = self.planned(id)?;
         if matches!(
@@ -378,15 +360,6 @@ impl PolicyPlan {
     }
 }
 
-/// The rules of one producer that the plan left on.
-///
-/// A producer asks the plan once and reads the answer per finding, rather than
-/// hoisting one boolean per rule at the top of its entry point. A boolean per
-/// rule is a place the next rule has to be declared twice, once to be read and
-/// once to be counted, and the counting is what an eight-clause negated
-/// conjunction used to decide for a whole pass, silently. The set is derived
-/// from the catalog's own `producer` field, so no producer keeps a second list
-/// of the rules it owns.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct ActiveRules {
     on: BTreeSet<&'static str>,
@@ -402,7 +375,6 @@ impl ActiveRules {
         }
     }
 
-    /// The set a test of one family names for itself.
     #[cfg(test)]
     pub(crate) fn from_rules(rules: impl IntoIterator<Item = &'static RuleDefinition>) -> Self {
         Self {
@@ -414,8 +386,6 @@ impl ActiveRules {
         self.on.contains(rule.id)
     }
 
-    /// Is the rule this id names on? For an id read out of source text, which
-    /// no static definition stands for.
     pub(crate) fn names(&self, id: &str) -> bool {
         self.on.contains(id)
     }
@@ -464,10 +434,6 @@ fn compile_rules<const N: usize>(
     })
 }
 
-/// Overrides read once against a catalog: every selector is spelled the way a
-/// selector may be spelled, names something that catalog knows, and appears
-/// once. A plan compiles from this and from nothing else, so the question is
-/// asked on one side of the boundary and answered on the other.
 #[derive(Debug)]
 pub(crate) struct ValidatedPolicy<'a> {
     input: &'a PolicyInput,
@@ -498,9 +464,6 @@ impl<'a> ValidatedPolicy<'a> {
 }
 
 impl ValidatedPolicy<'_> {
-    /// Whether the request alone turns every rule of `producer` off. A
-    /// request override outranks the workspace's configuration, so no
-    /// `rust-doctor.toml` can turn one of them back on.
     pub(crate) fn turns_off(&self, producer: Producer) -> bool {
         CATALOG
             .iter()
@@ -514,10 +477,6 @@ impl ValidatedPolicy<'_> {
     }
 }
 
-/// One override list, accepted or refused. The rule list and the category list
-/// differ by how a selector is spelled, by what knows it and by which errors
-/// they carry, and by nothing else, so they go through one loop rather than
-/// through two that have to stay parallel.
 fn accepted<'a>(
     overrides: impl Iterator<Item = (&'a str, RuleLevel)>,
     well_formed: fn(&str) -> Result<(), PolicyError>,
@@ -538,11 +497,6 @@ fn accepted<'a>(
     Ok(accepted)
 }
 
-/// One entry of a table sorted by identifier.
-///
-/// Four tables of this module are sorted and searched that way, and reaching
-/// the answer through `get` rather than through an index keeps the lookup total
-/// on a table whose sorting only a test holds.
 fn by_id<'a, T>(sorted: &'a [T], id: &str, key: impl Fn(&T) -> &str) -> Option<&'a T> {
     let found = sorted.binary_search_by_key(&id, |entry| key(entry)).ok()?;
     sorted.get(found)

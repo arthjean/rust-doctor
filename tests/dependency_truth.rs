@@ -1,11 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! EP-002: the manifest is judged against what the code references.
-//!
-//! Two rules answer what `[dependencies]` declares against the crate names
-//! the sources actually write: an entry nothing references, and an entry only
-//! test code references. Each test here scans a fixture through the same
-//! `inspect` a user runs, and is the pointer its rule's
-//! `tests/rule_evidence.json` entry names.
 
 use std::path::{Path, PathBuf};
 
@@ -43,11 +36,6 @@ fn messages_of(report: &Value, code: &str) -> Vec<String> {
         .collect()
 }
 
-/// US-006: the one dependency nothing references is reported, per member, and
-/// every collected reference form keeps its entry silent: `use`, a fully
-/// qualified path, `extern crate`, a macro invocation path, a renamed entry
-/// referenced by its alias, a hyphenated name written underscored, an
-/// optional entry, and an entry only the build script references.
 #[test]
 fn only_the_never_referenced_dependency_is_reported_as_unused() {
     let report = report("unused");
@@ -72,8 +60,6 @@ fn only_the_never_referenced_dependency_is_reported_as_unused() {
         "the escape hatch is not named: {root}"
     );
 
-    // US-006: each member is judged against its own table. The sibling
-    // declares the crate the root uses, so the finding is the sibling's.
     let beta = observed
         .iter()
         .find(|diagnostic| diagnostic["package"] == "dependency-truth-beta")
@@ -92,11 +78,6 @@ fn only_the_never_referenced_dependency_is_reported_as_unused() {
     assert!(score < 100, "two dead entries left the score at {score}");
 }
 
-/// US-007: an entry only the integration test references and an entry only an
-/// inline `#[cfg(test)]` module references are reported, each with the site
-/// class its message names; an entry the shipped code also references, an
-/// entry already under `[dev-dependencies]`, and the entry nothing references
-/// stay out of this rule.
 #[test]
 fn test_only_dependencies_are_reported_with_their_reference_site() {
     let report = report("test-only");
@@ -117,8 +98,6 @@ fn test_only_dependencies_are_reported_with_their_reference_site() {
         "{messages:?}"
     );
 
-    // US-007: a single manifest entry never produces two findings. The entry
-    // nothing references belongs to the unused rule alone.
     let unused = messages_of(&report, UNUSED);
     assert_eq!(unused.len(), 1, "{unused:?}");
     assert!(unused[0].contains("\"orphan\""), "{unused:?}");
@@ -128,9 +107,6 @@ fn test_only_dependencies_are_reported_with_their_reference_site() {
     );
 }
 
-/// FR-15: both rules stay switchable off through the same override surface as
-/// every other rule, and switching them off removes the walk's findings
-/// without touching the rest of the report.
 #[test]
 fn both_rules_are_switchable_off() {
     let request = InspectRequest::new(fixture("test-only"))

@@ -1,13 +1,3 @@
-//! A secret-named environment variable that falls back to a value.
-//!
-//! `env::var("JWT_SECRET").unwrap_or("dev-key".into())` makes two defects at
-//! one call: the fallback is a secret committed in the source, and a service
-//! deployed without the variable runs on it instead of refusing to start.
-//! `unwrap_or_default()` is the second defect alone, an empty secret. The
-//! name and value vocabularies live in `vocabulary`, the one place a false
-//! positive is tuned. The rule is silent in test code, where a fixed secret is
-//! the fixture.
-
 use ra_ap_syntax::ast::{self, HasArgList};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -106,8 +96,6 @@ fn secret_fallback(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection
     })
 }
 
-/// The message a fallback earns: an empty default, or a literal that can be
-/// a real secret.
 fn fallback_message(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option<&'static str> {
     let fallback = match call.name_ref()?.text().as_str() {
         "unwrap_or_default" => {
@@ -125,7 +113,6 @@ fn fallback_message(context: &Context<'_>, call: &ast::MethodCallExpr) -> Option
     vocabulary::real_secret(&fallback_text(context, fallback)?).then_some(LITERAL_MESSAGE)
 }
 
-/// Is `receiver` `std::env::var` or `var_os` called on a secret's name?
 fn reads_secret_variable(context: &Context<'_>, receiver: ast::Expr) -> Option<bool> {
     let ast::Expr::CallExpr(read) = context.value(strip_wrappers(receiver))? else {
         return None;
@@ -140,7 +127,6 @@ fn reads_secret_variable(context: &Context<'_>, receiver: ast::Expr) -> Option<b
     Some(reads_env && vocabulary::secret_name(&name))
 }
 
-/// The expression a closure body returns: itself, or a block's tail.
 fn tail(body: ast::Expr) -> Option<ast::Expr> {
     match body {
         ast::Expr::BlockExpr(block) => block.stmt_list()?.tail_expr(),
@@ -148,8 +134,6 @@ fn tail(body: ast::Expr) -> Option<ast::Expr> {
     }
 }
 
-/// The text of a fallback written as a literal, converted or not:
-/// `"x"`, `"x".into()`, `"x".to_owned()`, `"x".to_string()`, `String::from("x")`.
 fn fallback_text(context: &Context<'_>, expression: ast::Expr) -> Option<String> {
     match context.value(strip_wrappers(expression))? {
         ast::Expr::MethodCallExpr(conversion) => {

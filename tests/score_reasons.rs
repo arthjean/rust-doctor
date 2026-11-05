@@ -1,12 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
-//! Proofs of EP-001 US-004 and US-005: an uncatalogued warning is published and
-//! weighs nothing, and a score that is not authoritative says why.
-//!
-//! Every proof starts at the binary a user runs, on a fixture under
-//! `tests/fixtures/score-reasons/`, so the wire shape asserted here is the one
-//! `--json` publishes.
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -14,9 +7,6 @@ use serde_json::Value;
 
 mod support;
 
-/// Every scored rule the fixtures can raise, switched off where a proof is
-/// about the notes alone. The repository rule depends on how the checkout
-/// tracks the fixture, so it is off everywhere.
 const SCORED_OFF: [&str; 4] = [
     "--rule",
     "rust_doctor::repo::unignored_build_output=off",
@@ -62,9 +52,6 @@ fn diagnostic<'a>(report: &'a Value, code: &str) -> &'a Value {
     found.expect("the diagnostic was just asserted")
 }
 
-/// US-004 AC-1 and AC-2: rustc's `unused_imports` and a Clippy lint the
-/// workspace's own `[lints.clippy]` table enabled are both published, marked
-/// `unscored: "uncatalogued"`, and leave the score whole and authoritative.
 #[test]
 fn an_uncatalogued_warning_is_published_unscored_and_voids_nothing() {
     let root = fixture("uncatalogued");
@@ -96,15 +83,12 @@ fn an_uncatalogued_warning_is_published_unscored_and_voids_nothing() {
         "a note blocked the gate"
     );
 
-    // A scored finding carries no such member: absence is what says it weighs.
     let scored = json(&root, &REPO_RULE_OFF);
     let eq_op = diagnostic(&scored, "clippy::eq_op");
     assert!(eq_op.get("unscored").is_none());
     assert!(scored["audit"]["score"]["value"].as_u64().unwrap() < 100);
 }
 
-/// US-004 AC-5: the linear report prints the notes after every scored finding,
-/// under their own heading, and counts them in the summary line.
 #[test]
 fn the_linear_report_prints_compiler_notes_last_under_their_heading() {
     let root = fixture("uncatalogued");
@@ -126,11 +110,6 @@ fn the_linear_report_prints_compiler_notes_last_under_their_heading() {
     );
 }
 
-/// US-004 AC-4 and US-005 AC-3: an uncatalogued error is the compilation
-/// failing, not a note. The stage error stays in `errors[]`. Since EP-002
-/// US-009 of the e2e hardening PRD, the one member that did not compile
-/// leaves nothing linted, so no score stands to carry a reason: the errors
-/// say why, and the linear output says the scan could not score.
 #[test]
 fn a_compile_error_fails_the_stage_and_is_the_reason_given() {
     let root = fixture("compile-error");
@@ -156,7 +135,6 @@ fn a_compile_error_fails_the_stage_and_is_the_reason_given() {
 
     let output = run(&root, &REPO_RULE_OFF);
     let stdout = String::from_utf8(output.stdout).unwrap();
-    // The terminal wraps the line to its width, so the words are compared.
     let words = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         words.contains("Score unavailable: the scan could not score, since no package was linted."),
@@ -165,7 +143,6 @@ fn a_compile_error_fails_the_stage_and_is_the_reason_given() {
     assert!(!stdout.contains("Score is partial because"), "{stdout}");
 }
 
-/// US-005 AC-6: the report names the binary that produced it.
 #[test]
 fn the_toolchain_block_names_the_rust_doctor_version() {
     let report = json(&fixture("uncatalogued"), &REPO_RULE_OFF);

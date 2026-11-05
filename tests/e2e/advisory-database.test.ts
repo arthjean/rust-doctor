@@ -1,9 +1,3 @@
-// `tasks/e2e-catalog/failures.md` section AD: the advisory database. The
-// workspace is a copy of `cargo-health/offline-registry`, whose one vendored
-// dependency the fixture database `advisory-db` flags. A database is read
-// from where `--advisory-db` names it or where cargo audit or cargo deny left
-// it under CARGO_HOME, never fetched; `/dev/null` turns the check off and a
-// path that does not exist is refused before any work (US-006).
 import { describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,13 +32,11 @@ const FIXTURE_DATABASE: Database = { source: "explicit", date: "2020-01-20", adv
 
 let shared: string | undefined;
 
-// One copy for every read-only scan, so they share one warm target.
 function workspace(): string {
   shared ??= copyWorkspace("cargo-health/offline-registry");
   return shared;
 }
 
-// A scan that must leave the workspace as it found it and finish complete.
 async function scan(args: string[], options: DoctorOptions = {}): Promise<DoctorRun & { report: Report }> {
   const before = treeFingerprint(workspace());
   const run = await runDoctor([workspace(), "--yes", ...args], options);
@@ -58,8 +50,6 @@ async function scan(args: string[], options: DoctorOptions = {}): Promise<Doctor
   return { ...run, report };
 }
 
-// A copy of the fixture database at `at`, a clone of the RustSec remote as
-// cargo audit and cargo deny leave one: discovery accepts no other (US-013).
 function rustsecClone(at: string): void {
   cpSync(DATABASE, at, { recursive: true });
   mkdirSync(join(at, ".git"));
@@ -67,7 +57,6 @@ function rustsecClone(at: string): void {
   writeFileSync(join(at, ".git", "config"), '[remote "origin"]\n\turl = https://github.com/rustsec/advisory-db\n');
 }
 
-// A CARGO_HOME holding nothing, or a RustSec clone of the fixture database at `at`.
 function cargoHome(at?: string): string {
   const home = join(scratchDir("cargo-home"), "cargo");
   mkdirSync(home);
@@ -147,8 +136,6 @@ describe("advisory database", () => {
     expect(report.scan.advisory_db).toEqual({ ...FIXTURE_DATABASE, source: "cargo-audit" });
   });
 
-  // The fixture's newest advisory is from 2020, so its age grows every day:
-  // the shape is the contract, not the number.
   test("AD-08 a stale database is read and the linear report states its age", async () => {
     const { stdout } = await scan(["--advisory-db", DATABASE], { env: { CARGO_HOME: cargoHome() } });
     expect(stdout).toMatch(/^The advisory database is \d+ days old\.$/m);

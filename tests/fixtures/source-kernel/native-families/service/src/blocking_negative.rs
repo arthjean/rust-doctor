@@ -34,7 +34,7 @@ pub mod prelude {
     pub fn noop() {}
 }
 
-/// A glob of the crate's own modules may bind `std`, so the rule abstains.
+
 pub async fn under_the_crates_own_prelude_glob() {
     use crate::blocking_negative::prelude::*;
     noop();
@@ -51,7 +51,7 @@ fn platform_read() -> std::io::Result<Vec<u8>> {
     std::fs::read("Cargo.toml")
 }
 
-/// Two `fn` items of the name: the helper is ambiguous and not followed.
+
 pub async fn calls_an_ambiguous_helper() -> std::io::Result<Vec<u8>> {
     platform_read()
 }

@@ -1,13 +1,3 @@
-//! A saved `--json` report rendered as Markdown, for a CI job summary or a pull
-//! request comment.
-//!
-//! It reads the report as it was published rather than as this crate models
-//! it: the file is whatever a CI step wrote, possibly by another run on another
-//! machine, so the schema version is checked first and every field after that
-//! is read defensively. Every piece of text that came from a diagnostic is
-//! escaped, because a finding's message is text a scanned repository chose and
-//! a comment is rendered for people who never asked to read its markup.
-
 use std::collections::BTreeSet;
 use std::fmt::{self, Write as _};
 use std::fs::File;
@@ -19,20 +9,13 @@ use serde_json::Value;
 
 use crate::{SCHEMA_VERSION, ScoreDimensions};
 
-/// The oldest report this renders. Schema 21 added only the `contextual` scope
-/// mode and 22 only optional fields, so a report a 20 binary saved reads the
-/// same.
 const READABLE_FROM: u8 = 20;
 use crate::presentation::rule_url;
 
-/// The largest report file `report markdown` reads.
 pub const REPORT_BYTES_LIMIT: u64 = 64 * 1024 * 1024;
 
-/// How many findings the table lists when the caller names no limit.
 pub const DEFAULT_FINDING_LIMIT: usize = 20;
 
-/// The longest message a table cell carries, in characters. A comment has a
-/// size limit of its own, and one finding should not spend it.
 const MESSAGE_CHARACTERS: usize = 300;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,15 +55,12 @@ impl fmt::Display for MarkdownError {
 
 impl std::error::Error for MarkdownError {}
 
-/// Reads the report at `path`, and nothing else: no scan, no process.
 pub fn read_saved_report(path: &Path) -> Result<Value, MarkdownError> {
     let unreadable = |error: io::Error| MarkdownError::Unreadable(error.kind());
     let file = File::open(path).map_err(unreadable)?;
     if file.metadata().map_err(unreadable)?.len() > REPORT_BYTES_LIMIT {
         return Err(MarkdownError::TooLarge);
     }
-    // The length is read again through the bound: a file that grows after the
-    // check, or a pipe that has no length at all, is held to the same limit.
     let mut bytes = Vec::new();
     file.take(REPORT_BYTES_LIMIT + 1)
         .read_to_end(&mut bytes)
@@ -94,9 +74,6 @@ pub fn read_saved_report(path: &Path) -> Result<Value, MarkdownError> {
     })
 }
 
-/// Refuses a saved report this binary cannot read: no `schema_version`, or
-/// one outside the versions it renders. `report markdown` and `why --report`
-/// refuse with the same sentence.
 pub fn check_schema(report: &Value) -> Result<(), MarkdownError> {
     let found = report.get("schema_version").and_then(Value::as_u64);
     let readable = u64::from(READABLE_FROM)..=u64::from(SCHEMA_VERSION);
@@ -107,13 +84,8 @@ pub fn check_schema(report: &Value) -> Result<(), MarkdownError> {
     }
 }
 
-/// The report as Markdown: score, label and authority with its reasons, the
-/// baseline counts when the scan compared against one, and a table of up to
-/// `limit` findings, the introduced ones in baseline scope.
 pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownError> {
     check_schema(report)?;
-    // A scan that failed before scoring publishes a null score, and is the
-    // report a reader most needs rendered.
     let score = report
         .pointer("/audit/score")
         .filter(|score| score.is_object() || score.is_null())
@@ -193,10 +165,6 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
     Ok(out)
 }
 
-/// What the score was computed over and what each producer read, then the
-/// rules a crate version outside their validated range left unevaluated, as
-/// the linear report states them. A failed scan scored nothing, so it states
-/// neither.
 fn render_scope(out: &mut String, report: &Value) {
     let count = |pointer: &str| {
         report
@@ -260,12 +228,8 @@ fn render_scope(out: &mut String, report: &Value) {
     }
 }
 
-/// The error codes a checkout without the base's history produces, each of
-/// which `fetch-depth: 0` cures.
 const SHALLOW_CODES: [&str; 3] = ["shallow-clone", "base-unavailable", "merge-base-unavailable"];
 
-/// Every error the report carries, so a scan that stopped says where and why
-/// instead of reading as a clean one.
 fn render_errors(out: &mut String, report: &Value) {
     let errors: &[Value] = report
         .get("errors")
@@ -346,8 +310,6 @@ fn render_table(
     }
 }
 
-/// Errors first, then by place, so the same report always lists the same rows.
-/// Each key is read once per finding rather than once per comparison.
 fn sort_findings(findings: &mut Vec<&Value>) {
     let mut keyed: Vec<_> = findings
         .iter()
@@ -374,8 +336,6 @@ fn sort_findings(findings: &mut Vec<&Value>) {
     *findings = keyed.into_iter().map(|(_, finding)| finding).collect();
 }
 
-/// A string field without copying it, the empty string when it is anything
-/// else: the order runs n log n times over a report of any size.
 fn borrowed<'a>(finding: &'a Value, name: &str) -> &'a str {
     finding.get(name).and_then(Value::as_str).unwrap_or("")
 }
@@ -387,9 +347,6 @@ fn rule_cell(finding: &Value) -> String {
     }
 }
 
-/// A rule id as the comment shows it. A catalogued id is letters, digits,
-/// underscores and colons, which a code span shows as they are. Anything else
-/// came from a report someone else may have written, and is escaped text.
 fn rule_id(id: &str) -> String {
     if !id.is_empty()
         && id
@@ -434,11 +391,6 @@ fn bounded(message: &str) -> String {
     }
 }
 
-/// Text made inert for Markdown and HTML inside one table cell: markup
-/// characters are escaped, angle brackets and ampersands become entities, a
-/// line break becomes a space, and a zero-width space after `@`, `#`, a
-/// scheme's `:` and `www` keeps GitHub from turning the text into a mention,
-/// an issue reference or a link.
 pub fn escape(text: &str) -> String {
     const BREAK: &str = "&#8203;";
     let mut escaped = String::with_capacity(text.len());

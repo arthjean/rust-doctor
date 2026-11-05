@@ -1,34 +1,12 @@
-//! The λ table, frozen against the corpus measurement it was calibrated on.
-//!
-//! λ is what the score costs a finding, so a λ moved without a new measurement republishes every
-//! rate of `tests/corpus.json` under a model that never produced them. This module recomputes
-//! each of the eighteen recorded scores from the densities the record carries and compares
-//! against the value the binary published, so the two can only be changed together.
-//!
-//! λ_reliability and λ_maintainability are calibrated on the healthy population alone. The agent
-//! population is scanned with every Clippy rule off, since its build scripts and procedural
-//! macros are untrusted, and those two dimensions are where the Clippy rules concentrate: a
-//! calibration reading both populations would be fitting the loosest λ of the model to a
-//! population that was never given the chance to fire the rules it bounds.
-
 use super::*;
 use crate::audit::density::lambda;
 
-/// The corpus record, read as the bytes the repository ships rather than through the integration
-/// harness, which cannot reach a private function of this module.
 const CORPUS: &str = include_str!("../../../tests/corpus.json");
 
-/// λ in millionths, matching the integer the corpus records.
 fn lambda_micro(dimension: ScoreDimension) -> u64 {
     (lambda(dimension) * 1_000_000.0).round() as u64
 }
 
-/// Name the report publishes a dimension under, recovered from the report shape itself.
-///
-/// Scoring one dimension at one and every other at zero and reading back the field that moved is
-/// the same mapping `ScoreDimensions::from_fn` and `value_for` are the two halves of, so a
-/// renamed field renames the key this test looks the corpus up by instead of silently comparing
-/// against nothing.
 fn published_name(dimension: ScoreDimension) -> String {
     let dimensions = ScoreDimensions::from_fn(|candidate| u8::from(candidate == dimension));
     let value = serde_json::to_value(dimensions).unwrap_or(Value::Null);
@@ -52,7 +30,6 @@ fn corpus() -> Value {
     serde_json::from_str(CORPUS).unwrap_or(Value::Null)
 }
 
-/// Every observation of the two populations, healthy first.
 fn observations(corpus: &Value) -> Vec<&Value> {
     let mut all: Vec<&Value> = corpus["observations"]
         .as_array()
@@ -69,12 +46,6 @@ fn observations(corpus: &Value) -> Vec<&Value> {
     all
 }
 
-/// The corpus records the λ table it was measured under, and it is the shipped one.
-///
-/// A λ changed without regenerating the corpus fails here naming the dimension that moved, which
-/// is the whole point of recording the table beside the toolchain: both decide what the recorded
-/// numbers mean, one by choosing which diagnostics exist and the other by choosing what they
-/// cost.
 #[test]
 fn the_corpus_records_the_lambda_table_it_was_measured_under() {
     let corpus = corpus();
@@ -108,7 +79,6 @@ fn the_corpus_records_the_lambda_table_it_was_measured_under() {
     }
 }
 
-/// No λ of the shipped table is zero, so no density takes a dimension to infinity.
 #[test]
 fn no_recorded_lambda_is_zero() {
     for dimension in ScoreDimension::ALL {
@@ -120,12 +90,6 @@ fn no_recorded_lambda_is_zero() {
     }
 }
 
-/// Every corpus score recomputes from the densities the record carries.
-///
-/// The record holds the density, not the score arithmetic, so this walks the same path
-/// `Audit::build` walks: the curve per dimension, the tier ceiling of that dimension, the
-/// weighted mean, the overall ceiling, then the label. A λ changed, a weight changed or a
-/// ceiling changed all land here, on eighteen real measurements rather than on a fixture.
 #[test]
 fn every_corpus_score_recomputes_from_its_recorded_densities() {
     let corpus = corpus();

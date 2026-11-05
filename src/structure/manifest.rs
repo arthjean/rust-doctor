@@ -1,23 +1,3 @@
-//! Where the manifest and the module tree disagree.
-//!
-//! The other structural detectors read one file and describe what is in it.
-//! These two read the workspace description and the module tree together, and
-//! report what neither side alone can see: a source file Cargo never compiles
-//! because no `mod` declaration reaches it, and a feature the manifest and the
-//! code do not agree about.
-//!
-//! Both questions are per package. A file belongs to the module tree of the
-//! package whose targets reach it, and a feature is declared by one manifest,
-//! so a workspace of several members answers them several times rather than
-//! once over the union.
-//!
-//! The orphan walk is the only place the structural pass touches a file the
-//! source kernel did not enumerate, and that is exactly the point: an
-//! unreachable file is invisible to every producer that starts from a Cargo
-//! target. The walk is bounded by a directory budget and by the pass's
-//! deadline, never leaves the directories a target already roots, and stops at
-//! any directory holding another package.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,53 +16,31 @@ use crate::report::DiagnosticContext;
 use crate::source_kernel::{Enumeration, workspace_relative};
 use crate::source_text::{SourceSpan, byte_range_span, line_starts};
 
-/// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 2] = [
     &STRUCTURE_ORPHAN_MODULE_FILE,
     &STRUCTURE_UNREFERENCED_FEATURE,
 ];
 
-/// Directory entries the orphan walk may visit across the whole workspace.
-/// Past it the walk stops: a workspace that large has already answered the
-/// question, and the pass runs under a wall clock.
 const WALK_LIMIT: usize = 20_000;
 
-/// Bytes a candidate file may reach before the pass declines to read it. It is
-/// the limit the source kernel applies to the files it enumerates, so a file no
-/// module reaches is not read on terms the reached ones are not.
 const CANDIDATE_BYTES_LIMIT: u64 = 8_388_608;
 
-/// What the walk of the units tells the two manifest detectors.
 #[derive(Debug, Default)]
 pub(super) struct Uses {
-    /// Workspace-relative paths pulled in with `include!`. Cargo compiles them
-    /// without any `mod` declaration naming them, so they are reached even
-    /// though the source kernel never enumerated them.
     included: BTreeSet<String>,
-    /// File names a build script writes as a literal. A build script that
-    /// names a Rust file compiles it, probes with it or copies it, and it does
-    /// all three without any module declaration: `thiserror` feeds
-    /// `build/probe.rs` to rustc that way. The name is what is kept, because
-    /// the path is usually assembled a segment at a time.
     scripted: BTreeSet<String>,
-    /// Every `feature = "..."` a `cfg` reads, with the site that reads it.
     features: Vec<Reference>,
 }
 
-/// One site where a `cfg` names a feature.
 #[derive(Debug)]
 struct Reference {
     feature: String,
     path: String,
     span: SourceSpan,
     context: Option<DiagnosticContext>,
-    /// Packages whose targets reach the file, and whose manifests therefore
-    /// decide whether the feature exists.
     packages: BTreeSet<String>,
 }
 
-/// Reads one unit for both detectors, off the inventory its single traversal
-/// collected.
 pub(super) fn observe(unit: &Unit<'_>, active: &ActiveRules, uses: &mut Uses) {
     let orphans = active.on(&STRUCTURE_ORPHAN_MODULE_FILE);
     let features = active.on(&STRUCTURE_UNREFERENCED_FEATURE);
@@ -104,11 +62,6 @@ pub(super) fn observe(unit: &Unit<'_>, active: &ActiveRules, uses: &mut Uses) {
     }
 }
 
-/// Every `.rs` file name a build script writes as a string literal.
-///
-/// Every literal of the file, and only of this file: a package has one build
-/// script, so the tokens it writes are worth a walk of their own rather than a
-/// bucket every other unit would carry empty.
 fn read_scripted_paths(unit: &Unit<'_>, uses: &mut Uses) {
     for token in significant(unit.tree.syntax()) {
         if let Some(literal) = string_value(&token)
@@ -120,8 +73,6 @@ fn read_scripted_paths(unit: &Unit<'_>, uses: &mut Uses) {
     }
 }
 
-/// What one macro call contributes: the file an `include!` reaches, or the
-/// features a `cfg!` reads.
 fn read_macro_call(
     unit: &Unit<'_>,
     call: &ast::MacroCall,
@@ -147,13 +98,6 @@ fn read_macro_call(
     }
 }
 
-/// Does this attribute gate on a `cfg`?
-///
-/// `#[cfg(...)]` and `#[cfg_attr(...)]` each parse into a meta of their own, so
-/// the question is asked of the meta the grammar produced rather than of the
-/// token that happens to sit after the bracket. The token-tree form is answered
-/// too, because a grammar that stops distinguishing them must not silently stop
-/// answering.
 fn reads_a_cfg(attribute: &ast::Attr) -> bool {
     match attribute.meta() {
         Some(ast::Meta::CfgMeta(_) | ast::Meta::CfgAttrMeta(_)) => true,
@@ -165,7 +109,6 @@ fn reads_a_cfg(attribute: &ast::Attr) -> bool {
     }
 }
 
-/// Tokens of a node with the trivia dropped, in written order.
 fn significant(node: &SyntaxNode) -> Vec<SyntaxToken> {
     node.descendants_with_tokens()
         .filter_map(|element| element.into_token())
@@ -173,15 +116,11 @@ fn significant(node: &SyntaxNode) -> Vec<SyntaxToken> {
         .collect()
 }
 
-/// The value of a string literal token, unescaped.
 fn string_value(token: &SyntaxToken) -> Option<String> {
     ast::String::cast(token.clone())
         .and_then(|literal| literal.value().ok().map(|value| value.into_owned()))
 }
 
-/// Every `feature = "..."` of one condition, whatever nests it: `any`, `all`
-/// and `not` are read through, because what matters here is that the name was
-/// written, not the shape of the condition around it.
 fn read_features(unit: &Unit<'_>, tokens: &[SyntaxToken], site: &SyntaxNode, uses: &mut Uses) {
     for window in tokens.windows(3) {
         if window[0].text() != "feature" || window[1].text() != "=" {
@@ -200,18 +139,9 @@ fn read_features(unit: &Unit<'_>, tokens: &[SyntaxToken], site: &SyntaxNode, use
     }
 }
 
-/// What the two detectors found, as observations the pass groups like any
-/// other. The path of each one is what the finding points at: the file for an
-/// orphan, the manifest for a feature nothing reads, the reading site for a
-/// feature nothing declares.
 pub(super) struct Findings {
     pub(super) observations: Vec<(&'static RuleDefinition, String, Observation)>,
-    /// Did the orphan walk stop at the deadline rather than finish? It is the
-    /// one phase of the pass that reads the filesystem, so it is the one that
-    /// has to say whether it got to the end.
     pub(super) stopped: bool,
-    /// Packages the orphan rule withheld every finding of, because their
-    /// module tree is not provably complete.
     pub(super) orphan_abstentions: usize,
 }
 
@@ -254,22 +184,6 @@ pub(super) fn findings(
     }
 }
 
-/// Files under a package's own target directories that no module tree reaches.
-///
-/// The walk is per package, and so is what the finding names: a file answers to
-/// the module tree of the package whose directory holds it. What exempts it is
-/// not, and cannot be. A member reaching into its neighbour with `#[path =
-/// "../other/src/shared.rs"]` compiles that file, so the reach of every package
-/// is what says whether Cargo compiles it. Reachability is compared by
-/// workspace-relative path, which is unique, so no `mod` declaration of one
-/// package ever silences a file of another.
-///
-/// The finding tells the reader to delete a file, so a package whose module
-/// tree the walk cannot vouch for is withheld whole: a `mod` request the walk
-/// lost, or a macro whose tokens declare a module, `cfg_if!` among them. Each
-/// withheld package is counted, never reported.
-///
-/// Returns whether the walk stopped early, and how many packages it withheld.
 fn orphans(
     metadata: &Metadata,
     enumeration: &Enumeration,
@@ -278,8 +192,6 @@ fn orphans(
     deadline: &Deadline,
     observations: &mut Vec<(&'static RuleDefinition, String, Observation)>,
 ) -> (bool, usize) {
-    // Reached is reached, whether or not the scan reads the file: a unit left
-    // out by `[ignore]` or `--package` is still compiled.
     let compiled: BTreeSet<&str> = enumeration
         .reached()
         .map(|unit| unit.relative_path())
@@ -313,9 +225,6 @@ fn orphans(
             stopped |= walk(&root, &mut budget, deadline, &mut candidates);
         }
         for candidate in candidates {
-            // Reading a candidate is the only unbounded work of this phase, so
-            // the deadline is read before every one of them and not only
-            // between packages.
             if deadline.exceeded() {
                 return (true, abstentions);
             }
@@ -334,8 +243,6 @@ fn orphans(
             let Some(source) = readable(&candidate) else {
                 continue;
             };
-            // A generated file is nobody's writing: the whole pass leaves it
-            // alone, and an unreached one is no different.
             if has_generator_header(&source) {
                 continue;
             }
@@ -349,12 +256,6 @@ fn orphans(
                         package.name
                     ),
                     span: whole_file(&source),
-                    // Nothing reaches this file, so the two readings the rest
-                    // of the pass relies on are both silent on it: no Cargo
-                    // target names it and no `mod` declaration carries a gate
-                    // to it. Its path is the only evidence left, and an
-                    // unreached file under `tests/` is dead test material, not
-                    // a defect of the shipped code.
                     context: DiagnosticContext::from_conventional_path(&relative),
                     complexity: None,
                 },
@@ -364,9 +265,6 @@ fn orphans(
     (stopped, abstentions)
 }
 
-/// Does a macro call of this file carry the `mod` keyword in its tokens?
-/// `cfg_if! { if #[cfg(unix)] { mod imp; } }` declares a module the walk,
-/// which reads no macro, never follows.
 fn declares_modules_in_a_macro(tree: &ra_ap_syntax::SourceFile) -> bool {
     tree.syntax()
         .descendants()
@@ -380,8 +278,6 @@ fn declares_modules_in_a_macro(tree: &ra_ap_syntax::SourceFile) -> bool {
         })
 }
 
-/// Every feature name each workspace package declares, its optional
-/// dependencies included: activating one of those is what declares it.
 fn declared_features(metadata: &Metadata) -> BTreeMap<&str, BTreeSet<&str>> {
     workspace_packages(metadata)
         .map(|package| {
@@ -396,7 +292,6 @@ fn declared_features(metadata: &Metadata) -> BTreeMap<&str, BTreeSet<&str>> {
         .collect()
 }
 
-/// Features a manifest declares that nothing reads and that do nothing.
 fn unreferenced_declarations(
     metadata: &Metadata,
     uses: &Uses,
@@ -405,8 +300,6 @@ fn unreferenced_declarations(
     let mut observations = Vec::new();
     for package in workspace_packages(metadata) {
         let optional: BTreeSet<&str> = optional_dependencies(package).collect();
-        // A feature named in another feature's list is referenced: turning the
-        // first one on is what turning the second one on does.
         let listed: BTreeSet<&str> = package
             .features
             .values()
@@ -419,10 +312,6 @@ fn unreferenced_declarations(
             .filter(|reference| reference.packages.contains(package.id.repr.as_str()))
             .map(|reference| reference.feature.as_str())
             .collect();
-        // `default` is read by Cargo itself, an optional dependency's feature
-        // is read by whoever activates the dependency, and a feature that
-        // activates something does something whether or not a `cfg` names it.
-        // What is left is a feature with no reader and no effect.
         let unreferenced: Vec<&String> = package
             .features
             .iter()
@@ -442,8 +331,6 @@ fn unreferenced_declarations(
         else {
             continue;
         };
-        // The manifest is read once here, and only for a package that has
-        // something to report in it.
         let text = readable(package.manifest_path.as_std_path()).unwrap_or_default();
         let spans = declaration_spans(&text);
         for feature in unreferenced {
@@ -466,7 +353,6 @@ fn unreferenced_declarations(
     observations
 }
 
-/// Sites reading a feature no manifest compiling them declares.
 fn unknown_references(
     uses: &Uses,
     declared: &BTreeMap<&str, BTreeSet<&str>>,
@@ -474,8 +360,6 @@ fn unknown_references(
     uses.features
         .iter()
         .filter(|reference| {
-            // Resolution is per package: the manifests that decide are those of
-            // the packages whose targets compile the file.
             !reference.packages.is_empty()
                 && !reference.packages.iter().any(|package| {
                     declared
@@ -522,27 +406,15 @@ fn optional_dependencies(package: &Package) -> impl Iterator<Item = &str> {
         })
 }
 
-/// Name of a feature this entry turns on, when it names one. `dep:serde` and
-/// `serde/derive` name a dependency instead, which is an effect rather than a
-/// reference to another feature of the same manifest.
 fn plain_feature(entry: &str) -> Option<&str> {
     (!entry.contains('/') && !entry.starts_with("dep:")).then_some(entry)
 }
 
-/// The `[features]` table as the parser reads it, for the position of each
-/// declaration.
 #[derive(Deserialize)]
 struct ManifestFeatures {
     features: Option<BTreeMap<toml::Spanned<String>, toml::Value>>,
 }
 
-/// Where each feature is declared in its manifest, so a finding points at the
-/// entry rather than at the top of the file.
-///
-/// The positions come from the parser, the way `cargo_health` locates a
-/// manifest entry: a scan looking for a `[features]` header misses a table
-/// written any other way and then points at the first line of the file as
-/// though it said something.
 fn declaration_spans(manifest: &str) -> BTreeMap<String, SourceSpan> {
     let Ok(document) = toml::from_str::<ManifestFeatures>(manifest) else {
         return BTreeMap::new();
@@ -559,8 +431,6 @@ fn declaration_spans(manifest: &str) -> BTreeMap<String, SourceSpan> {
         .collect()
 }
 
-/// Where a finding points when the manifest that declares it does not read
-/// back.
 const fn head_of_file() -> SourceSpan {
     SourceSpan {
         line_start: 1,
@@ -570,8 +440,6 @@ const fn head_of_file() -> SourceSpan {
     }
 }
 
-/// Directories a package's own targets root, with the redundant ones dropped:
-/// a build script roots the package directory, which already contains `src`.
 fn module_roots(package: &Package, package_directory: &Path) -> Vec<PathBuf> {
     let roots: BTreeSet<PathBuf> = package
         .targets
@@ -591,8 +459,6 @@ fn module_roots(package: &Package, package_directory: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Every `.rs` file under one root, without following a symbolic link and
-/// without entering another package. Returns whether the walk stopped early.
 fn walk(
     root: &Path,
     budget: &mut usize,
@@ -619,8 +485,6 @@ fn walk(
             if name.starts_with('.') {
                 continue;
             }
-            // `file_type` does not follow a symbolic link, so a link to a
-            // directory is neither walked nor read.
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
@@ -636,14 +500,6 @@ fn walk(
     false
 }
 
-/// Is this directory another package, or the place several of them are kept?
-/// Either way the files under it answer to a module tree that is not the one
-/// being walked, which is what keeps a directory of fixture crates out of the
-/// report.
-///
-/// The probe reads a directory of its own, so it spends the same budget the
-/// walk does: a tree of directories that each hold several others costs more
-/// listings than it holds entries.
 fn holds_a_package(directory: &Path, budget: &mut usize) -> bool {
     if directory.join("Cargo.toml").is_file() {
         return true;
@@ -658,7 +514,6 @@ fn holds_a_package(directory: &Path, budget: &mut usize) -> bool {
     })
 }
 
-/// Path an `include!` names, relative to the file that writes it.
 fn included_path(from: &str, literal: &str) -> Option<String> {
     let directory = Path::new(from).parent()?;
     let joined = directory.join(literal);
@@ -681,7 +536,6 @@ fn first_string(tree: &SyntaxNode) -> Option<String> {
         .find_map(|token| string_value(&token))
 }
 
-/// Text of a file the pass is willing to read, or nothing.
 fn readable(path: &Path) -> Option<String> {
     let metadata = fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > CANDIDATE_BYTES_LIMIT {
@@ -714,11 +568,6 @@ mod tests {
         uses
     }
 
-    /// US-015: every shape a `cfg` writes a feature in is read, and the ones
-    /// that are not a feature gate are left alone.
-    ///
-    /// The order is not asserted: the features reach a report through a keyed
-    /// map, so the order they were read in never survives to it.
     #[test]
     fn every_cfg_shape_names_its_feature() {
         let uses = read(
@@ -737,8 +586,6 @@ mod tests {
         assert_eq!(names, ["five", "four", "one", "three", "two"]);
     }
 
-    /// US-013: a file pulled in with `include!` is compiled without any `mod`
-    /// declaration naming it, so the walk must treat it as reached.
     #[test]
     fn an_included_file_is_recorded_as_reached() {
         let mut uses = Uses::default();
@@ -753,8 +600,6 @@ mod tests {
         );
     }
 
-    /// A rule the policy left off reads nothing, so neither detector pays for
-    /// the other.
     #[test]
     fn an_inactive_rule_reads_nothing() {
         let mut uses = Uses::default();
@@ -782,8 +627,6 @@ mod tests {
         assert_eq!(orphans_only.included.len(), 1);
     }
 
-    /// A build script naming a Rust file compiles it without any module
-    /// declaration, and only a build script is read that way.
     #[test]
     fn a_build_script_records_the_files_it_names() {
         let source = "fn main() { println!(\"cargo:rerun-if-changed=build/probe.rs\"); }";
@@ -815,9 +658,6 @@ mod tests {
             })
         );
         assert!(spans.contains_key("default"));
-        // A name the table does not carry has no position, and the caller falls
-        // back to the head of the file rather than to a line that says
-        // something else.
         assert_eq!(spans.get("absent"), None);
         assert_eq!(
             head_of_file(),
@@ -830,8 +670,6 @@ mod tests {
         );
     }
 
-    /// A table the line scan it replaced could not find: the header carries a
-    /// comment, and the entries are still located.
     #[test]
     fn a_features_table_is_located_however_it_is_written() {
         let manifest = "[features] # the table this package publishes\nspare = []\n";

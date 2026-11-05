@@ -1,5 +1,5 @@
-//! Stands for a build script that never returns. It records its process id
-//! where the test asks, so the test can prove the deadline killed it.
+
+
 use std::time::Duration;
 
 fn main() {

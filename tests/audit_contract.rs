@@ -48,7 +48,6 @@ fn report_v9_exposes_one_canonical_audit_block() {
         audit_keys,
         ["categories", "packages", "production_lines", "score", "source_files"]
     );
-    // The one member is the workspace, so its score is the workspace's.
     assert_eq!(clean.audit.packages.len(), 1, "the clean fixture has one member");
     let member = &clean.audit.packages[0];
     assert_eq!(member.name, "clean");
@@ -64,17 +63,12 @@ fn incomplete_and_unscorable_reports_keep_existing_outcome_without_a_share() {
     assert_eq!(report.status, Status::Incomplete);
     assert_eq!(report.exit_code(), 1);
     assert_eq!(report.audit.source_files, 1);
-    // EP-002 US-009: the one member did not compile, so nothing was linted
-    // and nothing is scored, where a partial score used to stand.
     assert!(report.audit.packages.iter().all(|package| package.unlinted));
     assert_eq!(report.audit.score, None);
     assert_eq!(report.audit.share_url(), Err(ShareError::ScoreUnavailable));
     assert!(!report.errors.is_empty());
 }
 
-/// The walk is what the score divides by, so it runs on a plan that asked for
-/// no rule at all. This used to fall back to counting the metadata roots, which
-/// is why the inventory came back partial and the score non-authoritative.
 #[test]
 fn the_walk_gives_a_plan_with_every_producer_off_an_exact_denominator() {
     let report = [
@@ -104,8 +98,6 @@ fn the_walk_gives_a_plan_with_every_producer_off_an_exact_denominator() {
     assert!(report.scan.command.is_none());
 }
 
-/// A reader is free to switch every native rule off and keep Clippy. The
-/// denominator is not theirs to switch off with them.
 #[test]
 fn a_clippy_only_plan_still_publishes_the_production_line_count() {
     let request = catalog()
@@ -134,8 +126,6 @@ fn a_clippy_only_plan_still_publishes_the_production_line_count() {
     );
 }
 
-/// The count answers for the workspace, never for the rule set the reader
-/// happens to have on.
 #[test]
 fn the_production_line_count_is_the_same_with_the_native_rules_on_or_off() {
     let with_everything = inspect(InspectRequest::new(fixture(
@@ -156,7 +146,6 @@ fn the_production_line_count_is_the_same_with_the_native_rules_on_or_off() {
     );
 }
 
-/// Two scans of the same workspace publish the same denominator.
 #[test]
 fn two_scans_of_one_workspace_publish_the_same_production_line_count() {
     let first = inspect(InspectRequest::new(fixture(
@@ -260,25 +249,15 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(score.projected_rule_ids, ["clippy::todo"]);
     assert_eq!(score.projected_after_top_three, Some(100));
     assert_eq!(report.audit.categories[0].name.to_string(), "Bugs");
-    // The default targets compile each unit only once: one occurrence per
-    // distinct diagnostic, where `--all-targets` produced two for the same
-    // site.
     assert_eq!(report.audit.categories[0].occurrences.warnings, 3);
     assert_eq!(report.audit.categories[0].occurrences.total, 3);
     assert_eq!(report.audit.categories[0].distinct.total, 3);
-    // `clippy::todo` is tier P2: three sites weighing two each over the two-kiloline floor put
-    // the Reliability dimension at 74, just under the 75 its tier would cap it at, and the
-    // overall score takes no global cap.
     assert_eq!(score.dimensions.reliability, 74);
     assert_eq!(score.worst_tier, Some(RuleTier::P2));
     assert_eq!(score.applied_ceiling, None);
     assert_eq!(score.value, 94);
     let share = report.audit.share_url().unwrap();
     assert_eq!(share, "https://rust-doctor.com/share?s=94&m=core-v6&w=3&f=1&l=18");
-    // The payload names the model and counts what was measured, and its grammar
-    // is what keeps everything else out: a query made of keys, digits and the
-    // model name can carry no path, no environment variable and no user data,
-    // whatever the workspace this ran against was called.
     let query = share
         .strip_prefix("https://rust-doctor.com/share?")
         .expect("the share url is built on the published base");

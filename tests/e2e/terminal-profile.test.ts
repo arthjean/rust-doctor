@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/failures.md` section EN: what the terminal profile makes
-// of the streams and the environment. Every terminal run goes through
-// pty.ts; a run that opens the interactive report is told apart from a linear
-// one by the menu hint, and quits with `q` once it shows.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,9 +34,6 @@ beforeAll(async () => {
 
 type Terminal = PtyExit & { interactive: boolean };
 
-// The binary on a terminal of `cols` columns, `argv` around it when the test
-// needs a shell between the two. An interactive report is quit with `q` once
-// its menu shows; a linear one runs to its end.
 async function onTerminal(
   args: string[],
   options: { cols?: number; env?: EnvOverrides; wrap?: (command: string[]) => string[] } = {},

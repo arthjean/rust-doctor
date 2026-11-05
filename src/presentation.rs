@@ -21,21 +21,16 @@ pub fn canonical_rule_help(rule_id: &str) -> Option<&'static str> {
     crate::policy::find(rule_id).map(|definition| definition.help)
 }
 
-/// When a finding of a catalogued rule is not a defect: the check an agent
-/// applies before editing the code.
 pub fn canonical_not_a_defect(rule_id: &str) -> Option<&'static str> {
     crate::policy::find(rule_id).map(|definition| definition.not_a_defect_when)
 }
 
 const RULE_BASE_URL: &str = "https://rust-doctor.com/rules/";
 
-/// The page rust-doctor.com publishes for a rule, with the id encoded as one
-/// path segment so no id, however it is spelled, can reach another page.
 pub fn rule_url(rule_id: &str) -> String {
     format!("{RULE_BASE_URL}{}", percent_encode_path_segment(rule_id))
 }
 
-/// The label both reports put over compiler notes, after every scored finding.
 pub const COMPILER_NOTES_HEADING: &str = "Compiler notes (not scored)";
 const MIGRATION_FILE_THRESHOLD: usize = 40;
 
@@ -43,12 +38,8 @@ const MIGRATION_FILE_THRESHOLD: usize = 40;
 pub struct ReportPresentation {
     pub groups: Vec<DiagnosticGroup>,
     pub migration_advisories: Vec<MigrationAdvisory>,
-    /// Occurrence count, the quantity published by `summary.occurrences.total`.
     pub issue_count: usize,
-    /// Distinct diagnostic count, the quantity published by `summary.total`.
     pub finding_count: usize,
-    /// How many of those distinct diagnostics are compiler notes: published,
-    /// and weighing nothing because the catalog does not describe them.
     pub note_count: usize,
 }
 
@@ -67,18 +58,13 @@ pub struct DiagnosticGroup {
 pub struct GroupDiagnostic {
     pub message: String,
     pub help: Option<String>,
-    /// The toolchain's replacement for the site, when it wrote one.
     pub suggestion: Option<Suggestion>,
     pub base_severity: Severity,
     pub severity: Severity,
-    /// The non-production target the site sits in, absent for shipped code.
     pub context: Option<DiagnosticContext>,
-    /// Why the site weighs nothing although it is shipped code.
     pub unscored: Option<UnscoredReason>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
-    /// Every other site a structural finding spans, in the order the report
-    /// published them.
     pub related: Vec<GroupLocation>,
     pub occurrences: usize,
 }
@@ -97,10 +83,6 @@ pub struct MigrationAdvisory {
 }
 
 impl DiagnosticGroup {
-    /// Whether every site of the group sits outside production code, so the
-    /// group is shown and costs nothing. The verbose report folds such a group
-    /// onto one line: on this crate's own scan they were a thousand of the
-    /// eleven hundred lines printed, every one of them worth zero points.
     pub fn is_unscored(&self) -> bool {
         !self.diagnostics.is_empty()
             && self
@@ -109,19 +91,12 @@ impl DiagnosticGroup {
                 .all(|diagnostic| diagnostic.context.is_some())
     }
 
-    /// Whether the group is a compiler note: a code the catalog does not
-    /// describe, published so it never vanishes and weighing nothing. Every
-    /// site of such a code is one, so the first answers for the group.
     pub fn is_compiler_note(&self) -> bool {
         self.diagnostics
             .first()
             .is_some_and(|diagnostic| diagnostic.unscored.is_some())
     }
 
-    /// The occurrence a one-line summary should stand on: the first one that
-    /// knows where it fired, so a reader is pointed at a site rather than at a
-    /// rule. A group whose diagnostics all lack a location still answers with
-    /// its first, since a message with no site beats no message.
     pub fn representative(&self) -> Option<&GroupDiagnostic> {
         self.diagnostics
             .iter()
@@ -129,16 +104,6 @@ impl DiagnosticGroup {
             .or_else(|| self.diagnostics.first())
     }
 
-    /// The fix line a report shows a reader for the group. The toolchain's own
-    /// help wins, because it saw this occurrence; the catalogued help is what a
-    /// rule that emitted none still promises.
-    ///
-    /// Two callers deliberately do not go through here, and both have a reason
-    /// worth keeping. The linear report prints one help line per diagnostic
-    /// rather than one per group, so folding the catalogued fallback in would
-    /// change how many lines a report has. The agent handoff prompt takes the
-    /// catalogued help only, because the toolchain's help is text the scanned
-    /// workspace controls and that prompt is executed by an agent.
     pub fn resolved_help(&self) -> Option<&str> {
         self.representative()
             .and_then(|diagnostic| diagnostic.help.as_deref())
@@ -147,8 +112,6 @@ impl DiagnosticGroup {
 }
 
 impl GroupDiagnostic {
-    /// What a printed site of this diagnostic says after its location when it
-    /// sits outside production code: `tests, not scored`.
     pub fn site_note(&self) -> Option<String> {
         self.context
             .map(|context| format!("{}, not scored", context.label()))
@@ -165,11 +128,6 @@ impl GroupDiagnostic {
     }
 }
 
-/// What both reports say of a scan that did not complete: that no issue was
-/// detected but which stages did not complete, when it found nothing, so
-/// "No issues found." never closes a scan that did not finish; which stages
-/// left the results incomplete otherwise. A notice, which narrows a check
-/// rather than failing it, names no stage.
 pub fn incomplete_message(report: &InspectReport) -> Option<String> {
     if report.status == crate::Status::Complete {
         return None;
@@ -197,7 +155,6 @@ pub fn incomplete_message(report: &InspectReport) -> Option<String> {
     })
 }
 
-/// Why a report carries no score, as both reports print it.
 pub fn no_score_message(report: &InspectReport) -> &'static str {
     let packages = &report.audit.packages;
     if !packages.is_empty() && packages.iter().all(|package| package.unlinted) {
@@ -229,13 +186,6 @@ impl ReportPresentation {
         )
     }
 
-    /// The line count comes from the audit block the report already carries.
-    ///
-    /// The body ranks by what repairing a rule is worth, which under core-v3 is a number of
-    /// points on a curve rather than a property of the rule, so it cannot be computed without
-    /// the denominator the score divides by. Reading it off the same block the score was built
-    /// from is what keeps the order the reader is given and the points they are promised the
-    /// same answer.
     fn from_diagnostics<'a>(
         production_lines: usize,
         members: usize,
@@ -268,9 +218,6 @@ fn diagnostic_groups(
     diagnostics: &[&Diagnostic],
 ) -> Vec<DiagnosticGroup> {
     let aggregation = aggregate_rules(production_lines, members, diagnostics.iter().copied());
-    // The three rules the score names first come first here too, in the order it names them:
-    // the projection climbs the ceilings the published value takes, and a body ordered by the
-    // static relief alone listed a `P3` rule above the `P1` finding holding the score at 65.
     let projected: BTreeMap<String, usize> = aggregation
         .projection()
         .0
@@ -301,16 +248,10 @@ fn diagnostic_groups(
         };
         let severity = aggregate.effective_severity;
         let category = aggregate.category;
-        // The list is ordered by the key the score's projection ranks by, and not by the raw
-        // cost it used to rank by. The two are the same question, so the report cannot both name
-        // a rule as withheld for measured noise and put it at the top of what to work down. The
-        // aggregate already holds the occurrence total, so nothing sums it a second time.
         let repair_value = aggregate.expected_repair_value();
         let contribution = aggregate.contribution();
         let occurrences = aggregate.occurrences;
         let projected_position = projected.get(&rule_id).copied().unwrap_or(usize::MAX);
-        // A compiler note weighs nothing, so every scored finding outranks it whatever its
-        // severity: the notes close the list rather than interleave with what costs points.
         let is_note = diagnostics
             .first()
             .is_some_and(|diagnostic| diagnostic.unscored.is_some());
@@ -457,9 +398,6 @@ mod tests {
     }
 
     fn report(diagnostics: Vec<Diagnostic>) -> InspectReport {
-        // Five kilolines of production source: a denominator with room in it, so a rule that
-        // costs the score more than another still reads as costing more once the exponential
-        // has been applied to both.
         let audit = Audit::build(50, 5_000, Status::Complete, &diagnostics);
         InspectReport {
             schema_version: 8,
@@ -544,13 +482,6 @@ mod tests {
             .iter()
             .map(|group| group.rule_id.as_str())
             .collect();
-        // The three errors lead the warning, and among them the order is the projection's: what
-        // repairing each is expected to be worth, climbed one rule at a time through the
-        // ceilings. Under core-v6 that is not the same as how loud each one is, and not the
-        // same as the static relief either: security weighs four in the score, so the rule
-        // holding most of its sites is worth the most to repair first, the lone site of
-        // `security_error` is worth more on the dimension the first repair just opened than the
-        // lone maintainability site, and `low_error` comes third.
         assert_eq!(
             ids,
             [
@@ -574,12 +505,6 @@ mod tests {
         );
     }
 
-    /// The list is ordered by what repairing a rule is expected to be worth, not by what it cost.
-    ///
-    /// `clippy::exit` is adjudicated at every finding false on the pinned corpus, so the score
-    /// withholds it from what to fix and the report says so. Ranking the body by raw cost put it
-    /// first regardless, which is the report naming a rule as withheld and then telling the
-    /// reader to start with it. The two orderings are one question, asked once.
     #[test]
     fn a_rule_the_corpus_measured_wrong_is_not_ranked_first() {
         let presentation = ReportPresentation::derive(&report(vec![
@@ -610,8 +535,6 @@ mod tests {
         );
     }
 
-    /// A finding outside production code keeps its place in the list and its occurrence count,
-    /// and carries none of the weight that decides where the list starts.
     #[test]
     fn a_finding_outside_production_code_stays_listed_and_ranks_last() {
         let mut in_tests = diagnostic(

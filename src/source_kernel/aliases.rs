@@ -1,15 +1,3 @@
-//! Import alias map of a source unit.
-//!
-//! It answers a single question: at this point of the file, which item does
-//! this identifier designate? The answer is closed. When the provenance is not
-//! decidable, be it local shadowing, a relative path keyword or a saturated
-//! map, the map says so and the detector abstains. A glob import is the one
-//! half-answer: the name may come from it, and the map names the globs that
-//! could have bound it, so a caller holding positive proof of the name's
-//! origin can still decide. Re-exports,
-//! trait methods and `Self` stay out of reach: they would require a complete
-//! semantic resolution, explicitly out of scope.
-
 use std::collections::BTreeMap;
 
 use ra_ap_syntax::ast::{self, HasName};
@@ -17,31 +5,16 @@ use ra_ap_syntax::{AstNode, SourceFile, SyntaxKind, SyntaxNode, TextRange};
 
 use crate::source_text::intersects_errors;
 
-/// Maximum number of bindings retained per source unit.
-///
-/// Each entry costs a few dozen bytes, so the limit bounds the map under 64 KB
-/// per unit. Beyond it, the map switches to undetermined mode: it stays
-/// queryable and every resolution abstains.
 pub(super) const BINDING_LIMIT: usize = 1_024;
 
-/// Provenance of an identifier at a given point of the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Provenance<'a> {
-    /// The identifier is bound by a visible `use` and designates this item.
     Item(&'a [String]),
-    /// No explicit binding is visible, but globs are: the identifier may come
-    /// from any of them. Each entry is the first segment of a glob's path, or
-    /// `None` for a glob through `crate`, `self` or `super`, whose contents
-    /// nothing outside the crate's own modules can bound.
     GlobMasked(Vec<Option<&'a str>>),
-    /// The identifier is bound locally, or the map is saturated: the
-    /// provenance is not decidable.
     Indeterminate,
-    /// No visible binding carries this identifier.
     Unbound,
 }
 
-/// Nodes liable to bind an identifier in their scope.
 const BINDING_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::USE,
     SyntaxKind::MODULE,
@@ -53,9 +26,6 @@ const BINDING_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::TYPE_ALIAS,
 ];
 
-/// A scope is identified by the bounds of its node. Two nested scopes have
-/// distinct bounds, so the key is stable and orderable without depending on
-/// the identity of a rowan node.
 type ScopeKey = (u32, u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +44,6 @@ enum Segment {
 #[derive(Debug, Default)]
 pub(super) struct AliasMap {
     scopes: BTreeMap<ScopeKey, BTreeMap<String, Binding>>,
-    /// The globs of each scope, by the first segment of the path they import
-    /// from, `None` when that path is relative.
     globs: BTreeMap<ScopeKey, Vec<Option<String>>>,
     bindings: usize,
     saturated: bool,
@@ -84,8 +52,6 @@ pub(super) struct AliasMap {
 impl AliasMap {
     pub(super) fn build(tree: &SourceFile, error_ranges: &[TextRange], limit: usize) -> Self {
         let mut map = Self::default();
-        // The filter applies to the node kind before any typed construction:
-        // the vast majority of a unit's nodes bind no identifier at all.
         for node in tree
             .syntax()
             .descendants()
@@ -110,7 +76,6 @@ impl AliasMap {
         map
     }
 
-    /// Provenance of `name` at the point of the file occupied by `node`.
     pub(super) fn provenance(&self, node: &SyntaxNode, name: &str) -> Provenance<'_> {
         if self.saturated || shadowed_by_generic_parameter(node, name) {
             return Provenance::Indeterminate;
@@ -118,8 +83,6 @@ impl AliasMap {
         let mut masking = Vec::new();
         for scope in visible_scopes(node) {
             if let Some(binding) = self.scopes.get(&scope).and_then(|scope| scope.get(name)) {
-                // A glob of a nearer scope may bind the name before this
-                // explicit binding does, and nothing says whether it does.
                 if !masking.is_empty() {
                     return Provenance::Indeterminate;
                 }
@@ -128,9 +91,6 @@ impl AliasMap {
                     Binding::Opaque => Provenance::Indeterminate,
                 };
             }
-            // A glob of the current scope may bind the name without the map
-            // knowing which one: it masks the enclosing scopes rather than
-            // letting them answer in its place.
             if let Some(globs) = self.globs.get(&scope) {
                 masking.extend(globs.iter().map(Option::as_deref));
             }
@@ -142,8 +102,6 @@ impl AliasMap {
         }
     }
 
-    /// Does a glob import into the scope `node` opens? `node` is a block, a
-    /// module or the file.
     pub(super) fn globbed(&self, node: &SyntaxNode) -> bool {
         self.saturated || self.globs.contains_key(&key(node))
     }
@@ -246,26 +204,15 @@ fn segments(path: &ast::Path) -> Vec<Segment> {
         .collect()
 }
 
-/// A segment carrying generic arguments or a type anchor does not name an item
-/// on its own: the map refuses to resolve it.
 fn plain(segment: &ast::PathSegment) -> bool {
     let mut children = segment.syntax().children();
     children.next();
     children.next().is_none()
 }
 
-/// Name a declaration binds in its scope.
-///
-/// A declaration binds its own name whatever kind of item it is, and the
-/// grammar says so: `AnyHasName` covers every kind of `BINDING_KINDS` except
-/// the two that name something they did not declare. `use` is handled by
-/// `record_tree`, and `extern crate` is the exception here, since it names an
-/// existing crate through a `NameRef` unless a rename gave it one of its own.
 fn shadowing_name(node: &SyntaxNode) -> Option<String> {
     if let Some(item) = ast::ExternCrate::cast(node.clone()) {
         return match item.rename() {
-            // `extern crate serde as _;` links the crate and binds no name at
-            // all, so a rename without a name is not a fallback to the crate's.
             Some(rename) => rename.name().map(|name| name.text().to_string()),
             None => item.name_ref().map(|name| name.text().to_string()),
         };
@@ -291,7 +238,6 @@ fn shadowed_by_generic_parameter(node: &SyntaxNode, name: &str) -> bool {
     })
 }
 
-/// Scope in which a binding declared by `node` is visible.
 fn binding_scope(node: &SyntaxNode) -> Option<ScopeKey> {
     node.parent()?
         .ancestors()
@@ -299,9 +245,6 @@ fn binding_scope(node: &SyntaxNode) -> Option<ScopeKey> {
         .map(|scope| key(&scope))
 }
 
-/// Scopes visible from `node`, from the nearest up to and including the
-/// enclosing module. The chain stops there: a `use` of a parent module does not
-/// cross the boundary of a child module.
 fn visible_scopes(node: &SyntaxNode) -> Vec<ScopeKey> {
     let mut scopes = Vec::new();
     for ancestor in node.ancestors() {
@@ -344,8 +287,6 @@ mod tests {
         (map, parse)
     }
 
-    /// Resolves `name` at the point of the first method call of the file,
-    /// which serves as the query site for every proof.
     fn provenance(source: &str, name: &str) -> Vec<String> {
         let (map, parse) = map(source);
         let call = parse
@@ -544,11 +485,6 @@ mod tests {
         source
     }
 
-    /// The fastest of twenty constructions of each unit, the two interleaved.
-    ///
-    /// Load on the machine only ever adds time, so the fastest run is the one
-    /// closest to the construction's own cost, and alternating the units makes
-    /// a burst of load land on both rather than on whichever was being timed.
     fn fastest_builds(small: &str, large: &str) -> (std::time::Duration, std::time::Duration) {
         let small = SourceFile::parse(small, Edition::Edition2024);
         let large = SourceFile::parse(large, Edition::Edition2024);
@@ -568,20 +504,6 @@ mod tests {
         fastest
     }
 
-    /// NFR: the construction is linear in the size of the unit, which is what
-    /// keeps a 1,000-line file under 2 ms in the shipped binary.
-    ///
-    /// The bound is a ratio between two sizes measured on the same machine at
-    /// the same moment, not a wall clock: the earlier form asserted 2 ms
-    /// against the clock and went red on a machine that was compiling
-    /// something else at the time, which measured the load and not the
-    /// construction. Linear costs ten times more for ten times the lines; the
-    /// bound leaves the small unit its fixed cost and the timer its noise.
-    ///
-    /// Load can only inflate the ratio, so the measurement gets five attempts
-    /// and one inside the bound is enough: a p95 of a single attempt went red
-    /// on a macOS runner at 16 ms against 0.8 ms, while a quadratic
-    /// construction lands near a hundred times and fails every attempt.
     #[test]
     fn building_a_unit_costs_linearly_in_its_size() {
         let small = unit_of(20);

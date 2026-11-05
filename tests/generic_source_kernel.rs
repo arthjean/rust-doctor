@@ -1,9 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! Proofs of the generic source kernel: the imported form is detected just like
-//! the fully qualified form, no detector compares a literal path, and the reach
-//! structure carries no field specific to a crate.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,7 +7,6 @@ use rust_doctor::{Diagnostic, DiagnosticSource, InspectRequest, Status, inspect}
 use serde_json::Value;
 
 const DETECTORS: &str = include_str!("../src/source_kernel/detectors.rs");
-/// The detector families that live in modules of their own.
 const FAMILIES: [(&str, &str); 3] = [
     ("blocking.rs", include_str!("../src/source_kernel/detectors/blocking.rs")),
     ("sql.rs", include_str!("../src/source_kernel/detectors/sql.rs")),
@@ -29,8 +24,6 @@ fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/source-kernel/precision/oracle.json")).unwrap()
 }
 
-/// Line bounds of the body of `symbol`, the closing being the first line
-/// reduced to `}`.
 fn symbol_lines(source: &str, symbol: &str) -> (usize, usize) {
     let lines: Vec<_> = source.lines().collect();
     let start = lines
@@ -45,7 +38,6 @@ fn symbol_lines(source: &str, symbol: &str) -> (usize, usize) {
     (start + 1, end + 1)
 }
 
-/// Literal strings of a code line, comments excluded.
 fn string_literals(line: &str) -> Vec<String> {
     let code = line.split("//").next().unwrap_or_default();
     let mut literals = Vec::new();
@@ -73,8 +65,6 @@ fn string_literals(line: &str) -> Vec<String> {
     literals
 }
 
-/// US-069: the imported, renamed or grouped form is emitted like the fully
-/// qualified form.
 #[test]
 fn imported_forms_are_reported_like_fully_qualified_ones() {
     let report = inspect(InspectRequest::new(fixture("precision")));
@@ -107,7 +97,6 @@ fn imported_forms_are_reported_like_fully_qualified_ones() {
         }
     }
 
-    // The same unit carries both spellings: they are counted separately.
     let positives = fs::read_to_string(fixture("precision").join("app/src/positives.rs")).unwrap();
     let (qualified_start, qualified_end) = symbol_lines(&positives, "shell_sh");
     assert!(native.iter().any(|diagnostic| {
@@ -119,12 +108,6 @@ fn imported_forms_are_reported_like_fully_qualified_ones() {
     }));
 }
 
-/// US-069: no literal path comparison survives in the detectors. This test
-/// fails if a qualified path string reappears in them.
-///
-/// The one place a qualified path may be written is a `#[cfg(test)]` variant
-/// table, whose strings are source text the US-033 gate renders and parses,
-/// never compared against anything a detector reads.
 #[test]
 fn no_detector_compares_a_written_qualified_path() {
     let offending: Vec<_> = [("detectors.rs", DETECTORS)]
@@ -136,8 +119,6 @@ fn no_detector_compares_a_written_qualified_path() {
                 .flat_map(move |(number, line)| {
                     string_literals(line)
                         .into_iter()
-                        // The bare separator joins a resolved path for a
-                        // message and names no path of its own.
                         .filter(|literal| literal.contains("::") && *literal != "::")
                         .map(move |literal| format!("{file}:{number}: {literal}"))
                 })
@@ -148,16 +129,12 @@ fn no_detector_compares_a_written_qualified_path() {
         offending.is_empty(),
         "detectors must resolve provenance instead of comparing paths: {offending:?}"
     );
-    // The detector is indeed the one describing its target, otherwise the test
-    // above would pass on a file empty of any target.
     assert!(FAMILIES[2].1.contains("segments: &[\"process\", \"Command\"]"));
     assert!(DETECTORS.contains("krate: \"reqwest\""));
     assert!(FAMILIES[0].1.contains("(&[\"thread\"], \"sleep\")"));
     assert!(FAMILIES[1].1.contains("(\"rusqlite\", \"Connection\""));
 }
 
-/// The numbered lines of `source` outside its `#[cfg(test)]` statics, each of
-/// which runs from the attribute to the first line reduced to `};`.
 fn outside_variant_tables(source: &str) -> Vec<(usize, &str)> {
     let mut kept = Vec::new();
     let mut in_table = false;
@@ -177,7 +154,6 @@ fn outside_variant_tables(source: &str) -> Vec<(usize, &str)> {
     kept
 }
 
-/// US-071: reachability carries no field named after a crate or a rule.
 #[test]
 fn reachability_carries_only_package_and_target_identity() {
     let declaration = KERNEL
@@ -192,10 +168,6 @@ fn reachability_carries_only_package_and_target_identity() {
         .map(|line| line.trim_end_matches(',').to_owned())
         .collect();
 
-    // `test_gated` is a fact about the traversal that reached the file, the way
-    // the four others are facts about the target it was reached from: what this
-    // list refuses is a field named after a crate or a rule, which is a
-    // detector keeping its state in the reachability of every file.
     assert_eq!(
         fields,
         [
@@ -208,8 +180,6 @@ fn reachability_carries_only_package_and_target_identity() {
     );
 }
 
-/// US-071: the targeted crate is resolved through the manifest, and its absence
-/// silences the detector without an error.
 #[test]
 fn a_renamed_dependency_resolves_and_an_absent_one_stays_silent() {
     let report = inspect(InspectRequest::new(fixture("precision")));

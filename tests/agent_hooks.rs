@@ -1,11 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! The installers and the hooks they install, from the binary's entry point:
-//! a git pre-commit hook that really refuses a commit, an agent's settings
-//! file merged rather than overwritten, and an end-of-turn rescan that blocks
-//! on what the turn introduced and never on a broken toolchain.
-
 mod support;
 
 use std::fs;
@@ -38,8 +33,6 @@ fn git(root: &Path, arguments: &[&str]) -> Output {
     output
 }
 
-/// The environment a commit runs its hook under: the binary on `PATH`, and a
-/// Cargo target of the test's own.
 fn commit(root: &Path, message: &str) -> Output {
     commit_with(root, &["-m", message])
 }
@@ -75,8 +68,6 @@ fn commit_with(root: &Path, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-/// A one-crate repository with no configuration, committed clean: the gate is
-/// the one each hook passes on its command line.
 fn repository(name: &str) -> PathBuf {
     let root = support::temporary_target(&format!("agent-hooks-{name}"), &NEXT_WORKSPACE);
     fs::create_dir_all(root.join("src")).unwrap();
@@ -98,8 +89,6 @@ fn workspace(name: &str) -> PathBuf {
     support::fresh_workspace(&format!("agent-hooks-{name}"), &NEXT_WORKSPACE)
 }
 
-/// A directory outside every git repository. `target/` sits inside this one,
-/// so a workspace there is always in a working tree.
 fn outside_git(name: &str) -> PathBuf {
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "rust-doctor-agent-hooks-{name}-{}",
@@ -138,11 +127,6 @@ fn install(root: &Path, arguments: &[&str]) -> Output {
         .unwrap()
 }
 
-/// The pre-commit hook judges what the commit records, blocking on a warning
-/// with no configuration: a staged defect is refused even once the working
-/// tree fixed it, `--no-verify` skips the hook, a change beside a finding the
-/// file already held passes, and a scan that cannot run lets the commit
-/// through, saying so.
 #[test]
 fn the_git_hook_refuses_a_commit_that_records_a_finding() {
     let root = repository("git-commit");
@@ -171,7 +155,6 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
         !refused.status.success(),
         "the hook let a staged defect through"
     );
-    // Git sends a hook's output to its own stderr.
     assert!(
         stderr(&refused).contains("clippy::todo"),
         "{}",
@@ -187,7 +170,6 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
     let skipped = commit_with(&root, &["--no-verify", "-m", "skip the hook"]);
     assert!(skipped.status.success(), "{}", stderr(&skipped));
 
-    // The file now holds a finding; a commit that adds none beside it passes.
     fs::write(
         root.join("src/lib.rs"),
         "pub fn value() -> u8 { todo!() }\n\npub fn other() -> u8 { 3 }\n",
@@ -202,7 +184,6 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
         stderr(&accepted)
     );
 
-    // A configuration the scan cannot read fails it (exit 2): not judged.
     fs::write(root.join("rust-doctor.toml"), "blocking = 7\n").unwrap();
     fs::write(
         root.join("src/lib.rs"),
@@ -235,11 +216,8 @@ fn the_git_hook_refuses_a_commit_that_records_a_finding() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Each way a repository already runs hooks decides where the hook goes, and
-/// nothing rust-doctor did not write is ever written over.
 #[test]
 fn the_git_hook_follows_the_repository_hook_setup() {
-    // A foreign hook is left alone, and the line to add is printed.
     let root = repository("git-foreign");
     fs::write(root.join(".git/hooks/pre-commit"), "#!/bin/sh\nmake lint\n").unwrap();
     let foreign = install(&root, &["git"]);
@@ -253,7 +231,6 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     );
     fs::remove_dir_all(&root).unwrap();
 
-    // core.hooksPath inside the repository.
     let root = repository("git-hooks-path");
     git(&root, &["config", "core.hooksPath", ".githooks"]);
     let written = install(&root, &["git"]);
@@ -262,7 +239,6 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     assert!(!root.join(".git/hooks/pre-commit").exists());
     fs::remove_dir_all(&root).unwrap();
 
-    // A hooks directory shared beyond this working tree is never written.
     let root = repository("git-hooks-outside");
     let shared = outside_git("git-shared-hooks");
     git(&root, &["config", "core.hooksPath", shared.to_str().unwrap()]);
@@ -273,14 +249,12 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     fs::remove_dir_all(&root).unwrap();
     fs::remove_dir_all(shared).unwrap();
 
-    // cargo-husky.
     let root = repository("git-husky");
     fs::create_dir_all(root.join(".cargo-husky/hooks")).unwrap();
     assert_eq!(install(&root, &["git"]).status.code(), Some(0));
     assert!(root.join(".cargo-husky/hooks/pre-commit").is_file());
     fs::remove_dir_all(&root).unwrap();
 
-    // A committed `.cargo-husky/hooks` link out of the tree takes no write.
     let root = repository("git-husky-link");
     let elsewhere = outside_git("git-husky-elsewhere");
     fs::create_dir_all(root.join(".cargo-husky")).unwrap();
@@ -292,7 +266,6 @@ fn the_git_hook_follows_the_repository_hook_setup() {
     fs::remove_dir_all(&root).unwrap();
     fs::remove_dir_all(elsewhere).unwrap();
 
-    // A hook manager: the snippet is printed and nothing is written.
     for config in [
         ".pre-commit-config.yaml",
         "lefthook.yml",
@@ -314,7 +287,6 @@ fn the_git_hook_follows_the_repository_hook_setup() {
         fs::remove_dir_all(&root).unwrap();
     }
 
-    // Not a repository.
     let outside = outside_git("git-outside");
     let refused = install(&outside, &["git"]);
     assert_eq!(refused.status.code(), Some(2));
@@ -401,7 +373,6 @@ fn a_settings_file_that_does_not_parse_is_left_alone() {
     );
     fs::remove_dir_all(&root).unwrap();
 
-    // A symlinked settings directory is never written through.
     let root = workspace("claude-symlink");
     let elsewhere = workspace("claude-symlink-target");
     std::os::unix::fs::symlink(&elsewhere, root.join(".claude")).unwrap();
@@ -417,9 +388,6 @@ fn a_settings_file_that_does_not_parse_is_left_alone() {
     fs::remove_dir_all(elsewhere).unwrap();
 }
 
-/// A contributor without the binary commits through the hook, told it did not
-/// judge the commit; `--update` refreshes an outdated hook rust-doctor wrote
-/// and never touches one it did not.
 #[test]
 fn the_git_hook_survives_a_missing_binary_and_refreshes_on_update() {
     let root = repository("git-missing-binary");
@@ -460,7 +428,6 @@ fn the_git_hook_survives_a_missing_binary_and_refreshes_on_update() {
         stderr(&unjudged)
     );
 
-    // The hook an earlier release wrote.
     let previous = "#!/bin/sh\n# rust-doctor pre-commit hook: judges what this commit records.\nexec rust-doctor . --yes --staged\n";
     fs::write(&hook, previous).unwrap();
     let outdated = install(&root, &["git"]);
@@ -488,8 +455,6 @@ fn the_git_hook_survives_a_missing_binary_and_refreshes_on_update() {
     assert_eq!(fs::read_to_string(&hook).unwrap(), "#!/bin/sh\nmake lint\n");
     fs::remove_dir_all(root).unwrap();
 
-    // An agent entry an earlier release wrote is refreshed in place, keeping
-    // every key the user added.
     let root = workspace("claude-update");
     fs::create_dir_all(root.join(".claude")).unwrap();
     let settings = root.join(".claude/settings.local.json");
@@ -533,8 +498,6 @@ fn run_hook(agent: &str, root: &Path, input: &str) -> Output {
     child.wait_with_output().unwrap()
 }
 
-/// The end-of-turn hook blocks on a finding in the lines the turn changed,
-/// names it with the rescan command, and lets a clean turn end.
 #[test]
 fn the_stop_hook_blocks_on_what_the_turn_introduced() {
     let root = repository("stop");
@@ -561,7 +524,6 @@ fn the_stop_hook_blocks_on_what_the_turn_introduced() {
         "{message}"
     );
 
-    // An untracked file the turn created is judged whole.
     git(&root, &["checkout", "--", "src/lib.rs"]);
     fs::write(root.join("src/extra.rs"), "pub fn extra() { todo!() }\n").unwrap();
     fs::write(
@@ -577,12 +539,10 @@ fn the_stop_hook_blocks_on_what_the_turn_introduced() {
         stderr(&untracked)
     );
 
-    // The loop guard: a turn already continuing because of this hook ends.
     let guarded = run_hook("claude", &root, r#"{"stop_hook_active":true}"#);
     assert_eq!(guarded.status.code(), Some(0));
     assert!(guarded.stderr.is_empty());
 
-    // Cursor cannot block, so the same findings become a follow-up message.
     let cursor = run_hook("cursor", &root, r#"{"status":"completed","loop_count":0}"#);
     assert_eq!(cursor.status.code(), Some(0));
     let followup: Value = serde_json::from_slice(&cursor.stdout).unwrap();
@@ -595,8 +555,6 @@ fn the_stop_hook_blocks_on_what_the_turn_introduced() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A scan that cannot run is the tool's failure, not the agent's, and never
-/// traps it in its turn.
 #[test]
 fn the_stop_hook_never_traps_the_agent_on_a_failed_scan() {
     let root = outside_git("stop-unscannable");
@@ -622,8 +580,6 @@ fn the_stop_hook_never_traps_the_agent_on_a_failed_scan() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A Cursor turn the user aborted, that errored, or that this hook already sent
-/// back once ends silently before any scan; input the hook cannot read scans.
 #[test]
 fn the_cursor_hook_skips_an_aborted_or_resubmitted_turn() {
     let root = repository("cursor-guards");
@@ -658,8 +614,6 @@ fn the_cursor_hook_skips_an_aborted_or_resubmitted_turn() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// EP-002 US-007: every hook installer resolves a relative PATH once, so
-/// `crates/x` from the repository's root writes what `<root>/crates/x` writes.
 #[test]
 fn a_relative_path_installs_every_hook_where_its_absolute_form_does() {
     let root = repository("relative-path");
@@ -681,10 +635,6 @@ fn a_relative_path_installs_every_hook_where_its_absolute_form_does() {
     }
 }
 
-/// EP-005 US-021: `hook run --no-clippy` turns every Clippy rule off, a
-/// configuration that denies one included, so a turn that adds a `todo!()`
-/// passes, no `cargo clippy` starts and the tree's build script never runs.
-/// The same turn without the flag compiles the tree and blocks on the rule.
 #[test]
 fn a_compile_free_stop_hook_runs_no_build_whatever_the_configuration_says() {
     let root = repository("no-clippy");
@@ -744,8 +694,6 @@ fn a_compile_free_stop_hook_runs_no_build_whatever_the_configuration_says() {
     assert!(!events.iter().any(|event| event.starts_with("clippy")), "{events:?}");
     assert!(!marker.exists(), "the tree's build script ran under --no-clippy");
 
-    // The control: the same turn without the flag builds the tree and blocks
-    // on the rule the configuration denies.
     let compiling = run(&[]);
     assert_eq!(compiling.status.code(), Some(2), "{}", stderr(&compiling));
     assert!(stderr(&compiling).contains("- clippy::todo src/lib.rs:2 "), "{}", stderr(&compiling));
@@ -755,9 +703,6 @@ fn a_compile_free_stop_hook_runs_no_build_whatever_the_configuration_says() {
     let _ = fs::remove_file(&marker);
 }
 
-/// EP-005 US-021: an agent hook installed without `--no-clippy` says what it
-/// runs and with whose authority; with the flag it writes the compile-free
-/// command and says nothing, and `--update` sets or drops the flag.
 #[test]
 fn an_agent_hook_install_states_the_compile_authority_it_grants() {
     let root = workspace("compile-authority");

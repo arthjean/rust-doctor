@@ -1,7 +1,3 @@
-// A pseudo-terminal from Bun itself (`Bun.spawn({ terminal })`, pinned bun
-// 1.4.2), for the tests that only need the binary to see terminal streams:
-// the terminal profile, colors, the gating of the interactive report. What a
-// screen looks like is tmux's job (tmux-helpers.ts), not this one's.
 import { DEFAULT_WATCHDOG_MS, hermeticEnv, sandbox, track, untrack, type EnvOverrides, type Sandbox } from "./e2e-helpers";
 
 export type PtyOptions = {
@@ -10,7 +6,6 @@ export type PtyOptions = {
   cwd?: string;
   env?: EnvOverrides;
   sandbox?: Sandbox;
-  // Written to the terminal once the child has started.
   input?: string;
   timeoutMs?: number;
 };
@@ -59,7 +54,6 @@ export function spawnPty(argv: string[], options: PtyOptions = {}): PtySession {
     await proc.exited;
     clearTimeout(watchdog);
     untrack(proc.pid);
-    // The last bytes the child wrote can still be in the PTY when it exits.
     await Promise.race([eof, Bun.sleep(250)]);
     terminal.close();
     if (timedOut) throw new Error(`watchdog killed ${command} (pid ${proc.pid}) after ${watchdogMs} ms`);

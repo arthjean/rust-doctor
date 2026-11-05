@@ -1,8 +1,4 @@
-// PATH profiles built from `fakes/`: each one is a directory of links to the
-// recording stand-ins it allows, put in front of the toolchain directory, so a
-// test decides which agents and clipboard commands exist and never reaches the
-// machine's real ones.
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { RUN_ROOT, toolchainBin, type Sandbox } from "./e2e-helpers";
 
@@ -18,31 +14,39 @@ const MEMBERS: Record<Exclude<Profile, "none">, readonly string[]> = {
   all: [...AGENTS, ...CLIPBOARDS, ...OTHERS],
 };
 
-// The PATH of a profile, or of an explicit list of fake names.
-export function pathProfile(profile: Profile | readonly string[]): string {
-  if (profile === "none") return toolchainBin();
-  const names = typeof profile === "string" ? MEMBERS[profile] : profile;
-  const key = typeof profile === "string" ? profile : `custom-${[...names].sort().join("-")}`;
+const KNOWN: ReadonlySet<string> = new Set(MEMBERS.all);
+
+export const FAKE_SCRIPT = `#!/bin/sh\n${readFileSync(join(import.meta.dir, "fakes", "record.sh"), "utf8")}`;
+
+function profileDir(names: readonly string[], key: string): string {
   const dir = join(RUN_ROOT, "profiles", key);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
     for (const name of names) {
-      const fake = join(import.meta.dir, "fakes", name);
-      if (!existsSync(fake)) throw new Error(`no fake named ${name} under fakes/`);
-      symlinkSync(fake, join(dir, name));
+      if (!KNOWN.has(name)) throw new Error(`no fake named ${name}`);
+      writeFileSync(join(dir, name), FAKE_SCRIPT, { mode: 0o755 });
     }
   }
-  return `${dir}:${toolchainBin()}`;
+  return dir;
 }
 
-// The variables a spawn needs for the fakes to record under its sandbox.
+export function pathProfile(profile: Profile | readonly string[]): string {
+  if (profile === "none") return toolchainBin();
+  const names = typeof profile === "string" ? MEMBERS[profile] : profile;
+  const key = typeof profile === "string" ? profile : `custom-${[...names].sort().join("-")}`;
+  return `${profileDir(names, key)}:${toolchainBin()}`;
+}
+
+export function fakeProgram(name: string): string {
+  return join(profileDir([name], `custom-${name}`), name);
+}
+
 export function fakeEnv(box: Sandbox, profile: Profile | readonly string[]): Record<string, string> {
   return { PATH: pathProfile(profile), RD_FAKE_LOG: join(box.dir, "fake-calls") };
 }
 
 export type FakeCall = { argv: string[]; stdin: string; cwd: string; tty: boolean };
 
-// Every completed call of `tool` under the sandbox, in call order.
 export function fakeCalls(box: Sandbox, tool: string): FakeCall[] {
   const log = join(box.dir, "fake-calls");
   if (!existsSync(log)) return [];

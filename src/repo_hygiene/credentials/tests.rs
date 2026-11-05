@@ -1,13 +1,9 @@
-// Every key-shaped value is assembled at runtime so that this source file
-// never carries one the scan itself would report.
-
 use super::*;
 
 fn first(line: &str) -> Option<&'static str> {
     first_credential(line, &[]).map(|(name, _)| name)
 }
 
-/// An AWS access key id that is not the one AWS documents.
 fn aws_key() -> String {
     format!("AKIA{}", "Q3VJ7RNYH2KXW4PZ")
 }
@@ -23,17 +19,12 @@ fn credential_matching_requires_the_boundary_and_the_minimum_tail() {
     assert_eq!(first(&format!("github_pat_{}", "b".repeat(22))), Some("GitHub fine-grained token"));
     assert_eq!(first(&format!("sk-{}", "c".repeat(20))), Some("secret API key"));
     assert_eq!(first(&format!("xoxb-{}", "1".repeat(10))), Some("Slack bot token"));
-    // Documentation spelling the pattern out, wildcard included, is prose:
-    // a real PEM label carries only uppercase words.
     assert!(first(&format!("`-----BEGIN {} KEY-----`", "* PRIVATE")).is_none());
 
-    // Boundary: the prefix inside a longer identifier is not a token.
     assert!(first(&format!("S{aws}")).is_none());
     assert!(first(&format!("risk-{}", "c".repeat(20))).is_none());
-    // Minimum tail: a short suffix is prose, not a key.
     assert!(first("sk-learn").is_none());
     assert!(first("AKIA123").is_none());
-    // Entropy alone never triggers.
     assert!(first("9f8e7d6c5b4a39281706f5e4d3c2b1a0").is_none());
 }
 
@@ -43,8 +34,6 @@ fn a_private_key_header_needs_a_key_body_under_it() {
     let footer = format!("-----END {}-----", "PRIVATE KEY");
     let body = format!("MII{}", "Ev".repeat(30));
 
-    // A parser keeping the header as a constant: nothing follows but its
-    // footer and code.
     assert!(first(&header).is_none());
     assert!(first_credential(
         &format!("const HEADER: &str = \"{header}\";"),
@@ -53,15 +42,12 @@ fn a_private_key_header_needs_a_key_body_under_it() {
     .is_none());
     assert!(first_credential(&header, &["fn parse(input: &str) -> Key {", "}"]).is_none());
 
-    // A key: its body on the next non-empty lines, or on the header's own
-    // line in a one-line literal.
     let rsa = format!("-----BEGIN {}-----", "RSA PRIVATE KEY");
     assert_eq!(
         first_credential(&rsa, &["", &body]).map(|(name, _)| name),
         Some("private key block")
     );
     assert_eq!(first(&format!("\"{header}\\n{body}\\n{footer}\"")), Some("private key block"));
-    // A body past the lines a header is read with belongs to something else.
     assert!(first_credential(&header, &["a", "b", "c", &body]).is_none());
 }
 
@@ -72,18 +58,14 @@ fn placeholders_and_truncations_veto_a_match() {
     let aws = aws_key();
     assert!(first(&format!("// sample: {aws}")).is_none());
     assert!(first(&format!("let dummy_key = \"{aws}\";")).is_none());
-    // The word can sit inside the value itself.
     let deliberate = format!("sk-ant-oat01-{}", "deliberately-bogus");
     assert!(first(&format!("TOKEN=\"{deliberate}\"")).is_none());
     assert!(first(&format!("let key = \"{aws}...\";")).is_none());
     assert!(first(&format!("let key = \"{aws}\u{2026}\";")).is_none());
-    // A word further than the window before the match is another sentence.
     assert_eq!(first(&format!("// example{}{aws}", " ".repeat(40))), Some("AWS access key id"));
-    // A vetoed match gives way to a real one later on the line.
     let github = format!("ghp_{}", "a".repeat(36));
     let apart = " ".repeat(VETO_WINDOW);
     assert_eq!(first(&format!("\"{documented}\",{apart}\"{github}\"")), Some("GitHub personal access token"));
-    // A placeholder header with a body under it.
     let header = format!("-----BEGIN {}-----", "PRIVATE KEY");
     let body = format!("MII{}", "Ev".repeat(30));
     assert!(first_credential(&format!("// example: {header}"), &[&body]).is_none());
@@ -114,12 +96,9 @@ fn a_database_url_password_is_reported_only_where_it_reaches_a_deployment() {
     assert!(first(&format!("my_postgres://app:{secret}@db.prod.net/")).is_none());
     assert!(first("postgres://app@db.prod.net/app").is_none());
 
-    // Masking hides every password, a placeholder's included.
     assert_eq!(credential_ranges("postgres://user:pass@localhost/db"), vec![(16, 20)]);
 }
 
-/// Self-scan audit US-001: a multibyte character right before the scheme
-/// once made the scheme search slice inside it.
 #[test]
 fn a_multibyte_character_before_the_scheme_is_stepped_over() {
     let lines = [
@@ -138,8 +117,6 @@ fn a_multibyte_character_before_the_scheme_is_stepped_over() {
     assert_eq!(&lines[3][start..end], "Hunter2Secret");
 }
 
-/// EP-001 US-001: diagnostic text is masked as a code frame masks a line,
-/// every line of it, and text with no credential comes back unchanged.
 #[test]
 fn diagnostic_text_is_masked_line_by_line_and_plain_text_is_untouched() {
     let token = format!("xoxb-{}", "1234567890-abcdefABCDEF");
@@ -154,9 +131,6 @@ fn diagnostic_text_is_masked_line_by_line_and_plain_text_is_untouched() {
     assert!(!carries_credential(plain));
 }
 
-/// A PEM body no three characters of which occur in the text the tests below
-/// set around it, so any window of three in an output is a character of the
-/// key.
 fn pem_body() -> String {
     "Q+/Z9".repeat(13)
 }
@@ -168,9 +142,6 @@ fn holds_body(text: &str, body: &str) -> bool {
         .any(|window| text.contains(window))
 }
 
-/// EP-003 US-011: a key is masked from its header to its footer, whether its
-/// body sits on the header's line, escaped with `\n`, or on the lines below,
-/// and the line after a footer is published as it was.
 #[test]
 fn a_private_key_is_masked_from_its_header_to_its_footer() {
     let body = pem_body();
@@ -189,27 +160,20 @@ fn a_private_key_is_masked_from_its_header_to_its_footer() {
     assert_eq!(masked_three, format!("----{REDACTED}\n{REDACTED}\n{footer}\nafter"));
     assert!(key_continues(&header));
 
-    // A body on the header's line with no footer after it runs to the end of
-    // the line, and the key stays open below it.
     let open = format!("{header}\\n{body}\n{body}\n{footer}");
     assert_eq!(mask_credentials(&open), format!("----{REDACTED}\n{REDACTED}\n{footer}"));
 
-    // A body line that also carries the footer, as a source string escaped
-    // with `\n` and broken across lines does, keeps only the footer.
     let glued = format!("{header}\\n\\\n{body}\\n\\\n{body}\\n{footer}\\n\";\nafter");
     let masked_glued = mask_credentials(&glued);
     assert!(!holds_body(&masked_glued, &body), "{masked_glued}");
     assert_eq!(masked_glued, format!("----{REDACTED}\\n\\\n{REDACTED}\n{REDACTED}{footer}\\n\";\nafter"));
 
-    // A header a parser keeps as a constant loses only the header.
     assert_eq!(
         mask_credentials(&format!("pem.starts_with(\"{header}\")")),
         format!("pem.starts_with(\"----{REDACTED}\")")
     );
 }
 
-/// Self-scan audit US-006: every range the scanner returns lies on char
-/// boundaries of the non-ASCII table, and masking returns on every line of it.
 #[test]
 fn every_range_of_the_non_ascii_table_lies_on_char_boundaries() {
     let on_boundaries = |line: &str, (start, end): (usize, usize)| {

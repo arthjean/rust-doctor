@@ -96,9 +96,6 @@ fn run_delta_state(fixture: &Fixture, name: &str, expected_exit: i32) -> (Value,
         );
         assert_eq!(output.status.code(), Some(expected_exit), "{name}");
         let counts = fixture.processes.counts();
-        // The first run of a base scans it and stores it; every later run
-        // reads it back from the side cache: no snapshot, no metadata and no
-        // Clippy for the base side, and the same bytes on stdout.
         let scanned = BTreeMap::from([
             ("cargo-version".to_owned(), 1),
             ("clippy".to_owned(), 2),
@@ -267,8 +264,6 @@ fn error_evaluation() -> Value {
                 code: "base-unavailable",
                 status: "failed",
                 exit_code: 2,
-                // The ref, then whether the clone is shallow, which would make
-                // a missing base a fetch that stopped short.
                 processes: process_counts(&[("git-rev-parse", 2), ("metadata", 1)]),
             },
             None,
@@ -280,8 +275,6 @@ fn error_evaluation() -> Value {
                 code: "merge-base-unavailable",
                 status: "failed",
                 exit_code: 2,
-                // The second `rev-parse` asks whether the clone is shallow,
-                // which would turn the code into `shallow-clone`.
                 processes: process_counts(&[
                     ("git-merge-base", 1),
                     ("git-rev-parse", 2),
@@ -312,8 +305,6 @@ fn error_evaluation() -> Value {
                 code: "baseline-limit-exceeded",
                 status: "failed",
                 exit_code: 2,
-                // The toolchain and the base tree are resolved before the
-                // snapshot, since the side cache keys on them.
                 processes: process_counts(&[
                     ("cargo-version", 1),
                     ("clippy-version", 1),
@@ -335,8 +326,6 @@ fn error_evaluation() -> Value {
                 code: "baseline-entry-invalid",
                 status: "failed",
                 exit_code: 2,
-                // The toolchain and the base tree are resolved before the
-                // snapshot, since the side cache keys on them.
                 processes: process_counts(&[
                     ("cargo-version", 1),
                     ("clippy-version", 1),
@@ -571,8 +560,6 @@ fn local_evaluation() -> Value {
         "pub fn introduced() -> bool { todo!(\"introduced\") }\n",
     );
     let (changed, evaluation) = run_delta_state(&fixture, "changed-and-fixed", 1);
-    // `todo!("old")` rewritten in place is the same finding edited, which the
-    // count pass pairs: only the removed one is fixed.
     assert_eq!(changed["delta"]["summary"]["fixed"], 1);
     assert_eq!(changed["delta"]["summary"]["rule_count_matches"], 1);
     let full = inspect(&fixture, &["--blocking", "warning"], &fixture.target);
@@ -663,11 +650,6 @@ fn baseline_delta_product_matrix_is_deterministic_private_and_non_mutating() {
     let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let local = local_evaluation();
 
-    // Both quantities are published separately and stay consistent. The scan
-    // bears on the default targets, so each unit is compiled only once and an
-    // occurrence matches a real site. Under `--all-targets`, the same fixture
-    // published two occurrences per diagnostic, one of which was only a target
-    // duplicate.
     for state in local["matrix"].as_array().unwrap() {
         let summary = &state["summary"];
         assert_eq!(summary["distinct"]["total"], summary["total"]);
@@ -880,9 +862,6 @@ fn baseline_delta_evaluation_is_reconstructed_from_measured_inputs() {
     let _ = fs::remove_dir_all(&target_root);
     fs::create_dir_all(&target_root).unwrap();
 
-    // Both measurements carry their own assertions: the scans of the three
-    // pinned repositories succeed in baseline mode, and the duration stays
-    // within its bounds.
     let _ = measure_public_repositories(&corpus_root, &target_root);
     let _ = measure_performance();
     fs::remove_dir_all(target_root).unwrap();

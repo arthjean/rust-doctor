@@ -1,12 +1,3 @@
-//! The base a changed-work scope compares against when the caller named none,
-//! and the diagnosis of a merge base that could not be found.
-//!
-//! The candidates are the ones a repository answers for itself, in the order
-//! that trusts it most: what `origin/HEAD` points at, then the two names a
-//! default branch takes on a remote, then the same two locally. The first one
-//! git resolves to a commit wins. A skill that hard-coded `--base main` used to
-//! fail on every `master` and `trunk` repository.
-
 use crate::git::{GitCall, GitFailure};
 use crate::internal_error::InternalError;
 
@@ -16,8 +7,6 @@ use std::path::Path;
 
 const FALLBACK_CANDIDATES: [&str; 4] = ["origin/main", "origin/master", "main", "master"];
 
-/// What a probe answers when git refuses. Every probe's refusal means "not this
-/// one" rather than a failure of the scan, so its message is never published.
 const PROBE_REFUSED: GitFailure = GitFailure::new("probe-refused", "Git refused the probe.");
 
 pub(super) fn base_undetected() -> InternalError {
@@ -36,9 +25,6 @@ pub(super) fn shallow_clone() -> InternalError {
     )
 }
 
-/// The first candidate git resolves to a commit, as the selector to compare
-/// against: `HEAD` when that candidate is the branch checked out, since the
-/// work to judge is then what has not been committed yet.
 pub(super) fn detect(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
@@ -57,9 +43,6 @@ pub(super) fn detect(
     })
 }
 
-/// The name of the default branch the repository answers for, the candidate
-/// [`detect`] would compare against with its remote dropped: what a CI
-/// workflow triggers on.
 pub(super) fn default_branch(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
@@ -110,8 +93,6 @@ fn first_resolving(
     None
 }
 
-/// Whether git says this clone is shallow, which is what turns an unavailable
-/// merge base from a mystery into a missing fetch.
 pub(super) fn is_shallow(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,
@@ -125,7 +106,6 @@ pub(super) fn is_shallow(
         == Some("true")
 }
 
-/// One line of git's answer, or `None` when git refused or answered nothing.
 fn probe<const N: usize>(
     workspace_root: &Path,
     run: &mut impl FnMut(&GitCall) -> Result<Vec<u8>, InternalError>,

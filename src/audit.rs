@@ -28,13 +28,9 @@ pub(crate) use ceilings::OVERALL;
 use ceilings::{capped, tier_overall_ceiling, worse_tier};
 use density::{DensityScope, Scale, calculate_dimensions, contributions};
 
-/// The workspace the score is computed against: how much of it there is, and
-/// whether that is the workspace or a floor on it.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SourceFileInventory {
     pub(crate) files: usize,
-    /// Lines of production Rust the walk counted. Test code is excluded, since
-    /// the score charges for what ships.
     pub(crate) production_lines: usize,
     pub(crate) complete: bool,
 }
@@ -52,33 +48,14 @@ pub const SCORE_MODEL: &str = "core-v6";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Audit {
     pub source_files: usize,
-    /// Lines of production Rust the scan counted, test code excluded. Zero when
-    /// the workspace holds none, and a floor on it whenever
-    /// `inventory_is_complete` is false.
     pub production_lines: usize,
     pub categories: Vec<AuditCategory>,
     pub score: Option<AuditScore>,
-    /// Whether `source_files` counted the workspace or is a floor on it.
-    ///
-    /// Rebuilding the block for a narrower scope needs this fact and nothing else about the
-    /// original scan, and the block used to recover it from `score.authoritative`, which also
-    /// carries the status and whether every diagnostic was catalogued. One uncatalogued rule
-    /// anywhere therefore made every later scope non-authoritative, for a reason that had
-    /// nothing to do with the inventory. It stays private because it is not published: the
-    /// wire shape is the three members above.
     inventory_is_complete: bool,
-    /// What the report's errors and its policy say against the score, which a narrower scope
-    /// inherits for the same reasons.
     stage_reasons: BTreeSet<ScoreReason>,
-    /// One score per scanned workspace member, in name order.
     pub packages: Vec<PackageAudit>,
 }
 
-/// Per-severity count of a single quantity.
-///
-/// The report publishes two distinct quantities: the number of distinct
-/// diagnostics and the number of occurrences. Every surface exposes both under
-/// explicit names, and `total` is always the sum of the four severities.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct SeverityCounts {
     pub errors: usize,
@@ -100,7 +77,6 @@ impl SeverityCounts {
         self.total = self.total.saturating_add(count);
     }
 
-    /// Adds every bucket of another count into this one.
     fn merge(&mut self, other: Self) {
         self.errors = self.errors.saturating_add(other.errors);
         self.warnings = self.warnings.saturating_add(other.warnings);
@@ -117,7 +93,6 @@ impl SeverityCounts {
             == self.total
     }
 
-    /// At least one occurrence per distinct diagnostic, never the reverse.
     const fn covers(self, distinct: Self) -> bool {
         self.errors >= distinct.errors
             && self.warnings >= distinct.warnings
@@ -132,18 +107,9 @@ pub struct AuditCategory {
     pub name: AuditCategoryName,
     pub distinct: SeverityCounts,
     pub occurrences: SeverityCounts,
-    /// The occurrences the score weighs: neither outside production code nor
-    /// unscored. `occurrences` keeps counting everything the report publishes,
-    /// which `summary` has to equal, so this is the count to act on: this
-    /// crate's own Maintainability published 138 warnings of which one weighed.
     pub production: SeverityCounts,
 }
 
-/// The categories the report publishes, and the order it publishes them in.
-///
-/// The declaration order is that order: `Ord` derives from it, the tally map is keyed by it, and
-/// `Audit::is_valid` checks it. A second list restating the same sequence is a second place for
-/// it to be wrong, which is why there is none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum AuditCategoryName {
     Security,
@@ -151,9 +117,6 @@ pub enum AuditCategoryName {
     Performance,
     Dependencies,
     Maintainability,
-    /// Diagnostic with no catalog category, a compilation error for instance.
-    /// The bucket exists so that no diagnostic disappears between `summary`
-    /// and `audit.categories`.
     Other,
 }
 
@@ -163,29 +126,13 @@ pub struct AuditScore {
     pub value: u8,
     pub label: ScoreLabel,
     pub authoritative: bool,
-    /// Every cause that makes the score non-authoritative, empty exactly when it is.
     pub reasons: Vec<ScoreReason>,
     pub dimensions: ScoreDimensions,
-    /// The worst tier that caps, across all dimensions, or `null` when no
-    /// scored rule caps: an uncatalogued rule and a withheld one cap nothing.
     pub worst_tier: Option<RuleTier>,
-    /// Global cap effectively applied to `value`, or `null` when the worst tier
-    /// imposes none. Published so that a score drop can be explained without
-    /// recomputation.
     pub applied_ceiling: Option<u8>,
-    /// Every ceiling a tier imposes, per dimension and then on the score as
-    /// `overall`, each with the rules holding its tier. Empty when no tier
-    /// caps; the `overall` entry is `applied_ceiling` with its cause.
     pub ceilings: Vec<ScoreCeiling>,
     pub projected_after_top_three: Option<u8>,
     pub projected_rule_ids: Vec<String>,
-    /// Rules that fired here and that the corpus adjudicated at no true
-    /// positive, in descending cost order, hence absent from
-    /// `projected_rule_ids` whatever their volume.
-    ///
-    /// Published so the omission reads as a measurement rather than a defect:
-    /// the rule with the most findings is often the one the corpus found most
-    /// often wrong, and a list that silently drops it is impossible to trust.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub withheld_rule_ids: Vec<String>,
 }
@@ -217,10 +164,6 @@ pub(crate) enum ScoreDimension {
 }
 
 impl ScoreDimension {
-    /// Every dimension, in the order the report publishes them.
-    ///
-    /// This is the one list the scoring walks: `every_dimension_is_listed_once` stops compiling
-    /// when a dimension is declared and forgotten here.
     const ALL: [Self; 5] = [
         Self::Security,
         Self::Reliability,
@@ -229,7 +172,6 @@ impl ScoreDimension {
         Self::Dependencies,
     ];
 
-    /// The name the report publishes the dimension under.
     const fn as_str(self) -> &'static str {
         match self {
             Self::Security => "security",
@@ -247,38 +189,12 @@ pub(crate) struct RuleAggregate {
     pub(crate) effective_severity: Severity,
     pub(crate) category: Option<AuditCategoryName>,
     dimension: Option<ScoreDimension>,
-    /// What this rule's findings are counted against, read off the catalog's `producer` field.
     scope: DensityScope,
     tier: Option<RuleTier>,
-    /// Every occurrence the report publishes for this rule, which is what the reader is shown.
     pub(crate) occurrences: usize,
-    /// What this rule adds to its dimension's numerator: its distinct scored sites, each
-    /// weighted by its severity. A site is one diagnostic, so a clone family naming K members
-    /// through `related` weighs one and not K, and the diagnostics outside production code are
-    /// counted in `occurrences` and weigh nothing here.
     numerator: u64,
-    /// The share of `numerator` a workspace member claims. Only a rule counted against the
-    /// workspace reads it: a fact about one member's manifest is that member's, so the workspace
-    /// averages it over its members rather than adding it up, the way it divides code findings
-    /// by kilolines. Added up, three unused dependencies across two members held paneflow's
-    /// dependencies at 37 while neither member scored under 51.
     owned: u64,
-    /// Smoothed false-positive rate the pinned corpus adjudicated, in basis
-    /// points, or `None` for a rule it never adjudicated.
-    ///
-    /// It discounts what the rule charges and ranks what to repair first. Under
-    /// core-v3 it ranked only, so a rule adjudicated wrong on all forty sites
-    /// the corpus showed it still cost a healthy workspace its reliability
-    /// dimension: the score charged sites its own record said were correct
-    /// code. An unmeasured rule is charged whole, since a measurement can only
-    /// ever lower a charge and never invent one.
     noise: Option<u16>,
-    /// Millionths of a point of weighted score that removing this rule's sites recovers.
-    ///
-    /// It is stored rather than computed on demand because under core-v3 it is not a property of
-    /// the rule: the same numerator is worth different points depending on the whole set of rules
-    /// around it, the tier ceilings they impose and the scale they are divided by. So it is
-    /// computed once, where all three are known, and read from there by everything that ranks.
     contribution: u64,
 }
 
@@ -286,7 +202,6 @@ pub(crate) struct RuleAggregate {
 pub(crate) struct RuleAggregation {
     pub(crate) rules: Vec<RuleAggregate>,
     scale: Scale,
-    /// What in the diagnostics themselves keeps the score from being authoritative.
     voided: BTreeSet<ScoreReason>,
 }
 
@@ -329,10 +244,6 @@ impl Audit {
         )
     }
 
-    /// `stage_reasons` is what the report's errors and its policy say against the score: each
-    /// error gives its own reason (`ScoreReason::of_error`), distinct from a scan cut short.
-    /// `members` are the scanned workspace members with what the walk measured of each, and
-    /// each is scored over its own findings beside the workspace.
     pub(crate) fn build_from_inventory(
         inventory: SourceFileInventory,
         members: Vec<(String, SourceFileInventory)>,
@@ -349,22 +260,16 @@ impl Audit {
         audit
     }
 
-    /// No score when every member went unlinted: a hundred over a workspace
-    /// Clippy never linted is a judgment nothing made.
     fn withhold_when_nothing_was_linted(&mut self) {
         if !self.packages.is_empty() && self.packages.iter().all(|package| package.unlinted) {
             self.score = None;
         }
     }
 
-    /// No score at all, for a run whose findings no longer judge anything: one
-    /// a signal stopped.
     pub(crate) fn withhold(&mut self) {
         self.score = None;
     }
 
-    /// `members` is how many workspace members the findings are spread over, what a fact one
-    /// member claims is averaged across; one for a member scored on its own.
     fn build_with_inventory(
         inventory: SourceFileInventory,
         members: usize,
@@ -377,13 +282,8 @@ impl Audit {
             production_lines,
             complete: inventory_is_complete,
         } = inventory;
-        // Both quantities count everything the report publishes, FR-06 requires them to equal
-        // `summary`. What the score sets aside is decided inside `aggregate_rules`, so the two
-        // callers of it cannot disagree on the population.
         let categories = category_tallies(diagnostics);
         let aggregation = aggregate_rules(production_lines, members, diagnostics.iter());
-        // A failed stage is what cut the scan short whenever one did, so it is the reason given,
-        // and an incomplete scan is named only when nothing failed.
         let mut reasons = aggregation.voided.clone();
         reasons.extend(stage_reasons.iter().copied());
         if status == Status::Failed {
@@ -393,8 +293,6 @@ impl Audit {
         {
             reasons.insert(ScoreReason::ScanIncomplete);
         }
-        // No source and no line are the same refusal: core-v3 scores a density, and a density
-        // over nothing is not a hundred out of a hundred, it is an answer the scan cannot give.
         let score = is_scorable_workspace(source_files, production_lines)
             .then(|| score(&aggregation, reasons.into_iter().collect()));
         Self {
@@ -436,8 +334,6 @@ impl Audit {
             previous = Some(category.name);
             ordered && category.is_valid()
         });
-        // A scorable workspace may still carry no score, when nothing was
-        // linted or a signal stopped the run; a score over nothing never is.
         categories_are_valid
             && (self.score.is_none()
                 || is_scorable_workspace(self.source_files, self.production_lines))
@@ -445,7 +341,6 @@ impl Audit {
             && self.packages.iter().all(PackageAudit::is_valid)
     }
 
-    /// The occurrences the score weighs, aggregated over every category of the block.
     pub fn production_totals(&self) -> SeverityCounts {
         self.categories
             .iter()
@@ -455,7 +350,6 @@ impl Audit {
             })
     }
 
-    /// Both quantities aggregated over every category of the block.
     pub fn totals(&self) -> (SeverityCounts, SeverityCounts) {
         self.categories.iter().fold(
             (SeverityCounts::default(), SeverityCounts::default()),
@@ -481,8 +375,6 @@ impl Serialize for Audit {
         state.serialize_field("production_lines", &self.production_lines)?;
         state.serialize_field("categories", &self.categories)?;
         state.serialize_field("score", &self.score)?;
-        // Absent rather than empty, as `related` is: only a report that failed
-        // before the workspace answered has no member to list.
         if self.packages.is_empty() {
             state.skip_field("packages")?;
         } else {
@@ -513,12 +405,6 @@ impl AuditCategory {
 }
 
 impl Serialize for AuditCategory {
-    /// The four bare severity members are the schema-v7 spelling of `occurrences`, projected
-    /// from it rather than stored beside it.
-    ///
-    /// Held as fields, they were a second copy of one fact: a recopy pass wrote them, four
-    /// clauses of `is_valid` checked they still agreed, and `share_url` summed the copy while
-    /// `totals` summed the original. A projection cannot disagree with its source.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -537,24 +423,16 @@ impl Serialize for AuditCategory {
 }
 
 impl AuditScore {
-    /// Whether every published member still follows from the others.
-    ///
-    /// `Audit`'s `Serialize` refuses a block that fails this, so each clause is the one thing it
-    /// names rather than a term in one long conjunction: when it refuses, the caller can be told
-    /// which fact stopped holding.
     pub fn is_valid(&self) -> bool {
         if self.model != SCORE_MODEL || self.value > 100 {
             return false;
         }
-        // The flag is true exactly when no reason drops it.
         if self.authoritative != self.reasons.is_empty() {
             return false;
         }
         if self.applied_ceiling != self.worst_tier.and_then(tier_overall_ceiling) {
             return false;
         }
-        // The published overall ceiling is `applied_ceiling` with its cause, and every
-        // ceiling names at least one rule holding it.
         let overall = self
             .ceilings
             .iter()
@@ -574,7 +452,6 @@ impl AuditScore {
         if self.dimensions.values().into_iter().any(|value| value > 100) {
             return false;
         }
-        // Repairing the top three can only raise the score, never lower it.
         if self
             .projected_after_top_three
             .is_some_and(|projected| projected > 100 || projected < self.value)
@@ -584,8 +461,6 @@ impl AuditScore {
         if !self.projected_rules_are_named_once() {
             return false;
         }
-        // An authoritative score names what to fix and what fixing it would be worth, or names
-        // neither. A non-authoritative one names nothing at all.
         if self.authoritative {
             matches!(
                 (
@@ -599,7 +474,6 @@ impl AuditScore {
         }
     }
 
-    /// At most three rules, none of them empty and none of them named twice.
     fn projected_rules_are_named_once(&self) -> bool {
         let distinct: BTreeSet<_> = self.projected_rule_ids.iter().collect();
         self.projected_rule_ids.len() <= 3
@@ -609,10 +483,6 @@ impl AuditScore {
 }
 
 impl ScoreDimensions {
-    /// The five dimensions, each scored by the same function.
-    ///
-    /// This and `value_for` are the two halves of the one mapping between a dimension and the
-    /// field the report publishes it under. Everything else walks `ScoreDimension::ALL`.
     fn from_fn(mut score_for: impl FnMut(ScoreDimension) -> u8) -> Self {
         Self {
             security: score_for(ScoreDimension::Security),
@@ -692,24 +562,14 @@ pub(crate) fn category_mapping(category: &str) -> Option<(AuditCategoryName, Sco
     }
 }
 
-/// Every diagnostic falls into exactly one bucket, including those no catalog
-/// category covers. Without that, `summary` and `audit.categories` would count
-/// different populations.
 fn category_bucket(category: Option<&str>) -> AuditCategoryName {
     category
         .and_then(category_mapping)
         .map_or(AuditCategoryName::Other, |(name, _)| name)
 }
 
-/// Full scale of an adjudicated rate, matching the basis points the corpus
-/// publishes.
 const BASIS_POINTS: u64 = 10_000;
 
-/// Whether a workspace holds enough for a score to mean anything.
-///
-/// One condition rather than two places that have to agree: `build_with_inventory` gates the
-/// score on it and `is_valid` checks the gate held, so a block carrying a score over no source
-/// refuses to serialize instead of publishing a hundred over nothing.
 const fn is_scorable_workspace(source_files: usize, production_lines: usize) -> bool {
     source_files > 0 && production_lines > 0
 }
@@ -725,14 +585,6 @@ const fn dimension_weight_twice(dimension: ScoreDimension) -> u64 {
 }
 
 impl RuleAggregate {
-    /// What removing this rule's sites recovers, in millionths of a point of weighted score.
-    ///
-    /// Under core-v2 this was the rule's own penalty, which is why it could be recomputed from
-    /// the rule alone. Under core-v3 the penalty is a density read through a curve, so what a
-    /// rule costs depends on everything sharing its dimension: the same site is worth more on a
-    /// clean dimension than on a saturated one. The number is therefore the answer to the
-    /// reader's actual question, the points the score gives back, and it is computed once by
-    /// `aggregate_rules` where the whole set and the scale are both known.
     pub(crate) const fn contribution(&self) -> u64 {
         self.contribution
     }
@@ -742,11 +594,6 @@ impl RuleAggregate {
     }
 }
 
-/// One tally per category that fired, in the order the report publishes them.
-///
-/// The map is keyed by the category itself, whose `Ord` is its declaration order, so it already
-/// comes out ordered: sorting it a second time against a hand-written list is how the two orders
-/// used to be able to disagree.
 fn category_tallies(diagnostics: &[Diagnostic]) -> Vec<AuditCategory> {
     let mut tallies = BTreeMap::<AuditCategoryName, AuditCategory>::new();
     for diagnostic in diagnostics {
@@ -774,9 +621,6 @@ fn score(aggregation: &RuleAggregation, reasons: Vec<ScoreReason>) -> AuditScore
     let (projected, withheld) = aggregation.projection();
     let projected_rule_ids: Vec<String> = projected.iter().map(|rule| rule.id.clone()).collect();
 
-    // A ranking is only worth as much as the set of diagnostics it ranked, and that set is
-    // exactly what a scan that did not complete cannot vouch for. So the projection, the rules
-    // it names and the rules it withheld are published together or not at all.
     let (projected_rule_ids, withheld_rule_ids, projected_after_top_three) = if authoritative {
         let after = (!projected_rule_ids.is_empty()).then(|| {
             let removed: BTreeSet<_> = projected_rule_ids.iter().cloned().collect();
@@ -804,7 +648,6 @@ fn score(aggregation: &RuleAggregation, reasons: Vec<ScoreReason>) -> AuditScore
     }
 }
 
-/// Capped score and its cause, for a given set of rules.
 struct ScoredState {
     dimensions: ScoreDimensions,
     worst_tier: Option<RuleTier>,
@@ -829,18 +672,6 @@ impl ScoredState {
     }
 }
 
-/// One aggregate per rule that fired, over every diagnostic the report publishes.
-///
-/// The score and the report body read the same aggregates. What separates them is not the
-/// population but which figures they use: a diagnostic outside production code is counted in
-/// `occurrences` and weighs nothing in `numerator`, so it stays visible and costs no points,
-/// and it never decides whether the diagnostics are authoritative. That set-aside used to live
-/// at one of the two call sites, so the contribution the body ranked by was not the one the
-/// score charged, and a rule that only ever fired in a test was ranked as if it had.
-///
-/// The scale comes in rather than out because a density needs a denominator: the same rule
-/// firing at the same sites is worth different points in a two-kiloline crate and in a
-/// seven-hundred-kiloline one, and that is the whole reason this model exists.
 pub(crate) fn aggregate_rules<'a>(
     production_lines: usize,
     members: usize,
@@ -858,10 +689,6 @@ pub(crate) fn aggregate_rules<'a>(
         let mapping = diagnostic.category.as_deref().and_then(category_mapping);
         let weight = density::severity_weight(diagnostic.severity);
         let scores = weighs && weight.is_some() && mapping.is_some();
-        // A rule the catalog cannot resolve has no producer to read a denominator off, so it is
-        // counted against the workspace and the flag says the score was computed over something
-        // the catalog does not describe. The scope has to be total: there is no third answer a
-        // density could be divided by.
         voided.extend(void_reason(weighs, definition.is_some(), scores));
         let rule = rules.entry(rule_id.to_owned()).or_insert(PendingRule {
             id: rule_id.to_owned(),
@@ -887,8 +714,6 @@ pub(crate) fn aggregate_rules<'a>(
             && let Some((category, dimension)) = mapping
             && let Some(weight) = weight
         {
-            // One diagnostic is one distinct site, whatever it counts in `occurrences`: a clone
-            // family names its K members through `related` and is one place to go and look.
             rule.numerator = rule.numerator.saturating_add(weight);
             if diagnostic.package.is_some() {
                 rule.owned = rule.owned.saturating_add(weight);
@@ -936,9 +761,6 @@ pub(crate) fn aggregate_rules<'a>(
     }
 }
 
-/// What one weighing diagnostic says against the score's authority. Every uncatalogued warning
-/// is unscored, so one that still weighs is an error: the compilation failing, whichever stage
-/// reported it. A catalogued one that reaches no dimension is a mapping the score cannot place.
 const fn void_reason(weighs: bool, catalogued: bool, scores: bool) -> Option<ScoreReason> {
     match (weighs, catalogued, scores) {
         (false, _, _) | (true, true, true) => None,

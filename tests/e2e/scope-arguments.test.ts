@@ -1,10 +1,3 @@
-// `tasks/e2e-catalog/scopes.md` sections A and A2: scope arguments clap
-// refuses and the closed base selector grammar. Every refusal runs with
-// neither cargo nor git on PATH, so a row that passes proves the argument was
-// refused before either could start. The rows whose selector gets past the
-// grammar (A12, A40 to A49) run with the toolchain: discovery runs `cargo
-// metadata` before any base is resolved, so without cargo they would only
-// ever report `execution/cargo-unavailable`.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +5,6 @@ import { pathWithout, runDoctor, treeFingerprint } from "./e2e-helpers";
 import { gitScenario, type Repo } from "./git-scenario";
 import { errorCodes, MINI_BASE, scan, scopeLine, sha256Mini } from "./scope-scan-support";
 
-// The suite's tool directory without cargo and without git.
 function pathWithoutCargoOrGit(): string {
   const dir = pathWithout("cargo");
   unlinkSync(join(dir, "git"));
@@ -81,7 +73,6 @@ describe("base selector grammar", () => {
     expect(report.status).toBe("failed");
     expect(report.scope).toBeNull();
     expect(report.project).toBeNull();
-    // The message is fixed: the refused selector is never echoed back.
     expect(report.errors).toEqual([{ stage: "scope", code: "invalid-base", message: "Invalid Git base selector." }]);
     const human = await runDoctor([path, "--yes", ...args], { env: { PATH: bare } });
     expect(human.exitCode).toBe(2);

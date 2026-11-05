@@ -1,17 +1,3 @@
-//! Lints switched off rather than answered.
-//!
-//! Three rules over one kind of node, the attribute: an `#[allow]` with no
-//! stated reason, an inner `#![allow]` whose scope is a whole file or a whole
-//! inline module, and an item carrying several suppressions at once. They read
-//! the attributes the unit's single traversal collected, all three from the same
-//! list, because three walks of one tree would spend the pass's wall clock three
-//! times to find the same nodes.
-//!
-//! `#[expect]` is left alone throughout: it fails once the lint stops firing, so
-//! it expires by itself and needs no census. `#[cfg_attr(test, allow(...))]` is
-//! out of reach throughout too, because the attribute it produces does not exist
-//! in the syntax tree, and every rule's help states the limitation.
-
 use std::collections::BTreeMap;
 
 use ra_ap_syntax::ast::{self, HasName};
@@ -25,15 +11,12 @@ use crate::policy::{ActiveRules,
 use crate::report::DiagnosticContext;
 use crate::source_text::SourceSpan;
 
-/// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 3] = [
     &STRUCTURE_CRATE_LEVEL_ALLOW,
     &STRUCTURE_STACKED_ALLOW,
     &STRUCTURE_UNREASONED_ALLOW,
 ];
 
-/// Every suppression finding of one unit. `clippy` holds the Clippy rules the
-/// scan runs, which is what a file-wide allow can hide from it.
 pub(super) fn observe(
     unit: &Unit<'_>,
     active: &ActiveRules,
@@ -64,7 +47,6 @@ pub(super) fn observe(
     observations
 }
 
-/// Every `#[allow]` that switches a lint off without saying why.
 fn unreasoned(unit: &Unit<'_>) -> Vec<Observation> {
     let mut observations = Vec::new();
     for attribute in &unit.inventory.attributes {
@@ -96,21 +78,6 @@ fn unreasoned(unit: &Unit<'_>) -> Vec<Observation> {
     observations
 }
 
-/// Every inner `#![allow(...)]` whose scope is a whole file or a whole inline
-/// module.
-///
-/// The scope, not the justification, is what this rule judges: an attribute
-/// carrying `reason = "..."` is reported all the same, and the help says so.
-/// An outer `#[allow]` on a single item belongs to the stacked and unreasoned
-/// detectors, and an inner attribute in any narrower position, a function body
-/// for instance, exempts one item and is left to them too.
-///
-/// Only an allow that hides something is reported: one naming a lint the scan
-/// runs, a group holding one, or dead code. An allow of a lint nothing here
-/// reports (`unsafe_code` in a crate that writes none) costs the reader
-/// nothing, and a pair naming `unknown_lints` is how a crate builds on two
-/// toolchains, one of which lacks the lint. Test code is left out: a support
-/// module shared by test crates allows the dead code each crate leaves.
 fn crate_level(unit: &Unit<'_>, clippy: &ActiveRules) -> Vec<Observation> {
     let mut observations = Vec::new();
     for attribute in &unit.inventory.attributes {
@@ -165,7 +132,6 @@ fn crate_level(unit: &Unit<'_>, clippy: &ActiveRules) -> Vec<Observation> {
     observations
 }
 
-/// Clippy's lint groups, each holding rules the catalog runs.
 const CLIPPY_GROUPS: [&str; 10] = [
     "clippy::all",
     "clippy::cargo",
@@ -179,10 +145,6 @@ const CLIPPY_GROUPS: [&str; 10] = [
     "clippy::suspicious",
 ];
 
-/// Does a file-wide allow of `lint` hide something this scan or rustc would
-/// report? A catalogued Clippy rule the scan runs, a group, which is assumed to
-/// hold one whenever any runs rather than resolved against the toolchain's lint
-/// list, or dead and unused code, which rustc reports.
 fn hides(lint: &str, clippy: &ActiveRules) -> bool {
     clippy.names(lint)
         || ((lint == "warnings" || CLIPPY_GROUPS.contains(&lint)) && clippy.any())
@@ -191,21 +153,15 @@ fn hides(lint: &str, clippy: &ActiveRules) -> bool {
         || lint.starts_with("unused_")
 }
 
-/// Accumulated allows on one item, before the stacked detector judges them.
 #[derive(Debug)]
 struct Stack {
     attributes: usize,
-    /// Widest lint list a single attribute of the stack names.
     widest: usize,
     lints: Vec<String>,
     span: SourceSpan,
     context: Option<DiagnosticContext>,
 }
 
-/// An item carrying several suppressions at once: two or more separate
-/// `#[allow(...)]` attributes, or one attribute naming four or more lints,
-/// since one attribute listing four lints and four attributes are the same
-/// act.
 fn stacked(unit: &Unit<'_>) -> Vec<Observation> {
     let mut per_item = BTreeMap::<usize, Stack>::new();
     for attribute in &unit.inventory.attributes {
@@ -269,20 +225,11 @@ fn stacked(unit: &Unit<'_>) -> Vec<Observation> {
         .collect()
 }
 
-/// What an `allow(...)` attribute names: its lints, sorted and deduplicated,
-/// and whether a `reason = "..."` argument sits among them.
 struct AllowReading {
     lints: Vec<String>,
     has_reason: bool,
 }
 
-/// Reads the attribute as an `allow`, or refuses it.
-///
-/// The name is read off the meta the grammar produced rather than off a token
-/// position: only the `allow(...)` token-tree form is readable here, because
-/// `#[expect]` carries another path and expires by itself, and
-/// `#[cfg_attr(test, allow(...))]` is a meta of its own whose produced
-/// attribute never exists in the tree.
 fn allow_arguments(attribute: &ast::Attr) -> Option<AllowReading> {
     let Some(ast::Meta::TokenTreeMeta(meta)) = attribute.meta() else {
         return None;
@@ -301,16 +248,12 @@ fn allow_arguments(attribute: &ast::Attr) -> Option<AllowReading> {
     Some(AllowReading { lints, has_reason })
 }
 
-/// Is this argument the `reason = "..."` the attribute needs to be deliberate?
 fn is_reason(argument: &str) -> bool {
     argument
         .split_once('=')
         .is_some_and(|(name, value)| name == "reason" && value.starts_with('"'))
 }
 
-/// Top-level arguments of a token tree, without trivia and without the
-/// delimiters. A nested tree stays inside the argument that carries it, so
-/// `allow(a, b(c, d))` reads as two arguments.
 fn arguments(tree: &SyntaxNode) -> Vec<String> {
     let mut arguments = vec![String::new()];
     let mut depth = 0_usize;
@@ -354,7 +297,6 @@ fn push_argument(arguments: &mut [String], text: &str) {
 mod tests {
     use super::*;
 
-    /// What one rule observes on a snippet, in a unit carrying `context`.
     fn observed(
         rule: &'static RuleDefinition,
         source: &str,
@@ -368,7 +310,6 @@ mod tests {
             .collect()
     }
 
-    /// The Clippy rules the scan runs in these tests: one catalogued lint.
     fn clippy() -> ActiveRules {
         ActiveRules::from_rules(crate::policy::find("clippy::unwrap_used"))
     }
@@ -381,8 +322,6 @@ mod tests {
         observed(&STRUCTURE_UNREASONED_ALLOW, source, context)
     }
 
-    /// US-001: only the inner attribute whose scope is a whole file or a whole
-    /// inline module is this rule's subject, reasoned or not.
     #[test]
     fn a_crate_level_allow_is_reported_whatever_its_reason() {
         let file = observed(
@@ -419,8 +358,6 @@ mod tests {
         }
     }
 
-    /// US-001: an inline module carrying an inner allow is reported with the
-    /// module as its subject, and a `#[cfg(test)]` module carries the mark.
     #[test]
     fn a_module_level_allow_names_its_module() {
         let observations = observed(
@@ -445,9 +382,6 @@ mod tests {
         assert!(gated.is_empty(), "test code is not this rule's subject");
     }
 
-    /// US-024: only an allow that hides something is reported: a lint the scan
-    /// runs, a group, or dead code. A toolchain-compatibility pair and a lint
-    /// nothing reports stay quiet, reasoned or not.
     #[test]
     fn a_crate_level_allow_is_reported_only_when_it_hides_something() {
         for reported in [
@@ -470,15 +404,12 @@ mod tests {
         ] {
             assert!(crate_level_on(quiet).is_empty(), "{quiet}");
         }
-        // A group hides nothing when no Clippy rule runs.
         let unit = Unit::probe("#![allow(clippy::all)]\n", "src/lib.rs");
         let none = ActiveRules::from_rules([]);
         let crate_level = ActiveRules::from_rules([&STRUCTURE_CRATE_LEVEL_ALLOW]);
         assert!(observe(&unit, &crate_level, &none).is_empty());
     }
 
-    /// US-024: a shared test support module allowing dead code is not reported,
-    /// so it can never join a production site's family and leave it unmarked.
     #[test]
     fn a_test_support_allow_is_not_reported() {
         let support = observed(
@@ -492,8 +423,6 @@ mod tests {
         assert_eq!(production[0].context, None);
     }
 
-    /// US-001: the key carries the scope and the lint set, never a position or
-    /// a path, so an insertion above the attribute moves nothing.
     #[test]
     fn the_crate_level_key_ignores_position() {
         let first = crate_level_on("#![allow(unused_imports, dead_code)]\n");
@@ -504,8 +433,6 @@ mod tests {
         assert_ne!(first[0].span, second[0].span);
     }
 
-    /// US-002: two separate attributes and one attribute naming four lints are
-    /// the same act; narrower accumulations stay quiet.
     #[test]
     fn stacked_allows_are_reported_once_per_item() {
         let separate = observed(
@@ -544,8 +471,6 @@ mod tests {
         }
     }
 
-    /// US-002: an item inside a test context carries the mark, so the stack is
-    /// published without weighing.
     #[test]
     fn a_stack_inside_a_test_module_is_marked() {
         let observations = observed(
@@ -571,8 +496,6 @@ mod tests {
         }
     }
 
-    /// The key carries the lint set and the attribute form, never a position,
-    /// so the same exemption written twice forms one family.
     #[test]
     fn the_key_normalizes_order_and_ignores_position() {
         let first = unreasoned_on("#[allow(b, a)]\nfn one() {}", None);
@@ -605,8 +528,6 @@ mod tests {
         assert_eq!(observations[0].key, "outer|clippy::all,other(inner,nested)");
     }
 
-    /// A rule the policy left off produces nothing, and the three rules read
-    /// the same attributes without reading them three times over.
     #[test]
     fn each_rule_answers_only_for_itself() {
         let source = "#![allow(dead_code)]\n#[allow(a)]\n#[allow(b)]\nfn stacked() {}";

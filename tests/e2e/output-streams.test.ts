@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/failures.md` sections OW and OC: what reaches stdout and
-// stderr when the write fails, and the contracts of both streams when it does
-// not. The pipelines run under bash so the reader can close early or the
-// stream can point at `/dev/full`.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -30,7 +26,6 @@ type Report = {
   timings?: Record<string, number>;
 };
 
-// A scan of `workspace` that must leave it exactly as it found it.
 async function scan(workspace: string, args: string[], options: DoctorOptions = {}): Promise<DoctorRun> {
   const before = treeFingerprint(workspace);
   const run = await runDoctor([workspace, "--yes", ...args], options);
@@ -38,8 +33,6 @@ async function scan(workspace: string, args: string[], options: DoctorOptions = 
   return run;
 }
 
-// `rust-doctor ARGS` inside a bash `script`, which names the binary's argument
-// list `"$@"`, with the flags `runDoctor` would add.
 async function shell(script: string, workspace: string, args: string[]): Promise<Exit> {
   const box = sandbox("shell");
   const before = treeFingerprint(workspace);
@@ -68,9 +61,6 @@ function notCargo(): string {
   return dir;
 }
 
-// A crate of `modules` files of `functions` identical bodies: one
-// `duplicate_function_body` diagnostic whose `related` list holds every other
-// body, the shape behind the 12.8 MB report of WS-17, scaled to stay fast.
 function cloneFarm(modules: number, functions: number): string {
   const workspace = join(scratchDir("clone-farm"), "farm");
   mkdirSync(join(workspace, "src"), { recursive: true });
@@ -93,7 +83,6 @@ function cloneFarm(modules: number, functions: number): string {
   return workspace;
 }
 
-// The score line of the linear report, `N / 100 LABEL`.
 function humanScore(stdout: string): { value: number; label: string } {
   const line = stdout.match(/ (\d+) \/ 100 (.+)$/m);
   if (!line) throw new Error(`no score line in:\n${stdout}`);
@@ -132,8 +121,6 @@ describe("output write failures", () => {
   });
 
   test("a report larger than the pipe buffer closed early by head -c 10 ends without a panic", async () => {
-    // Past the 64 KiB a pipe holds, the binary is still writing when head
-    // exits, so the broken pipe is certain rather than a race.
     const run = await shell(HEAD_10, farm, ["--json"]);
     expect(run.signal).toBeNull();
     expect(run.exitCode).toBe(0);

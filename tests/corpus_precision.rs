@@ -1,13 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
-//! Pinned corpus, confined harness, adjudicated precision and admission gate.
-//!
-//! The harness proofs bear on a synthetic corpus built at run time: they stay
-//! deterministic and offline. The measurement proofs bear on the published
-//! artifact, reproducible from the local cache through
-//! `RUST_DOCTOR_CORPUS_DIR`.
-
 mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,17 +28,8 @@ use support::corpus::{
 
 static NEXT_SCOPE: AtomicUsize = AtomicUsize::new(0);
 
-/// The corpus is measured without a RustSec database. The one a machine holds
-/// is whatever `cargo audit` last fetched there, so the advisory rules would
-/// report differently on every machine and every day, and a record has to
-/// replay. A path holding no `crates/` directory is how a scan is told to read
-/// none; both advisory rules then publish `not_evaluated`.
 const BASE_ARGUMENTS: [&str; 4] = ["--json", "--yes", "--advisory-db", "/dev/null"];
 
-/// The rules catalogued opt-in are switched on: the corpus measures every rule
-/// the catalog publishes, so a user who enables one is charged at its measured
-/// rate. They are withheld P3 rules discounted by that rate, which caps nothing
-/// and moves a recorded score by at most a point.
 const SCAN_ARGUMENTS: [&str; 8] = [
     "--json",
     "--yes",
@@ -57,8 +41,6 @@ const SCAN_ARGUMENTS: [&str; 8] = [
     "clippy::string_slice=warn",
 ];
 
-/// A rule turned opt-in keeps its measurement only if the corpus switches it
-/// back on, so the scan arguments name exactly the catalog's opt-in rules.
 #[test]
 fn the_corpus_scan_switches_on_every_opt_in_rule() {
     let switched: Vec<String> = SCAN_ARGUMENTS
@@ -163,9 +145,6 @@ const BINARY_SHAPE: RepositoryShape = RepositoryShape {
     workspace_members: 1,
 };
 
-/// Synthetic corpus: a library that triggers a rule, a binary whose build
-/// script leaves a trace, a repository whose manifest is unreadable and a
-/// repository with no Cargo manifest.
 fn synthetic_corpus(label: &str) -> (PathBuf, PathBuf, Manifest) {
     let root = scope(label);
     let cache = root.join("cache");
@@ -252,10 +231,6 @@ fn report_of(artifacts: &Path, name: &str) -> Value {
     let bytes = fs::read(artifacts.join("reports").join(format!("{name}.json"))).unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
-
-// ---------------------------------------------------------------------------
-// US-077: manifest pinned by revision
-// ---------------------------------------------------------------------------
 
 #[test]
 fn the_manifest_pins_ten_repositories_by_immutable_revision_with_a_rationale() {
@@ -355,10 +330,6 @@ fn a_missing_corpus_repository_stops_the_run_before_any_scan() {
     assert!(!artifacts.join("reports").exists());
 }
 
-// ---------------------------------------------------------------------------
-// US-078: reproducible and confined harness
-// ---------------------------------------------------------------------------
-
 #[test]
 fn two_runs_on_the_same_corpus_produce_identical_observations() {
     let (cache, artifacts, manifest) = synthetic_corpus("determinism");
@@ -386,17 +357,10 @@ fn the_harness_writes_only_inside_its_declared_artifacts_directory() {
         assert!(artifacts.join("reports").join(format!("{repository}.json")).is_file());
         assert!(artifacts.join("work").join(repository).is_dir());
     }
-    // The build script of the corpus only writes into the materialised tree,
-    // which itself lives under the artifacts.
     assert!(artifacts.join("work/beta-bin/build-code-ran").is_file());
     assert!(!cache.join("beta-bin/build-code-ran").exists());
 }
 
-/// Commits onto beta-bin every way its tree selected a program before a
-/// Clippy-off scan was confined: a `[alias] clippy` that builds and runs it,
-/// whose build script leaves `build-code-ran`, and a `rust-toolchain.toml`
-/// path toolchain whose `cargo` and `rustc` leave `path-cargo-ran` and
-/// `path-rustc-ran` in the tree they run in.
 #[cfg(target_os = "linux")]
 fn arm_beta(cache: &Path, mut manifest: Manifest) -> Manifest {
     use std::os::unix::fs::PermissionsExt;
@@ -421,9 +385,6 @@ fn arm_beta(cache: &Path, mut manifest: Manifest) -> Manifest {
     manifest
 }
 
-/// Everywhere, the alias-free build script never runs; on Linux, where
-/// `/proc/self/cwd` lets a path toolchain land in the tree, beta-bin is also
-/// armed with the clippy alias and the path toolchain.
 #[test]
 fn native_detectors_never_compile_or_execute_corpus_build_code() {
     let (cache, artifacts, manifest) = synthetic_corpus("native-only");
@@ -443,8 +404,6 @@ fn native_detectors_never_compile_or_execute_corpus_build_code() {
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
     let markers = ["build-code-ran", "path-cargo-ran", "path-rustc-ran"];
 
-    // Outside any rustup proxy the path toolchain is the one rustup would
-    // pick, so the scan refuses to start Cargo at all.
     #[cfg(target_os = "linux")]
     {
         let unpinned = HarnessPaths {
@@ -462,8 +421,6 @@ fn native_detectors_never_compile_or_execute_corpus_build_code() {
         );
     }
 
-    // Under the name `cargo test` exports, the scan completes and still
-    // starts nothing the tree selects.
     let native = run(&paths(&cache, &artifacts, &binary), &manifest, &arguments).unwrap();
     assert!(native.processed.contains(&"beta-bin".to_owned()));
     for marker in markers {
@@ -501,8 +458,6 @@ fn an_interrupted_run_leaves_no_partial_state_behind() {
     let paths = paths(&cache, &artifacts, &binary);
     let reference = run(&paths, &manifest, &SCAN_ARGUMENTS).unwrap();
 
-    // Partial state of an interrupted run: a stale report, a truncated
-    // materialised tree and a transit file left in place.
     write(&artifacts.join("reports/alpha-lib.json"), "{\"status\":\"stale\"}");
     write(&artifacts.join("reports/alpha-lib.json.partial"), "truncated");
     write(&artifacts.join("work/beta-bin/src/main.rs"), "fn main() { }\n");
@@ -532,18 +487,9 @@ fn the_harness_publishes_processed_skipped_and_failed_counts() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// US-079: per-rule precision after adjudication
-// ---------------------------------------------------------------------------
-
-/// Every reviewed site carries a verdict, a justification and a context, and
-/// designates a finding the corpus actually produced.
 #[test]
 fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     let artifact = artifact();
-    // Each population is checked against its own observations. A site drawn
-    // from one and matched against the other would be free to name a finding
-    // that corpus never produced.
     let observed_in = |observations: &[Observation]| {
         let mut observed: BTreeMap<(String, String), u64> = BTreeMap::new();
         for observation in observations {
@@ -593,9 +539,6 @@ fn every_reviewed_site_carries_a_verdict_a_justification_and_a_real_finding() {
     }
 }
 
-/// The published rate is that of the reviewed sample. Relating value verdicts
-/// to an unreviewed population would publish a precision nobody measured: that
-/// is the defect this test locks down.
 #[test]
 fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population() {
     let artifact = artifact();
@@ -625,8 +568,6 @@ fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population()
         );
     }
 
-    // A large population of which only a sample is reviewed cannot publish a
-    // rate computed on the population.
     let sampled = computed
         .iter()
         .find(|rule| rule.status == PrecisionStatus::Measured && rule.findings > rule.reviewed);
@@ -637,12 +578,6 @@ fn the_published_rate_is_the_rate_of_the_reviewed_sample_not_of_the_population()
     );
 }
 
-/// A published rate names who produced the verdicts it rests on.
-///
-/// The rate is the visible artifact; the hundred and ten sites behind it are
-/// not. Carrying the provenance up to the rate is what lets a reader tell a
-/// number an agent produced from one a person produced, without which the
-/// distinction exists in the file and nowhere a reader looks.
 #[test]
 fn a_published_rate_carries_the_provenance_of_its_verdicts() {
     let artifact = artifact();
@@ -650,14 +585,6 @@ fn a_published_rate_carries_the_provenance_of_its_verdicts() {
     check_provenance(&artifact, Population::Agent);
 }
 
-/// The same assertion on one population, sites and rates drawn from that side
-/// alone.
-///
-/// The population selects both, because three rules now carry sites on each:
-/// a map built over every reviewed site would hand the healthy rate of
-/// `duplicate_function_body` the provenance of the agent verdicts it never
-/// rested on, which is the crossing `each_population_publishes_its_own_rate`
-/// exists against.
 fn check_provenance(artifact: &CorpusArtifact, population: Population) {
     let computed = precision_of(
         &artifact.catalog,
@@ -690,8 +617,6 @@ fn check_provenance(artifact: &CorpusArtifact, population: Population) {
                     .collect();
                 assert_eq!(rule.provenance, expected, "{}", rule.id);
             }
-            // No rate, nothing to attribute: a provenance here would credit a
-            // measurement that was never published.
             PrecisionStatus::Incomplete | PrecisionStatus::Unobserved => {
                 assert!(rule.provenance.is_empty(), "{}", rule.id);
                 assert_eq!(rule.false_positive_rate_basis_points, None, "{}", rule.id);
@@ -701,13 +626,6 @@ fn check_provenance(artifact: &CorpusArtifact, population: Population) {
     assert!(measured > 0);
 }
 
-/// Two populations, two rates, and no verdict crossing between them.
-///
-/// The healthy corpus says what a rule costs on code nobody wants disturbed;
-/// the agent corpus says what it is worth on the code this tool exists for. A
-/// site counted on the wrong side would relate a verdict to a corpus it never
-/// described, and the two disagree enough for that to matter: the same rule
-/// measures 8709 basis points on one and 7000 on the other.
 #[test]
 fn each_population_publishes_its_own_rate_from_its_own_sites() {
     let artifact = artifact();
@@ -727,9 +645,6 @@ fn each_population_publishes_its_own_rate_from_its_own_sites() {
     assert_eq!(healthy, artifact.precision);
     assert_eq!(agent, artifact.agent_population.precision);
 
-    // Clippy is switched off on untrusted code, so no Clippy rule can ever
-    // carry a rate on the agent side. A measured one would mean the population
-    // was scanned with the compiler after all.
     assert!(
         agent
             .iter()
@@ -738,8 +653,6 @@ fn each_population_publishes_its_own_rate_from_its_own_sites() {
         "a Clippy rule cannot be measured on a population it never ran against"
     );
 
-    // Dropping every agent site leaves the healthy rates untouched, which is
-    // what says the two sides are actually separate.
     let mut healthy_only = artifact.adjudication.clone();
     healthy_only
         .reviewed
@@ -755,21 +668,8 @@ fn each_population_publishes_its_own_rate_from_its_own_sites() {
     );
 }
 
-/// Sites the record calls production on a path Cargo reads as test material.
-///
-/// Empty, and an entry is a debt rather than an exemption: every one of them is
-/// a site whose rate is measured over code the score is not supposed to charge
-/// for. An entry is `(repository, path, line)` and needs a written reason
-/// beside it saying why that path is production despite its spelling.
 const PRODUCTION_ON_A_TEST_PATH: &[(&str, &str, u64)] = &[];
 
-/// What Cargo's own directory convention says a workspace-relative path is.
-///
-/// Deliberately a second reader rather than the crate's: `DiagnosticContext`
-/// is crate-private, and a test that asks the scanner what the scanner decided
-/// cannot catch the scanner deciding it wrong. The outermost matching directory
-/// wins, so `benches/tests.rs` is a bench, and the `tests.rs` file name answers
-/// only for a file no directory above it claims.
 fn conventional_target(path: &str) -> Option<&'static str> {
     let path = Path::new(path);
     path.parent()
@@ -784,23 +684,6 @@ fn conventional_target(path: &str) -> Option<&'static str> {
         .or_else(|| (path.file_name()? == "tests.rs").then_some("tests"))
 }
 
-/// A structural rate is a production rate, and the path is what says so.
-///
-/// A family marked as a test, benchmark, example or build-script context is
-/// published and counted but does not weigh on the score, and healthy test
-/// suites duplicate on purpose, one named case per scenario. Measuring a
-/// structural rule over those families publishes the cost of an idiom rather
-/// than the cost of the rule, so the sample is drawn from the production
-/// subpopulation and this test is what keeps it there.
-///
-/// Two assertions, and only the second can catch a misclassification. The
-/// record has to agree with itself, every reviewed structural site carrying the
-/// production context. But that field is copied from the scan that located the
-/// site, so a scan that called an out-of-line `#[cfg(test)]` module production
-/// wrote the very value this test would be reading back: eleven agent sites
-/// under a `tests/` directory passed it for exactly that reason. The path is
-/// evidence the scan did not produce, which is why it is read here from a
-/// reader of this file's own.
 #[test]
 fn every_reviewed_structural_site_is_production_context() {
     let artifact = artifact();
@@ -895,8 +778,6 @@ fn an_undersized_sample_marks_its_rule_incomplete_and_withholds_its_rate() {
         .id
         .clone();
 
-    // Removing a single reviewed site takes the sample below the publishable
-    // minimum: the rate is withheld rather than extrapolated.
     let mut adjudication = artifact.adjudication.clone();
     let mut removed = false;
     adjudication.reviewed.retain(|site| {
@@ -919,8 +800,6 @@ fn an_undersized_sample_marks_its_rule_incomplete_and_withholds_its_rate() {
         PrecisionStatus::Incomplete
     );
 
-    // An incomplete rule joins the unproven ones, just like a rule never
-    // observed: its rate is withheld, its activation stays editorial.
     let outcome = gate(&artifact.catalog, &computed, THRESHOLD_BASIS_POINTS);
     assert!(outcome.unproven.contains(&target));
     assert!(!outcome.noisy_on_healthy_code.contains(&target));
@@ -936,11 +815,6 @@ fn two_computations_of_the_precision_report_are_identical() {
         serde_json::to_string(&second).unwrap()
     );
 
-    // The interval rides the rate, so it rides this too: the bounds come out of
-    // a floating-point computation, and a statistic two runs can disagree on is
-    // a record neither of them can reproduce. IEEE-754 mandates correctly
-    // rounded arithmetic and square root, which is what makes the equality
-    // above hold over the bounds rather than merely over the counts.
     let bounds: Vec<_> = first
         .iter()
         .zip(&second)
@@ -968,10 +842,6 @@ fn two_computations_of_the_precision_report_are_identical() {
         serde_json::to_string(&artifact.score_distribution).unwrap()
     );
 }
-
-// ---------------------------------------------------------------------------
-// US-080: enforceable admission gate
-// ---------------------------------------------------------------------------
 
 fn catalog_of(id: &str, tier: &str) -> Vec<CatalogRule> {
     vec![CatalogRule {
@@ -1003,17 +873,12 @@ fn observations_of(id: &str, findings: u64) -> Vec<Observation> {
     }]
 }
 
-/// Synthetic adjudication: `reviewed` reviewed sites of which
-/// `false_positives` are judged false positives. The rate derives from this
-/// sample, not from `findings`.
 fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudication {
     Adjudication {
         adjudicated_after_cutoff: Vec::new(),
         agreement: Agreement::default(),
         criterion: "probe".to_owned(),
         evidence_cutoff: "2026-10-14".to_owned(),
-        // A synthetic record is anchored to no run: `corpus_position.rs` is
-        // what asserts the proof against the shipped record.
         position_proof: PositionProof {
             date: "2026-08-21".to_owned(),
             digest: "probe".to_owned(),
@@ -1054,12 +919,6 @@ fn adjudication_of(id: &str, reviewed: u64, false_positives: u64) -> Adjudicatio
     }
 }
 
-/// Noise on healthy code names a rule, it does not disqualify it.
-///
-/// Measuring that a rule reports many non-defects on ten repositories chosen
-/// for their health says nothing about what it is worth on code that is not
-/// healthy. The published list serves to decide its contribution to the score,
-/// not its default level.
 #[test]
 fn a_noisy_rule_is_named_without_losing_its_default_activation() {
     let catalog = catalog_of("clippy::probe", "P2");
@@ -1076,8 +935,6 @@ fn a_noisy_rule_is_named_without_losing_its_default_activation() {
     assert_eq!(outcome.noisy_on_healthy_code, vec!["clippy::probe".to_owned()]);
     assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
 
-    // Exactly at the published threshold, the rule is not named noisy: the mark
-    // aims at what goes past 5%, not at what reaches it.
     let at_threshold = precision(
         &catalog,
         &observations_of("clippy::probe", 100),
@@ -1137,16 +994,12 @@ fn an_unobserved_rule_is_named_unproven_without_being_refused() {
     let measured = precision(&catalog, &[], &adjudication_of("clippy::probe", 0, 0));
     assert_eq!(measured[0].status, PrecisionStatus::Unobserved);
 
-    // The silence of a healthy corpus on a rule measures the absence of the
-    // defect it aims at, not the rule. It is named, never refused for that.
     let outcome = gate(&catalog, &measured, THRESHOLD_BASIS_POINTS);
     assert_eq!(outcome.verdict, GateVerdict::Passed);
     assert_eq!(outcome.unproven, vec!["clippy::probe".to_owned()]);
     assert_eq!(outcome.admitted, vec!["clippy::probe".to_owned()]);
     assert!(outcome.refused.is_empty());
 
-    // A rule disabled by default is not subject to the gate: the gate bears on
-    // default activation, not on the existence of a rule.
     let disabled = vec![CatalogRule {
         default_level: "off".to_owned(),
         id: "clippy::probe".to_owned(),
@@ -1166,11 +1019,6 @@ fn the_corpus_score_distribution_is_published_with_its_spread() {
     );
     assert_eq!(distribution, artifact.score_distribution);
 
-    // The spread is the criterion, not the collapse. A boolean saying the
-    // measurement did not collapse says nothing about how far the model
-    // separates: what the record has to carry is the distance itself, against a
-    // floor a future model has to clear rather than a state it happened to be
-    // in.
     assert!(
         distribution.spread >= MINIMUM_SPREAD,
         "the model spreads {} points over the two populations, under the {MINIMUM_SPREAD} the corpus requires",
@@ -1180,11 +1028,6 @@ fn the_corpus_score_distribution_is_published_with_its_spread() {
         distribution.spread,
         distribution.maximum - distribution.minimum
     );
-    // A population is free to land in one band: ten healthy crates all reading
-    // `Great` is the calibration succeeding, not the measurement failing, and
-    // core-v3 had `thiserror` and `hexyl` at `Needs work` for it. What the two
-    // populations may not do is land in one band together, and the healthy
-    // median has to sit above the agent one.
     let bands: BTreeSet<&str> = distribution
         .healthy
         .bands
@@ -1242,9 +1085,6 @@ fn the_corpus_score_distribution_is_published_with_its_spread() {
             population.bands.iter().map(|band| band.repositories).sum::<usize>(),
             population.values.len()
         );
-        // The median falls on a whole or a half point, never anywhere else: it
-        // is one member of an odd population, or the mean of the two straddling
-        // the middle of an even one.
         assert_eq!(population.median_centi % 50, 0);
         assert!(
             population.median_centi >= population.minimum * 100
@@ -1268,7 +1108,6 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
         artifact.catalog.iter().filter(|rule| rule.default_level != "off").count()
     );
 
-    // Both lists annotate the admitted set, they do not reduce it.
     for annotated in [&artifact.gate.noisy_on_healthy_code, &artifact.gate.unproven] {
         assert!(annotated.iter().all(|rule| admitted.contains(rule.as_str())));
     }
@@ -1277,81 +1116,6 @@ fn the_published_gate_is_the_gate_recomputed_from_the_shipped_catalog() {
     assert!(noisy.is_disjoint(&unproven), "a measured rule is not unproven");
 }
 
-/// Frozen admission debt: the rules active by default whose precision the
-/// corpus does not publish. Registration is nominative and one-way: a proven
-/// rule leaves it, none enters without the validation saying so.
-///
-/// Almost every name here is `unobserved`: the corpus never triggered it,
-/// because a healthy repository does not commit the defect it aims at. The six
-/// structural rules that used to sit here as `incomplete` left on 2026-08-09,
-/// when their corpus sites were adjudicated and their rates published; only
-/// `orphan_module_file` remains, which the ten repositories never triggered.
-/// The one exception is `stacked_allow_attribute`, `incomplete` since
-/// 2026-08-10: the corpus produced exactly one finding for it and that finding
-/// sits in an integration test, outside the production subpopulation a
-/// structural rate is drawn from, so there is nothing to adjudicate and the
-/// rate stays withheld.
-///
-/// Three entries were added on 2026-08-04, which the one-way rule normally
-/// forbids. They do not cover a rule admitted without evidence: they cover the
-/// withdrawal of a measurement that was never valid. `dbg_macro`,
-/// `print_stdout` and `useless_vec` had a population only in `tests/` and
-/// `examples/`, outside the shipped code, and the return to Cargo's default
-/// targets made them silent. Their silence says what the 24 others already say:
-/// `fd`, `hexyl` and `ripgrep` all write into a locked `stdout` rather than
-/// with `println!`, and none leaves a `dbg!` in what it publishes.
-/// Eleven rules entered on 2026-08-10 with EP-001 to EP-004 of the
-/// suppression, dependency and hygiene PRD, admitted on trigger fixtures and
-/// unmeasured until that PRD's EP-005 replayed the corpus. Nine of them stayed:
-/// the ten healthy repositories declare no permissive `[lints]` table, no
-/// neutralizing rustflag, no unused or test-only dependency, no tracked secret
-/// and no unignored target directory, and none ships full debug symbols
-/// unstripped. `crate_level_allow` and `unchecked_release_overflow` left the
-/// same day, both observed and adjudicated, both published above the threshold.
-///
-/// `crate_level_allow` and `unreasoned_allow_attribute` returned on 2026-08-22
-/// with EP-003 of the measurement integrity PRD, which the one-way rule also
-/// normally forbids, and for the reason the three entries of 2026-08-04 were
-/// admitted: this is the withdrawal of a measurement that rested on a site the
-/// correction took out of the population. Both rested on exactly five reviewed
-/// sites, and one of the five was the `anyhow` family spanning `build.rs` and
-/// `tests/test_ffi.rs`. Its two members disagree on their Cargo target kind, so
-/// the family carried no context and was read as production; under the
-/// corrected family layer it takes the mark of its anchor and leaves the
-/// production subpopulation a structural rate is drawn from. Four sites cannot
-/// publish a rate, so both are `incomplete`, and both are ranked at the
-/// unmeasured half weight rather than at a rate measured over a population they
-/// are no longer in. On 2026-10-29 `crate_level_allow` stopped reporting an
-/// allow that hides nothing catalogued or dead (US-024 of the self-scan
-/// remediation), and none of its four sites survived, so it is `unobserved`
-/// on the healthy population. `duplicate_major_versions` entered the same day
-/// for the reason the 2026-08-22 entries did: comparing versions by Cargo
-/// compatibility class grew its population from one finding to five on two
-/// span-less `Cargo.lock` sites, and the one site reviewed before cannot carry
-/// a rate over five findings.
-///
-/// The 64 members of Clippy's `correctness` group entered on 2026-09-25 with
-/// EP-001 of the react-doctor parity PRD, admitted as one pack on trigger
-/// fixtures. The replay of that day found none of them in the ten healthy
-/// repositories, which is what a group Clippy denies by default should find in
-/// code that passes `cargo clippy`, and the agent population is scanned with
-/// every Clippy rule off. `docs/parity-release-1-2026-10.md` records it.
-///
-/// Six of the seven rules EP-006 of the same PRD admitted on 2026-09-26 enter
-/// here, each proven on a fixture; `docs/parity-release-3-2026-10.md` records
-/// the replay. The healthy repositories never trigger `crosspointer_transmute`,
-/// `missing_transmute_annotations`, the blocking-call rule or the SQL rule, and
-/// the two advisory rules are not evaluated on the corpus at all, since the
-/// harness reads no RustSec database so that the record replays. The seventh,
-/// `undocumented_unsafe_blocks`, was measured on its 113 healthy sites instead.
-///
-/// The nine rules EP-006 of the react-doctor gap closure PRD admitted on
-/// 2026-10-14 enter here, each proven on a fixture: the replay of that day
-/// found none of them in either population. Most of the corpus depends on none
-/// of the crates the six gated rules read, so the reports publish them
-/// `crate-absent`, and the repositories that do never trigger them; nor does
-/// any of them fall back on a secret, ignore its lockfile or compile with a
-/// secret in a workflow step.
 const ADMISSION_DEBT: [&str; 120] = [
     "clippy::absurd_extreme_comparisons",
     "clippy::almost_swapped",
@@ -1475,9 +1239,6 @@ const ADMISSION_DEBT: [&str; 120] = [
     "rust_doctor::structure::unreasoned_allow_attribute",
 ];
 
-/// The threshold is enforceable here, and nowhere else: this test fails as soon
-/// as a rule joins the default catalog without a measured precision, and as
-/// soon as a rule measured above the threshold stays in it.
 #[test]
 fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let artifact = artifact();
@@ -1485,8 +1246,6 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let debt: BTreeSet<&str> = ADMISSION_DEBT.iter().copied().collect();
     assert_eq!(debt.len(), ADMISSION_DEBT.len(), "the debt names a rule twice");
 
-    // An unproven rule that is not named in the debt is a silent widening of
-    // the catalog.
     let unnamed: Vec<&str> = outcome
         .unproven
         .iter()
@@ -1495,16 +1254,10 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
         .collect();
     assert!(unnamed.is_empty(), "active by default without proof: {unnamed:?}");
 
-    // The debt is one-way: a rule the corpus ended up observing leaves it. The
-    // criterion is the measurement, not the admission: since the gate no longer
-    // opposes anything to an unproven rule, every rule active by default is
-    // admitted, and reading the admission would empty the whole debt.
     let unproven: BTreeSet<&str> = artifact.gate.unproven.iter().map(String::as_str).collect();
     let settled: Vec<&str> = debt.difference(&unproven).copied().collect();
     assert!(settled.is_empty(), "observed since, remove from the debt: {settled:?}");
 
-    // An entry matching no rule active by default any more would mask the
-    // disappearance of the rule it covered.
     let active: BTreeSet<&str> = artifact
         .catalog
         .iter()
@@ -1514,9 +1267,6 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
     let stale: Vec<&str> = debt.difference(&active).copied().collect();
     assert!(stale.is_empty(), "stale debt entry: {stale:?}");
 
-    // The only enforceable refusal is the zero-tolerance tier carrying a false
-    // positive: a `P0` caps the whole score, so a false alarm on healthy code
-    // costs all of it there.
     let measured: BTreeMap<&str, &support::corpus::RulePrecision> = artifact
         .precision
         .iter()
@@ -1543,9 +1293,6 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
         refused.join("\n  ")
     );
 
-    // The noisy list is published in full: it names exactly the rules measured
-    // above the mark, no more and no less. Appearing in it removes nothing;
-    // omission would hide what the rule costs on healthy code.
     let expected_noisy: Vec<&str> = artifact
         .precision
         .iter()
@@ -1566,16 +1313,10 @@ fn no_rule_is_active_by_default_outside_the_frozen_admission_debt() {
 fn the_published_catalog_matches_the_shipped_policy() {
     let (cache, artifacts, manifest) = synthetic_corpus("catalog");
     let binary = binary();
-    // Scanned under the default policy, which is what the report's levels
-    // then publish: the opt-in switches would read as their defaults.
     run(&paths(&cache, &artifacts, &binary), &manifest, &BASE_ARGUMENTS).unwrap();
     let shipped = catalog_from_report(&report_of(&artifacts, "alpha-lib"));
     assert_eq!(shipped, artifact().catalog);
 }
-
-// ---------------------------------------------------------------------------
-// US-019: agent-generated population
-// ---------------------------------------------------------------------------
 
 #[test]
 fn the_agent_population_pins_at_least_five_repositories_with_mechanical_evidence() {
@@ -1601,8 +1342,6 @@ fn the_agent_population_pins_at_least_five_repositories_with_mechanical_evidence
         );
         assert!(!repository.marker.trim().is_empty(), "{name}");
         assert!(repository.rationale.len() > 20, "{name}");
-        // The selection threshold, falsifiable from the pinned history alone:
-        // at least half of the reachable commits carry the marker.
         assert!(repository.total_commits > 0, "{name}");
         assert!(repository.marked_commits <= repository.total_commits, "{name}");
         assert!(
@@ -1614,10 +1353,6 @@ fn the_agent_population_pins_at_least_five_repositories_with_mechanical_evidence
     }
 }
 
-/// The agent population executes no untrusted build code: every Clippy rule is
-/// turned off, and a Clippy-off scan starts no program the scanned tree
-/// selects, which `native_detectors_never_compile_or_execute_corpus_build_code`
-/// proves on an armed fixture. No observation may carry a Clippy finding.
 #[test]
 fn the_agent_population_is_scanned_without_executing_untrusted_build_code() {
     let artifact = artifact();
@@ -1642,9 +1377,6 @@ fn the_agent_population_is_scanned_without_executing_untrusted_build_code() {
     }
 }
 
-/// Both populations publish per-rule findings, and the density ratio is
-/// recomputable from the published quantities. A ratio at or below 1.0 is
-/// published as a refutation, never omitted.
 #[test]
 fn the_density_ratio_is_published_for_both_populations_whatever_its_verdict() {
     let artifact = artifact();
@@ -1681,26 +1413,17 @@ fn the_density_ratio_is_published_for_both_populations_whatever_its_verdict() {
     assert_eq!(density.refutes_density_assumption, density.ratio_milli <= 1_000);
 }
 
-/// Replays the agent population from the local cache: observations, selection
-/// evidence and line counts all reproduce. Runs under its own artifacts
-/// subdirectory so the healthy reproduction can run concurrently.
 #[test]
 fn the_agent_population_reproduces_from_the_local_cache() {
     let Some((cache, root)) = reproduction::requested().directories(Path::new(env!("CARGO_MANIFEST_DIR")))
     else {
         return;
     };
-    // The replay writes under a subdirectory of its own; the attestation goes
-    // beside the healthy one, at the root the two populations share.
     let artifacts = root.join("agent-replay");
     let published = artifact();
     let population = &published.agent_population;
     let binary = binary();
 
-    // The published arguments are what switch Clippy off on untrusted code, so
-    // they are checked against the catalog this binary ships before anything
-    // runs: a rule admitted since the record was written would otherwise
-    // compile the population, and the static check above only fails after.
     let active: Vec<&str> = rust_doctor::catalog()
         .into_iter()
         .map(|rule| rule.id)
@@ -1719,16 +1442,6 @@ fn the_agent_population_reproduces_from_the_local_cache() {
     }
     assert_eq!(replayed.observations, population.observations);
 
-    // Every site this population publishes names a finding it actually
-    // produced, at its published position and in its published context. The
-    // healthy corpus has the same check against its own reports; without this
-    // one the agent sites would be the only verdicts in the file that nothing
-    // can locate.
-    //
-    // Reviewed sites and pairs both, which is what `published_sites` unions: a
-    // pair whose two passes disagreed carries no reviewed site by construction,
-    // so hashing the reviewed list alone would leave the whole escalation queue
-    // anchored to nothing. Confirming them is what entitles this run to attest.
     let mut confirmed = 0u64;
     for site in published_sites(&published.adjudication, Population::Agent) {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository)))
@@ -1758,11 +1471,6 @@ fn the_agent_population_reproduces_from_the_local_cache() {
             site.path,
             site.line
         );
-        // The family is what a structural verdict is about. `structural_identity`
-        // in `src/delta.rs` identifies a structural diagnostic by its family
-        // digest and not by the position it is anchored at, precisely because
-        // the anchor moves with the next edit above it, so locating the
-        // position alone confirms a line and not the family that was judged.
         if let Some(family) = site.family {
             assert!(
                 located.iter().any(|finding| finding.id == family),
@@ -1779,7 +1487,6 @@ fn the_agent_population_reproduces_from_the_local_cache() {
     assert_quotes_hold(&published, Population::Agent, &artifacts);
     attest(&root, &published, Population::Agent, confirmed);
 
-    // The selection evidence recounts from the pinned history alone.
     for entry in &population.repositories {
         let log = Command::new("git")
             .arg("-C")
@@ -1798,7 +1505,6 @@ fn the_agent_population_reproduces_from_the_local_cache() {
         assert_eq!(marked, entry.marked_commits, "{}", entry.name);
     }
 
-    // Line counts recount from freshly materialised trees of both populations.
     let mut agent_lines = 0;
     for entry in &population.repositories {
         agent_lines += rust_line_count(&artifacts.join("work").join(&entry.name));
@@ -1817,10 +1523,6 @@ fn the_agent_population_reproduces_from_the_local_cache() {
     }
     assert_eq!(healthy_lines, population.structural_density.healthy.lines);
 }
-
-// ---------------------------------------------------------------------------
-// Reproduction of the pinned corpus, when the local cache is available
-// ---------------------------------------------------------------------------
 
 #[test]
 fn the_published_observations_reproduce_the_pinned_corpus_run() {
@@ -1848,10 +1550,6 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     assert_eq!(replayed.observations, published.observations);
     assert_eq!(replayed.evidence(&SCAN_ARGUMENTS), published.harness);
 
-    // Mechanical guard rail: the published trigger is present in every reported
-    // span, at the pinned revision. This check only proves that no span is
-    // corrupted; it says nothing about the value of the site, and that is why
-    // precision is derived from the reviewed sites, not from it.
     let triggers: BTreeMap<&str, &str> = published
         .adjudication
         .trigger_verification
@@ -1882,27 +1580,6 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
     assert_eq!(confirmed, published.adjudication.trigger_verification.confirmed);
     assert_eq!(confirmed, published.adjudication.trigger_verification.findings);
 
-    // Every reviewed site matches a finding the corpus actually produced, at
-    // its published position and in its published context.
-    //
-    // The position is what makes a verdict verifiable rather than declarative:
-    // a site nobody can locate is a rate nobody can recompute. The context
-    // matters just as much and is easier to overlook, because it decides which
-    // subpopulation the sample belongs to: the structural rules draw from the
-    // production families alone, so a site declared production while the report
-    // marked it as test material would move the denominator of a published rate
-    // without moving a single finding.
-    //
-    // Healthy sites only. The two populations are replayed into artifact
-    // directories of their own, so the reports this one wrote are the ten of
-    // the healthy manifest and nothing else; the agent sites are located by
-    // `the_agent_population_reproduces_from_the_local_cache`, against the
-    // reports of its own replay. Reading the whole list here looked for an
-    // agent repository under the healthy reports and died on a missing file
-    // rather than on a verdict nobody can locate.
-    // Reviewed sites and pairs both: an escalated site has no reviewed entry by
-    // construction, so the reviewed list alone anchors every verdict and leaves
-    // the escalation queue pointing at positions nothing has ever located.
     let mut confirmed = 0u64;
     for site in published_sites(&published.adjudication, Population::Healthy) {
         let bytes = fs::read(artifacts.join("reports").join(format!("{}.json", site.repository))).unwrap();
@@ -1932,11 +1609,6 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
             site.path,
             site.line
         );
-        // The family is what a structural verdict is about. `structural_identity`
-        // in `src/delta.rs` identifies a structural diagnostic by its family
-        // digest and not by the position it is anchored at, precisely because
-        // the anchor moves with the next edit above it, so locating the
-        // position alone confirms a line and not the family that was judged.
         if let Some(family) = site.family {
             assert!(
                 located.iter().any(|finding| finding.id == family),
@@ -1951,16 +1623,10 @@ fn the_published_observations_reproduce_the_pinned_corpus_run() {
         confirmed += 1;
     }
 
-    // Only a run that has just located every site of both populations rewrites
-    // the digest the always-on test compares against. The other population
-    // attests from its own replay; whichever finishes second writes the proof.
     assert_quotes_hold(&published, Population::Healthy, &artifacts);
     attest(&artifacts, &published, Population::Healthy, confirmed);
 }
 
-/// Every quote a pass of `population` cites is what the replayed checkout holds
-/// at those lines, byte for byte, and a pair with a quote that is not backs no
-/// verdict: it is counted as disagreeing, so the site it publishes is refused.
 fn assert_quotes_hold(published: &CorpusArtifact, population: Population, artifacts: &Path) {
     let work = artifacts.join("work");
     let pairs = published

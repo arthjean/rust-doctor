@@ -1,11 +1,3 @@
-//! The split review: the rule list on the left, the detail on the right, and
-//! the status bar under both.
-//!
-//! Transposition of `diagnostic-list.tsx`, `diagnostic-detail.tsx` and
-//! `status-bar.tsx`. The arrangement comes from the [`Layout`] the model
-//! resolved, so the same terminal geometry produces the same split, stacked or
-//! compact screen the reference produces.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -24,7 +16,6 @@ pub struct ViewerState<'a> {
     pub header: Vec<Line>,
     pub selected_entry: usize,
     pub visible_start: usize,
-    /// Indices into `rows` the reader has already landed on.
     pub read: &'a BTreeSet<usize>,
     pub workspace_root: &'a Path,
     pub copy_feedback: Option<CopyFeedback>,
@@ -266,9 +257,6 @@ fn labelled(label: &str, body: &str, width: usize) -> Vec<Line> {
     )
 }
 
-/// The source excerpt around the framed site. A file the workspace no longer
-/// exposes simply contributes no lines: the detail keeps its other sections
-/// rather than reporting a read error the reader cannot act on.
 fn code_frame_lines(workspace_root: &Path, location: &GroupLocation, width: usize) -> Vec<Line> {
     let Ok(frame) = code_frame(workspace_root, location) else {
         return Vec::new();
@@ -350,8 +338,6 @@ fn status_bar(state: &ViewerState<'_>, layout: Layout) -> Vec<Line> {
     let exit = Span::dim(format!(" · {}", state.exit_hint));
     let compact = layout.arrangement == Arrangement::Compact;
 
-    // A compact terminal has one row for all of it, so a copy result takes the
-    // place of the key hints instead of a line of its own.
     let keys = match state.copy_feedback.filter(|_| compact) {
         Some(CopyFeedback::Copied) => {
             Line::text("✓ Copied issue context", Style::color(Color::Green))
@@ -434,8 +420,6 @@ mod tests {
         );
     }
 
-    /// A compact terminal folds all of it onto one row, and a copy result takes
-    /// the place of the key hints rather than adding a line.
     #[test]
     fn a_compact_status_bar_is_one_row_and_a_copy_result_replaces_the_hints() {
         let rows = [sample_row("clippy::a", Severity::Warning, 1)];
@@ -465,8 +449,6 @@ mod tests {
         assert!(!copied[0].contains("enter copy context"));
     }
 
-    /// US-001: the viewer draws its frame from the same masked lines as the
-    /// linear report, so a key the scan matched never reaches the screen.
     #[test]
     fn the_viewer_frame_never_prints_a_detected_credential() {
         let root = crate::test_scratch::scratch("tui-viewer", "credential");
@@ -491,9 +473,6 @@ mod tests {
         assert!(!rendered.contains(&key), "{rendered}");
     }
 
-    /// EP-001 US-001: a Clippy fix that would carry a key is withheld before
-    /// any surface reads it, so neither the viewer's detail lines, the handoff
-    /// prompt nor the issue context a reader copies prints it.
     #[test]
     fn a_suggestion_carrying_a_credential_reaches_no_viewer_or_handoff_surface() {
         let root = crate::test_scratch::scratch("tui-viewer", "suggested-credential");

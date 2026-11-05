@@ -1,6 +1,3 @@
-//! `rust-doctor report`: what can be done with a report a scan already saved,
-//! without scanning again.
-
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -23,22 +20,19 @@ enum ReportCommand {
         about = "Render a saved --json report as Markdown, for a job summary or a pull request comment"
     )]
     Markdown {
-        /// The report `rust-doctor --json` wrote.
-        #[arg(value_name = "FILE")]
+        #[arg(value_name = "FILE", help = "The report `rust-doctor --json` wrote")]
         file: PathBuf,
-        /// How many findings the table lists.
         #[arg(
             long,
             value_name = "N",
             default_value_t = DEFAULT_FINDING_LIMIT,
-            value_parser = clap::value_parser!(u16).range(0..=1000).map(usize::from)
+            value_parser = clap::value_parser!(u16).range(0..=1000).map(usize::from),
+            help = "How many findings the table lists"
         )]
         limit: usize,
     },
 }
 
-/// Opens the one file named and spawns nothing: rendering a report is not a
-/// scan, and a CI job that renders one never needs Cargo.
 pub fn run(arguments: &ReportArgs) -> ExitCode {
     let ReportCommand::Markdown { file, limit } = &arguments.command;
     let rendered =

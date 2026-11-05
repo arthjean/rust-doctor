@@ -1,16 +1,9 @@
-// `tasks/e2e-catalog/real-codebases.md` section 3, item 2: the launcher an
-// `npx rust-doctor` or `npm install -g` user runs is the binary, byte for
-// byte. Each case runs the release binary and the installed launcher on the
-// same workspace, target directory and environment, and compares stdout,
-// stderr and the exit code; a scan's only volatile bytes, its timings, are
-// removed first.
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { copyWorkspace, normalizeReport, runDoctor, sandbox, scratchDir, spawnDoctor, type DoctorRun } from "./e2e-helpers";
 import { installedLauncher, runLauncher, shellStatus, spawnLauncher } from "./launcher-support";
 
-// The linear report states its own duration, the JSON one its timings.
 function stable(run: DoctorRun): { status: number | null; stdout: unknown; stderr: string } {
   const stdout = run.json !== undefined ? normalizeReport(run.json) : run.stdout.replace(/ in \d+(?:\.\d+)?s(;|$)/m, " in <duration>$1");
   return { status: shellStatus(run), stdout, stderr: run.stderr };

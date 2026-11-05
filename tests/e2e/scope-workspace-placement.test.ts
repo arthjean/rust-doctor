@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/scopes.md` section G with H06: where the Cargo workspace
-// sits in its repository. A workspace below the root, beside another, inside
-// a nested repository, a submodule or a linked worktree, under a path with a
-// space or reached through a symlink.
 import { describe, expect, test } from "bun:test";
 import { symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,8 +11,6 @@ function prefixed(dir: string): Record<string, string> {
   return Object.fromEntries(Object.entries(miniTemplate()).map(([path, body]) => [join(dir, path), body]));
 }
 
-// `nested`: the workspace at `crates/app`, and a branch that edits it, the
-// root README and the stray `top.rs`.
 function g01() {
   return gitScenario("g01")
     .nested("crates/app", "mini").commit("base")
@@ -49,8 +43,6 @@ describe("a workspace below the repository root", () => {
     expect(sites(report)).toEqual(["src/lib.rs:12"]);
   });
 
-  // Release 1 changed the catalog's D[2,1,0,0,0]: the credential the branch
-  // never touched is pre-existing (scopes/BUG-A, fixed by US-002).
   test("G01c a baseline materializes the whole tree and introduces the todo alone", async () => {
     const repo = await g01();
     const { run, report } = await scan(join(repo.path, "crates/app"), ["--scope", "baseline"], { sandbox: repo.sandbox, tree: repo.path });
@@ -85,8 +77,6 @@ describe("two workspaces in one repository", () => {
   });
 });
 
-// An outer repository around `inner`, an independent `mini` repository the
-// outer one does not track, with NEWFN unstaged in `inner`.
 async function g05() {
   const inner = await gitScenario("inner").template("mini").commit("base").append("src/lib.rs", NEW_FN).build();
   const outer = dirname(inner.path);
@@ -132,8 +122,6 @@ describe("a repository inside another", () => {
   });
 });
 
-// `mini` as the submodule `sub` of an outer repository (`sub/.git` is a
-// file), with NEWFN unstaged in the submodule.
 async function g06() {
   const sub = await gitScenario("g06-sub").template("mini").commit("base").build();
   return gitScenario("g06")
@@ -168,12 +156,10 @@ describe("a workspace in a submodule", () => {
   });
 });
 
-// A linked worktree `wt` on branch `wt`, with NEWFN unstaged in it.
 async function g07() {
   const repo = await gitScenario("g07").template("mini").commit("base").worktree("wt", "wt").build();
   const worktree = repo.worktrees.wt!;
   writeFiles(worktree, { "src/lib.rs": LIB + NEW_FN });
-  // The repository and its worktree are siblings, so one fingerprint holds both.
   return { repo, worktree, tree: dirname(repo.path) };
 }
 

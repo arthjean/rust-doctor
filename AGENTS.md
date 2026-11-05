@@ -146,9 +146,18 @@ per-module file checks over hand-listed files, two covering
 
 ## Conventions
 
-- English everywhere: comments, doc comments, assertion messages, CLI output,
-  rule identifiers, commit messages. The only non-ASCII literals left are test
-  data that deliberately exercise UTF-8 handling; leave them alone.
+- No comments or shebangs, fixtures included: agents read the code itself,
+  which a comment can only restate or contradict, and `tests/comment_free.rs`
+  fails on any. A comment a rule under test reads is data in
+  `tests/fixtures/comment-inputs.toml`, which `support::fixture_dir` writes
+  back. An `unsafe` block states its invariant in
+  `#[expect(clippy::undocumented_unsafe_blocks, reason = ...)]`, CLI help is a
+  clap `help` or `about` attribute, a regression seed's header is its
+  `seed.toml`, a `uses:` pin is a bare commit, and a script runs through `bash`.
+  [docs/testing.md](docs/testing.md)
+- English everywhere: assertion messages, CLI output, rule identifiers, commit
+  messages. The only non-ASCII literals left are test data that deliberately
+  exercise UTF-8 handling; leave them alone.
 - Conventional Commits with a scope, lowercase summary:
   `feat(policy): grow the catalog to forty rules`. Use `!` for a breaking change
   to the report schema or the CLI surface.

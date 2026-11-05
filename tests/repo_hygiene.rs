@@ -1,13 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! EP-004: the repository, not only its Rust files, is part of the scan.
-//!
-//! Three rules read what git tracks: a tracked file whose name marks it as
-//! secret-bearing, a source literal shaped like a real credential, and a
-//! Cargo target directory git does not ignore. Every workspace here is built
-//! and committed at test time inside a temporary git repository, so no
-//! leak-shaped file is ever committed to this repository, and each test scans
-//! through the same `inspect` a user runs. Key-shaped values are assembled at
-//! runtime so no source file of this repository carries one.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -91,15 +82,10 @@ fn diagnostics_of<'a>(report: &'a Value, code: &str) -> Vec<&'a Value> {
         .collect()
 }
 
-/// A deliberately fake AWS access key id: the documented example value from
-/// the AWS credentials guide, which has never been a live credential.
 fn fake_aws_key() -> String {
     format!("AKIA{}", "Q3VJ7RNYH2KXW4PZ")
 }
 
-/// US-012: tracked files whose names mark them as secret-bearing are each
-/// reported at their path, with no span, without quoting a byte of their
-/// contents, and the P1 security tier caps the overall score at 65.
 #[test]
 fn a_tracked_secret_file_is_reported_and_caps_the_security_dimension() {
     let root = workspace("repo-hygiene-secret");
@@ -121,16 +107,12 @@ fn a_tracked_secret_file_is_reported_and_caps_the_security_dimension() {
         assert!(finding["span"].is_null(), "{finding}");
         assert!(finding["context"].is_null(), "{finding}");
     }
-    // The report names the paths and never their contents.
     let serialized = report.to_string();
     assert!(!serialized.contains("EXAMPLE_ONLY"));
     assert!(!serialized.contains("not-a-real-secret"));
-    // P1 security: the dimension is capped at 50 and the overall score at 65.
     assert!(report["audit"]["score"]["value"].as_u64().unwrap() <= 65, "{report}");
 }
 
-/// US-011: the published path is escaped exactly once, so a consumer that
-/// decodes it recovers the tracked file rather than a name that never existed.
 #[test]
 fn a_path_needing_an_escape_is_published_escaped_once() {
     let root = workspace("repo-hygiene-escape");
@@ -144,8 +126,6 @@ fn a_path_needing_an_escape_is_published_escaped_once() {
     assert_eq!(observed[0]["path"], "server%251.pem", "{}", observed[0]);
 }
 
-/// US-012: the example variants of `.env` and certificates under test
-/// material directories are the fixture, not the leak.
 #[test]
 fn example_variants_and_test_material_certificates_stay_silent() {
     let root = workspace("repo-hygiene-example");
@@ -168,9 +148,6 @@ fn example_variants_and_test_material_certificates_stay_silent() {
     assert!(diagnostics_of(&report, CREDENTIAL).is_empty(), "{report}");
 }
 
-/// US-012 and US-014: the pass reads what git tracks, so a `.env` present on
-/// disk but never added, even one carrying a key-shaped value, is invisible
-/// to both rules, because the file was correctly kept out of the repository.
 #[test]
 fn an_untracked_env_stays_out_of_the_report() {
     let root = workspace("repo-hygiene-untracked");
@@ -183,11 +160,6 @@ fn an_untracked_env_stays_out_of_the_report() {
     assert!(diagnostics_of(&report, CREDENTIAL).is_empty(), "{report}");
 }
 
-/// US-011: a workspace outside version control is not an error, and not a
-/// free pass either. Nothing is tracked and nothing is ignored, so the files
-/// it holds are what it ships: the `.env` beside the crate is reported, the
-/// scan stays complete and authoritative, and only the rule asking git what it
-/// ignores stays silent.
 #[test]
 fn a_workspace_outside_git_is_judged_on_the_files_it_holds() {
     let root = std::env::temp_dir().join(format!(
@@ -238,9 +210,6 @@ fn a_workspace_outside_git_is_judged_on_the_files_it_holds() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// US-013: with no `.gitignore` at all the target directory is not ignored
-/// and the rule reports it once; adding the ignore line silences the same
-/// workspace on the next scan.
 #[test]
 fn a_missing_gitignore_reports_the_unignored_target_directory() {
     let root = workspace("repo-hygiene-unignored");
@@ -257,9 +226,6 @@ fn a_missing_gitignore_reports_the_unignored_target_directory() {
     assert!(diagnostics_of(&after, BUILD_OUTPUT).is_empty(), "{after}");
 }
 
-/// US-013: the question is whether builds stay out, not which file says so.
-/// `target` ignored through `.git/info/exclude` rather than the committed
-/// `.gitignore` is silence.
 #[test]
 fn target_ignored_through_the_repository_exclude_file_stays_silent() {
     let root = workspace("repo-hygiene-exclude");
@@ -270,8 +236,6 @@ fn target_ignored_through_the_repository_exclude_file_stays_silent() {
     assert!(diagnostics_of(&report, BUILD_OUTPUT).is_empty(), "{report}");
 }
 
-/// US-013: a custom `target-dir` in `.cargo/config.toml` is the directory
-/// checked: the stock `target` being ignored does not answer for it.
 #[test]
 fn a_custom_target_dir_is_the_directory_checked() {
     let root = workspace("repo-hygiene-custom-target");
@@ -290,9 +254,6 @@ fn a_custom_target_dir_is_the_directory_checked() {
     assert_eq!(observed[0]["path"], "build-out");
 }
 
-/// US-014: a committed literal matching a closed credential prefix is
-/// reported at its line with the pattern name, and the matched value never
-/// appears anywhere in the report.
 #[test]
 fn hardcoded_credentials_are_reported_by_pattern_name_without_the_value() {
     let root = workspace("repo-hygiene-credential");
@@ -318,15 +279,10 @@ fn hardcoded_credentials_are_reported_by_pattern_name_without_the_value() {
         "{finding}"
     );
     assert!(finding["context"].is_null(), "{finding}");
-    // FR-12: the JSON does not carry the matched value. The rendered
-    // surfaces are asserted on their own text by the test below.
     assert!(!report.to_string().contains(&key));
-    // P1 security: the finding weighs and caps the overall score at 65.
     assert!(report["audit"]["score"]["value"].as_u64().unwrap() <= 65, "{report}");
 }
 
-/// US-014: the same literal under a test path is published with the
-/// non-production context marker and stops weighing: no cap applies.
 #[test]
 fn a_credential_in_test_material_carries_the_context_marker_and_does_not_weigh() {
     let root = workspace("repo-hygiene-test-context");
@@ -348,8 +304,6 @@ fn a_credential_in_test_material_carries_the_context_marker_and_does_not_weigh()
     assert!(report["audit"]["score"]["value"].as_u64().unwrap() > 65, "{report}");
 }
 
-/// FR-15: all three rules stay switchable off through the same override
-/// surface as every other rule.
 #[test]
 fn the_three_rules_are_switchable_off() {
     let root = workspace("repo-hygiene-switch-off");
@@ -386,9 +340,6 @@ fn rust_doctor(root: &Path, arguments: &[&str]) -> std::process::Output {
         .expect("the binary should start")
 }
 
-/// US-001 and FR-12 on rendered text: the linear report draws a code frame
-/// under every finding, and neither it nor the Markdown a CI job posts prints
-/// a key the scan matched, on the reported line or on the lines around it.
 #[test]
 fn a_detected_credential_is_absent_from_every_rendered_surface() {
     let root = workspace("repo-hygiene-rendered");
@@ -424,8 +375,6 @@ fn a_detected_credential_is_absent_from_every_rendered_surface() {
     assert!(!rendered.contains(&key) && !rendered.contains(&token), "{rendered}");
 }
 
-/// Every string of a JSON document, keys included, so an assertion on what a
-/// report never says reads all of it.
 fn strings_of(value: &Value) -> Vec<String> {
     match value {
         Value::String(text) => vec![text.clone()],
@@ -438,10 +387,6 @@ fn strings_of(value: &Value) -> Vec<String> {
     }
 }
 
-/// EP-001 US-001: Clippy's `unnecessary_to_owned` fix for a Slack bot token
-/// passed through `.to_string()` is the token itself. It is withheld from the
-/// JSON and from the linear report, the finding stays, and the same fix over
-/// a literal no pattern matches is published as Clippy wrote it.
 #[test]
 fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
     let root = workspace("repo-hygiene-suggestion");
@@ -482,10 +427,6 @@ fn a_suggestion_carrying_a_credential_is_withheld_and_a_plain_one_kept() {
     assert!(!stdout.contains(&body) && !stderr.contains(&body), "{stdout}{stderr}");
 }
 
-/// EP-001 US-003: the pre-commit hook's scan, `--staged --scope lines`, sees
-/// what the commit records. A key staged in a new file and a `.env` forced
-/// past the ignore file are both reported, and a working tree that no longer
-/// holds the key decides nothing.
 #[test]
 fn a_staged_key_and_a_force_added_env_are_reported_by_the_staged_scan() {
     let root = workspace("repo-hygiene-staged");
@@ -500,7 +441,6 @@ fn a_staged_key_and_a_force_added_env_are_reported_by_the_staged_scan() {
     fs::write(root.join(".env"), "TOKEN=1\n").unwrap();
     git(&root, &["add", "src"]);
     git(&root, &["add", "--force", ".env"]);
-    // The working tree no longer holds the key; the index still does.
     fs::write(root.join("src/leak.rs"), "pub const KEY: &str = \"\";\n").unwrap();
 
     let output = rust_doctor(
@@ -516,10 +456,6 @@ fn a_staged_key_and_a_force_added_env_are_reported_by_the_staged_scan() {
     assert_eq!(secret_file[0]["path"], ".env");
 }
 
-/// US-019: a P1 credential finding means a key was committed. A parser's PEM
-/// header, AWS's documented key and a template's database URL stay silent; a
-/// key body under a header and a deployed database password are reported, and
-/// neither value reaches the rendered report.
 #[test]
 fn only_a_committed_key_or_deployed_password_is_a_credential() {
     let root = workspace("repo-hygiene-credential-shapes");
@@ -566,7 +502,6 @@ fn only_a_committed_key_or_deployed_password_is_a_credential() {
     assert_eq!(observed.len(), 2, "{report}");
     assert_eq!(observed[0].0, 1);
     assert!(observed[0].1.contains("private key block"), "{observed:?}");
-    // The key's literal spans lines 1 to 5, its body on line 3.
     assert_eq!(observed[1].0, 6);
     assert!(observed[1].1.contains("database URL password"), "{observed:?}");
 
@@ -577,9 +512,6 @@ fn only_a_committed_key_or_deployed_password_is_a_credential() {
     assert!(!stdout.contains(&body) && !stdout.contains(password), "{stdout}");
 }
 
-/// US-043: a binary's lockfile that exists, is untracked and is ignored is
-/// reported at its path; a library's is not, since only a binary has to
-/// commit it.
 #[test]
 fn an_ignored_lockfile_is_reported_for_a_binary_only() {
     let root = workspace("repo-hygiene-ignored-lockfile");
@@ -598,9 +530,6 @@ fn an_ignored_lockfile_is_reported_for_a_binary_only() {
     assert!(diagnostics_of(&self::report(&library), IGNORED_LOCKFILE).is_empty());
 }
 
-/// US-043: a tracked Cargo credentials file is a secret file when it holds a
-/// registry token, and its token never reaches the report; an empty template
-/// stays silent.
 #[test]
 fn a_tracked_cargo_credentials_file_with_a_token_is_a_secret_file() {
     let root = workspace("repo-hygiene-cargo-credentials");
@@ -619,9 +548,6 @@ fn a_tracked_cargo_credentials_file_with_a_token_is_a_secret_file() {
     assert!(!report.to_string().contains("placeholder-registry-value"));
 }
 
-/// US-044: a workflow step that compiles with a registry token in its env is
-/// reported at the line that runs cargo, naming the scope and the variable;
-/// verifying without the token and publishing with `--no-verify` is silent.
 #[test]
 fn a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line() {
     const WORKFLOW: &str = "name: release\non: push\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - name: Publish\n        env:\n          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}\n        run: cargo publish --locked\n";
@@ -652,9 +578,6 @@ fn a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line() {
     assert!(diagnostics_of(&self::report(&fixed), BUILD_STEP).is_empty());
 }
 
-/// EP-003 US-012: this repository carries no repository finding. The self-scan
-/// is a gate: the pass that reads every tracked file, documents included, holds
-/// it alone, so no compilation runs.
 #[test]
 fn this_repository_carries_no_repository_finding() {
     let report = support::self_scan(|id| id.starts_with("rust_doctor::repo::"));

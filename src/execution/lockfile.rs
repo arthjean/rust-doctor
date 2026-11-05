@@ -1,19 +1,3 @@
-//! The `Cargo.lock` a Clippy pass leaves behind, and the turn two scans of one
-//! workspace take at it.
-//!
-//! `cargo clippy` resolves the workspace before it lints, and writes the
-//! lockfile it resolved: a library or a fresh clone without one gained an
-//! untracked file, and the next scan read it and stopped reporting
-//! `missing_lockfile`, so two scans of one tree disagreed. Passing `--locked`
-//! refuses a missing lockfile and `--offline` resolves differently, so the
-//! file is put back as it was instead: removed when the scan created it,
-//! rewritten with its original bytes when Cargo changed it, untouched when
-//! Cargo left it alone.
-//!
-//! Putting it back is only sound for a scan alone with the workspace, so each
-//! scan first takes a [`Turn`], an exclusive lock held from before the first
-//! pass reads the lockfile until Clippy has put it back.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,28 +6,16 @@ use std::time::Duration;
 
 use super::{RunDeadline, interrupt};
 
-/// How often a scan waiting for its turn asks for it again.
 const POLL: Duration = Duration::from_millis(25);
 
-/// This scan's turn at a workspace's lockfile.
 #[derive(Debug)]
 pub(super) enum Turn {
-    /// Held until this drops: no other scan of the workspace reads, writes or
-    /// removes its lockfile meanwhile. The file is kept for the lock closing it
-    /// releases.
     Held { _lock: fs::File },
-    /// Another scan held it until the deadline passed or the run was
-    /// interrupted. This scan leaves the lockfile alone: what it would take
-    /// for the workspace's own is the other scan's.
     Missed,
-    /// Nothing to lock could be opened, or the filesystem refused the lock.
-    /// The scan runs as it did before turns existed, which is sound for a scan
-    /// alone with the workspace.
     Unavailable,
 }
 
 impl Turn {
-    /// Waits for the turn at `workspace_root` until `deadline` passes.
     pub(super) fn take(workspace_root: &Path, deadline: Option<RunDeadline>) -> Self {
         let Some(file) = open(workspace_root) else {
             return Self::Unavailable;
@@ -62,16 +34,11 @@ impl Turn {
     }
 }
 
-/// What scans of `workspace_root` lock: on Unix the directory itself, which
-/// `flock` locks as it does a file. Two spellings of one workspace open one
-/// inode, and nothing is created that would outlive the scan.
 #[cfg(unix)]
 fn open(workspace_root: &Path) -> Option<fs::File> {
     fs::File::open(workspace_root).ok()
 }
 
-/// Windows locks no directory, so its scans lock a file named after the
-/// workspace instead.
 #[cfg(not(unix))]
 fn open(workspace_root: &Path) -> Option<fs::File> {
     fs::OpenOptions::new()
@@ -82,10 +49,6 @@ fn open(workspace_root: &Path) -> Option<fs::File> {
         .ok()
 }
 
-/// The file under the per-user temporary directory named after the canonical
-/// path, so two spellings of one workspace share it. It stays once the scan
-/// ends: one removed while another scan waits on it lets a third lock a new
-/// one.
 #[cfg(not(unix))]
 fn lock_path(workspace_root: &Path) -> Option<PathBuf> {
     let canonical = workspace_root.canonicalize().ok()?;
@@ -93,14 +56,9 @@ fn lock_path(workspace_root: &Path) -> Option<PathBuf> {
     Some(std::env::temp_dir().join(format!("rust-doctor-lockfile-{}.lock", digest.to_hex())))
 }
 
-/// What the workspace root held before Clippy ran, put back when this drops,
-/// whatever ended the pass: success, failure, the deadline or a signal.
 #[derive(Debug)]
 pub(super) struct LockfileGuard {
     path: PathBuf,
-    /// `None` when there was no lockfile, and nothing at all when the file
-    /// could not be read, since a file this pass cannot read is not one it
-    /// can restore, or when the turn was missed.
     before: Option<Option<Vec<u8>>>,
 }
 
@@ -123,8 +81,6 @@ impl LockfileGuard {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
                 _ => Ok(()),
             },
-            // Written back only when Cargo changed it, so a lockfile Cargo
-            // did not need to touch keeps its modification time.
             Some(Some(bytes)) => match fs::read(&self.path) {
                 Ok(now) if now == *bytes => Ok(()),
                 _ => fs::write(&self.path, bytes),
@@ -135,8 +91,6 @@ impl LockfileGuard {
 
 impl Drop for LockfileGuard {
     fn drop(&mut self) {
-        // The report is not the place for it: it judges the workspace, and a
-        // file the scan could not remove is a fact about the scan.
         if let Err(error) = self.restore() {
             eprintln!(
                 "rust-doctor: {} was left as Cargo wrote it: {error}.",
@@ -163,7 +117,6 @@ mod tests {
         root
     }
 
-    /// Removes what a turn at `workspace` leaves behind: on Windows, its file.
     fn release(workspace: &Path) {
         #[cfg(not(unix))]
         if let Some(path) = lock_path(workspace) {
@@ -194,8 +147,6 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// The second scan waits while the first's Cargo has written a lockfile,
-    /// and captures the workspace as the first left it, with none.
     #[test]
     fn a_second_scan_waits_and_captures_what_the_first_put_back() {
         let root = scratch("waits");
@@ -227,8 +178,6 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// A scan whose deadline passes while another holds the turn stops
-    /// waiting, and leaves the other scan's lockfile for it to remove.
     #[test]
     fn a_scan_that_misses_its_turn_leaves_the_lockfile_alone() {
         let root = scratch("missed");
@@ -248,7 +197,6 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// A workspace with nothing to lock is scanned unguarded, as before turns.
     #[test]
     fn a_workspace_with_nothing_to_lock_is_scanned_unguarded() {
         let root = scratch("unguarded");

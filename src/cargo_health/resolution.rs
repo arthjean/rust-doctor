@@ -1,13 +1,3 @@
-//! The resolved graph, read from `Cargo.lock` rather than from `cargo
-//! metadata`.
-//!
-//! `cargo metadata` runs with `--no-deps`, so `metadata.resolve` is always
-//! absent: the only graph readable without a registry index and without the
-//! network is the lockfile. It sits in a file of its own so that every file of
-//! the pack stays under the thousand lines `oversized_unit` reports at, and
-//! because the two rules here are the only ones that read anything Clippy would
-//! rewrite: they run before it for that reason.
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
@@ -25,18 +15,10 @@ use crate::policy::ActiveRules;
 #[cfg(test)]
 mod tests;
 
-/// Name of the offline resolved graph. `cargo metadata` runs with `--no-deps`,
-/// so `metadata.resolve` is always absent: the only graph readable without a
-/// registry index and without the network is the lockfile.
 const LOCKFILE: &str = "Cargo.lock";
 
-/// Bounds the pack's work on a hostile or gigantic lockfile. Beyond it, the
-/// pack abstains instead of loading the file.
 const MAX_LOCKFILE_BYTES: u64 = 4 * 1024 * 1024;
 
-/// Minimal shape of the lockfile: the resolved list and the edges between its
-/// entries, and all the rest of the document is ignored without making it
-/// invalid.
 #[derive(Debug, Deserialize)]
 struct LockDocument {
     package: Option<Vec<LockPackage>>,
@@ -51,29 +33,21 @@ struct LockPackage {
     dependencies: Vec<String>,
 }
 
-/// One resolved package and the packages it depends on, as the lockfile
-/// spells them: `name`, `name version` or `name version (source)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct LockedPackage {
     pub(super) name: String,
     pub(super) version: String,
-    /// Where the package comes from, absent for a path or workspace member.
     pub(super) source: Option<String>,
     pub(super) dependencies: Vec<String>,
 }
 
-/// State of the resolved graph as the pack can observe it offline.
 #[derive(Debug, PartialEq, Eq)]
 enum Resolution {
-    /// No lockfile: this is an observed fact, not an error.
     Absent,
-    /// The file exists but its resolution section is unusable.
     Unusable(CargoHealthError),
-    /// The resolved graph, in file order, and the text it was read from.
     Packages(Vec<LockedPackage>, String),
 }
 
-/// The four rules that read the resolved graph rather than the manifests.
 pub(super) fn inspect_resolution(
     metadata: &Metadata,
     active: &ActiveRules,
@@ -102,9 +76,6 @@ pub(super) fn inspect_resolution(
             {
                 scan.candidates.push(Candidate {
                     definition: &CARGO_MISSING_LOCKFILE,
-                    // The pack observes the disk, not the version control
-                    // index: the message therefore states what is measured,
-                    // the missing file, and the rule help carries the fix.
                     message: format!(
                         "Package \"{}\" produces a binary but no {LOCKFILE} sits next to its workspace manifest.",
                         package.name
@@ -146,24 +117,12 @@ pub(super) fn inspect_resolution(
     }
 }
 
-/// The resolved graph, the root manifest and the workspace's Cargo
-/// configuration belong to the workspace, not to a member. A finding about
-/// them is attached to the one package of a single-package workspace, which is
-/// that workspace, and to no member otherwise, so it weighs on the workspace
-/// score alone and whole. It used to go to the root package or the first member
-/// by name: paneflow's `paneflow-agent-config` carried thirteen duplicate
-/// majors arriving through `cocoa`, `gpui` and `clap`, and scored 77 on
-/// dependencies it never declared.
 pub(super) fn resolution_owner(metadata: &Metadata) -> Option<String> {
     let mut members = workspace_packages(metadata);
     let only = members.next()?;
     members.next().is_none().then(|| only.name.to_string())
 }
 
-/// The version each workspace member's direct dependencies resolve to in
-/// `Cargo.lock`, keyed by member name and version, then by dependency name.
-/// Empty without a usable lockfile: the version gates then read the
-/// manifests' requirements instead.
 pub(crate) fn locked_direct_versions(
     workspace_root: &Path,
 ) -> BTreeMap<(String, String), BTreeMap<String, String>> {
@@ -236,21 +195,13 @@ fn read_resolution(workspace_root: &Path) -> Resolution {
     Resolution::Packages(packages, contents)
 }
 
-/// How one version of a duplicated crate reaches the workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Requirement {
-    /// A workspace member lists it in its own manifest: the requirement the
-    /// workspace can move.
     Direct(String),
-    /// It arrives under a dependency a member declares, named so the reader
-    /// knows which crate to bump or drop.
     Through(String),
-    /// No member reaches it, which a lockfile that carries no edges answers.
     Unreached,
 }
 
-/// One crate resolved at two incompatible versions, each with the way
-/// it reaches the workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct DuplicateMajor {
     pub(super) name: String,
@@ -258,12 +209,6 @@ pub(super) struct DuplicateMajor {
 }
 
 impl DuplicateMajor {
-    /// The finding, versions and provenance included.
-    ///
-    /// Under the old message a reader was told two majors were resolved and
-    /// nothing about who asked for either, which on this crate's own scan
-    /// named `winnow` twice through two crates no manifest here mentions. The
-    /// provenance says which requirement to align or which dependency to bump.
     pub(super) fn message(&self) -> String {
         let versions: Vec<String> = self
             .versions
@@ -281,16 +226,6 @@ impl DuplicateMajor {
         )
     }
 
-    /// Whether every version arrives through a dependency, so no manifest of
-    /// the workspace holds a requirement it could align.
-    ///
-    /// Such a duplicate is published at `Info` and weighs nothing. Charged
-    /// alike under core-v5, `winnow` and `rustc-hash`, which reach this crate
-    /// only through `ra_ap_syntax` and `toml`, held its dependencies at 64 and
-    /// topped the advice to repair. A version a member requires directly, or
-    /// one no member reaches, keeps the warning: the first is a requirement
-    /// the workspace moves, and the second is a lockfile the scan cannot
-    /// attribute.
     pub(super) fn is_transitive_only(&self) -> bool {
         self.versions
             .iter()
@@ -298,11 +233,6 @@ impl DuplicateMajor {
     }
 }
 
-/// Two versions of the same crate in different Cargo compatibility classes
-/// are not interchangeable: their types do not unify and the binary embeds
-/// both copies. Pre-releases and build metadata are ignored. Each version is
-/// attributed to the member requiring it or to the member's dependency it
-/// arrives under.
 pub(super) fn duplicate_major_versions(
     packages: &[LockedPackage],
     members: &BTreeSet<String>,
@@ -342,7 +272,6 @@ pub(super) fn duplicate_major_versions(
         .collect()
 }
 
-/// The lockfile's edges, keyed by `name version`.
 struct Graph<'a> {
     edges: BTreeMap<(&'a str, &'a str), Vec<(&'a str, &'a str)>>,
     by_name: BTreeMap<&'a str, Vec<&'a str>>,
@@ -377,9 +306,6 @@ impl<'a> Graph<'a> {
         graph
     }
 
-    /// One dependency line of the lockfile, resolved to the entry it names.
-    /// A bare name is unambiguous by Cargo's own rule, so the single version
-    /// it resolves to is the one the graph holds.
     fn resolve(&self, dependency: &'a str) -> Option<(&'a str, &'a str)> {
         let mut words = dependency.split_whitespace();
         let name = words.next()?;
@@ -393,8 +319,6 @@ impl<'a> Graph<'a> {
         }
     }
 
-    /// Who asks for this version: a member directly, or the member's
-    /// dependency it arrives under, the first by name.
     fn requirement(&self, members: &BTreeSet<String>, name: &str, version: &str) -> Requirement {
         let target = (name, version);
         let mut through: Option<&str> = None;
@@ -426,8 +350,6 @@ impl<'a> Graph<'a> {
             .unwrap_or("")
     }
 
-    /// Whether `target` sits under `from`, `from` included. Every node is
-    /// visited at most once, so the walk is bounded by the lockfile.
     fn reaches(&self, from: (&'a str, &'a str), target: (&str, &str)) -> bool {
         let mut seen = BTreeSet::new();
         let mut queue = VecDeque::from([from]);
@@ -446,12 +368,6 @@ impl<'a> Graph<'a> {
     }
 }
 
-/// The Cargo compatibility class of a version: its left-most non-zero
-/// component and every zero before it, `M` for `M.x.y`, `0.m` for `0.m.y` and
-/// `0.0.p` for `0.0.p`. Cargo considers only a change there incompatible, so
-/// `0.59` and `0.61` are two classes, which reading the first number alone
-/// called one. Pre-release and build metadata are ignored, and a version that
-/// is not three numbers has no class.
 pub(super) fn compatibility_class(version: &str) -> Option<&str> {
     let core = version.split(['+', '-']).next()?;
     let mut end = 0;

@@ -25,7 +25,6 @@ pub(crate) struct WorkspaceConfiguration {
     pub(crate) categories: BTreeMap<String, RuleLevel>,
     pub(crate) rules: BTreeMap<String, RuleLevel>,
     pub(crate) structure: StructureSettings,
-    /// `[ignore]` and `[[overrides]]`: what depends on where a finding is.
     pub(crate) paths: PathPolicy,
 }
 
@@ -43,7 +42,6 @@ struct ConfigurationDocument {
     overrides: Vec<OverrideDocument>,
 }
 
-/// The `[ignore]` table: paths whose findings leave the report and the score.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct IgnoreDocument {
@@ -51,8 +49,6 @@ struct IgnoreDocument {
     paths: Vec<String>,
 }
 
-/// One `[[overrides]]` table: levels that hold under its paths only, written
-/// with the selectors the top-level tables take.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OverrideDocument {
@@ -63,9 +59,6 @@ struct OverrideDocument {
     categories: BTreeMap<String, RuleLevel>,
 }
 
-/// The `[structure]` table: thresholds the complexity detector reads. A key
-/// left out keeps its shipped default; a key written must be usable, so zero,
-/// which would report every function, is refused rather than interpreted.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct StructureDocument {
@@ -140,8 +133,6 @@ pub(crate) fn load_path(path: &Path) -> Result<WorkspaceConfiguration, InternalE
     })
 }
 
-/// The ignored paths and the overrides, every glob read or the load refused.
-/// A refusal names the key and the entry's index, never the pattern itself.
 fn path_policy(document: &ConfigurationDocument) -> Result<PathPolicy, InternalError> {
     let ignore = globs(
         document.ignore.as_ref().map_or(&[][..], |ignore| &ignore.paths),
@@ -191,8 +182,6 @@ fn validate_document(document: &ConfigurationDocument) -> Result<(), InternalErr
     validate_thresholds(document)
 }
 
-/// Every rule and category selector of the file, top-level and override alike,
-/// refused the same way.
 fn validate_selectors<'a>(
     rules: impl Iterator<Item = &'a String>,
     categories: impl Iterator<Item = &'a String>,
@@ -495,8 +484,6 @@ correctness = "off"
         let mut request_order = [0, 1, 2, 3];
         let mut config_orders = BTreeSet::new();
         let mut request_orders = BTreeSet::new();
-        // The plan is compared as a plan. Comparing a serialization of it would
-        // ask the private type to carry a published shape for one assertion.
         let mut expected_plan = None;
 
         for _ in 0..20 {

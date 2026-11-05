@@ -1,9 +1,3 @@
-// `tasks/e2e-catalog/failures.md` section WS: workspace shapes and
-// filesystem conditions. A shape Cargo refuses fails with Cargo's own
-// sentence and no absolute path; a shape it accepts scans as the plain copy
-// does; and a scan leaves the tree as it found it, a lockfile it made
-// included. Permission rows need a user that permissions bind, so they skip
-// under root.
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -62,8 +56,6 @@ function same(left: unknown, right: unknown): void {
   expect(normalizeReport(left)).toEqual(normalizeReport(right));
 }
 
-// A crate written for the row, under a fresh scratch directory unless `at`
-// names its place.
 function crate(name: string, files: Record<string, string>, at?: string): string {
   const dir = at ?? join(scratchDir(name), name);
   for (const [path, body] of Object.entries(files)) {
@@ -77,8 +69,6 @@ function manifest(name: string, extra = "", workspace = true): string {
   return `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2024"\npublish = false\n${extra}${workspace ? "\n[workspace]\n" : ""}`;
 }
 
-// `chmod` for the length of `body`, undone whatever happens, so the run root
-// stays removable.
 async function withMode<T>(path: string, mode: number, restore: number, body: () => Promise<T>): Promise<T> {
   chmodSync(path, mode);
   try {
@@ -93,9 +83,6 @@ async function chmodTree(path: string, mode: string): Promise<void> {
   if (run.exitCode !== 0) throw new Error(`chmod -R ${mode} ${path}: ${run.stderr}`);
 }
 
-// 3000 modules in 60 files of 50 declarations, each holding the same body:
-// one file of 3000 `mod` lines would trip the source kernel's per-file
-// alias-bindings limit instead.
 async function bigNative(): Promise<string> {
   const listed = await runDoctor(["rules", "list", "--json"]);
   const off = (listed.json as Array<{ id: string }>)
@@ -252,8 +239,6 @@ describe("workspace shapes", () => {
     expect(relative.stdout).toBe(plain.stdout);
   });
 
-  // A name that is not UTF-8 cannot be a JavaScript string, so the shell
-  // builds it and passes it on.
   test("WS-14 a directory name that is not UTF-8 is Cargo's limit, reported", async () => {
     const parent = scratchDir("not-utf8");
     const box = sandbox("not-utf8");
@@ -320,8 +305,6 @@ describe("workspace shapes", () => {
     expect(stdout).not.toContain(parent);
   });
 
-  // The harness exports CARGO_NET_OFFLINE=true, so an uncached dependency
-  // fails at once with Cargo's offline sentence instead of retrying.
   test("WS-19 an uncached dependency offline is incomplete, bounded, and carries no score", async () => {
     const workspace = crate("uncached", { "Cargo.toml": manifest("uncached", '\n[dependencies]\nitoa = "1"\n'), "src/lib.rs": "pub fn f() {}\n" });
     const before = treeFingerprint(workspace);
@@ -380,9 +363,6 @@ describe("workspace shapes", () => {
     expect(treeFingerprint(workspace)).toBe(before);
   });
 
-  // Fully read-only, Cargo cannot write the lockfile at all; writable until
-  // its build script runs, the lockfile exists and cannot be removed, which
-  // the scan says once on stderr.
   test.skipIf(ROOT)("WS-24 a read-only lockless workspace is Cargo's refusal, and an unremovable lockfile one stderr line", async () => {
     const workspace = crate("read-only-lockless", { "Cargo.toml": manifest("read-only-lockless"), "src/lib.rs": "pub fn f() {}\n" });
     await chmodTree(workspace, "a-w");
@@ -415,9 +395,6 @@ describe("workspace shapes", () => {
     const { exitCode, report, stdout } = await withMode(parent, 0o555, 0o755, () => scan(copyWorkspace("scan-failures/lint-flags"), [], { target: join(parent, "target") }));
     expect(exitCode).toBe(1);
     expect(message(report, "clippy-exit")).toContain("Permission denied (os error 13)");
-    // The path Cargo is refused is the sibling it creates beside the target
-    // directory, so it is named as a path outside the workspace, not as the
-    // target directory (failures/BUG-16).
     expect(message(report, "clippy-exit")).toContain("<external>/");
     expect(message(report, "clippy-exit")).not.toContain(parent);
     expect(stdout).not.toContain(parent);
@@ -521,7 +498,6 @@ describe("workspace shapes", () => {
     const repo = await gitScenario("ws-36").fixture("scan-failures/lint-flags").write({ ".gitignore": "/target\n" }).commit("base").build();
     const readOnly = scratchDir("read-only-tmp");
     const tmpdirs: Array<[string, () => Promise<DoctorRun & { report: Report }>]> = [
-      // A missing TMPDIR is skipped for the cache home, so HOME is missing too.
       ["missing", () => scan(repo.path, ["--scope", "baseline", "--base", "HEAD"], { sandbox: repo.sandbox, env: { TMPDIR: join(repo.sandbox.dir, "missing-tmp"), HOME: join(repo.sandbox.dir, "missing-home"), RUST_DOCTOR_NO_CACHE: "1" } })],
     ];
     if (!ROOT) {
@@ -531,7 +507,6 @@ describe("workspace shapes", () => {
       const { exitCode, report } = await run();
       expect(exitCode).toBe(2);
       expect(codes(report)).toEqual(["baseline/baseline-temp-unavailable"]);
-      // A missing TMPDIR is refused as a candidate before any write: WS-36b.
       if (kind === "read-only") {
         expect(message(report, "baseline-temp-unavailable")).toBe("Git baseline temporary storage is unavailable.");
       }

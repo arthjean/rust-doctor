@@ -15,9 +15,7 @@ use support::rule_scaling::{
 };
 
 fn fixture(path: impl AsRef<Path>) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/rule-scaling-kernel/matrix")
-        .join(path)
+    support::fixture_dir("rule-scaling-kernel/matrix").join(path)
 }
 
 fn expected_signature(span: &ExpectedSpan) -> (u64, u64, u64, u64) {

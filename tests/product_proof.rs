@@ -13,7 +13,6 @@ fn binary() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
 }
 
-/// The binary, scanning one workspace with an artifact cache of its own.
 fn scanning(workspace: &Path) -> Command {
     let mut command = binary();
     command.env("CARGO_TARGET_DIR", support::scan_target(workspace));
@@ -143,8 +142,6 @@ fn fixtures_prove_complete_incomplete_and_source_preservation() {
                 .expect("occurrences should be numeric")
         })
         .sum();
-    // Two rustc diagnostics, one occurrence each: the scope is Cargo's default
-    // targets, so the library is compiled once and no message is counted twice.
     assert_eq!(captured_occurrences, 2);
     assert_eq!(compile_error["scan"]["exit_code"], 101);
     assert_eq!(compile_error["scan"]["build_finished"], false);
@@ -286,8 +283,6 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
         1,
         "the help is the rule's, printed once under the rule"
     );
-    // Three findings, one occurrence each: the library is compiled once, so a
-    // single site is no longer counted twice.
     assert!(terminal.contains("All 3 occurrences across 3 findings"));
 
     let denied_output = inspect_json(&kernel_fixture("denied"));
@@ -315,14 +310,6 @@ fn curated_kernel_drives_command_json_terminal_and_effective_severity() {
     }));
 }
 
-/// A diagnostic the catalog cannot explain never arrives from Clippy, and
-/// arrives stripped from rustc.
-///
-/// `-A clippy::all` closes the Clippy channel at the source: the fixture
-/// carries a `needless_return` next to its catalogued `unwrap_used`, and only
-/// the second one is published. rustc is not a Clippy lint group, so its own
-/// diagnostics still reach the report, with no category and no help since no
-/// rule of the catalog describes them.
 #[test]
 fn diagnostics_outside_the_catalog_are_silenced_or_null_enriched() {
     let silenced = parse_report(&inspect_json(&fixture("clippy-warning")));

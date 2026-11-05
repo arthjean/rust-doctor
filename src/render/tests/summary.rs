@@ -1,9 +1,5 @@
-//! The default view: one framed group, then one row per scored rule, at any
-//! width from the floor of 40 columns up.
-
 use super::*;
 
-/// `count` scored groups, one site each, of distinct catalogued Clippy rules.
 fn groups(count: usize) -> InspectReport {
     let diagnostics: Vec<Diagnostic> = crate::policy::CATALOG
         .iter()
@@ -26,8 +22,6 @@ fn groups(count: usize) -> InspectReport {
     report_of(diagnostics, count, 1_000)
 }
 
-/// The rows the default view gives the groups after the framed one: each
-/// names a rule id and a `path:line:col` site.
 fn group_rows(output: &str) -> Vec<&str> {
     output
         .lines()
@@ -68,14 +62,10 @@ fn every_row_of_the_default_view_fits_every_width_down_to_the_floor() {
             assert!(display_width(row) <= width, "{width}: {row}");
         }
     }
-    // A pane narrower than the floor is laid out at the floor.
     let narrow = rendered(&groups(4), 30, false, false);
     assert_eq!(narrow, rendered(&groups(4), MIN_WIDTH, false, false));
 }
 
-/// At every width, the floor and below it included, the animated block still
-/// rewinds exactly one block per frame: a row wider than the pane would
-/// scroll the block away from the cursor-up the animation relies on.
 #[test]
 fn the_animated_block_rewinds_one_block_per_frame_at_every_width() {
     let report = groups(4);
@@ -108,8 +98,6 @@ fn the_animated_block_rewinds_one_block_per_frame_at_every_width() {
     }
 }
 
-/// A group mixing a shipped and a test site labels only the test site, in
-/// the default view's frame and in the verbose list of every site.
 #[test]
 fn only_the_test_site_of_a_mixed_group_is_labeled() {
     let span = |line| crate::DiagnosticSpan {
@@ -137,8 +125,6 @@ fn only_the_test_site_of_a_mixed_group_is_labeled() {
     assert_eq!(output.matches("not scored").count(), 1, "{output}");
 }
 
-/// An incomplete scan that found nothing says which checks did not finish,
-/// in the warning color, and never that nothing was found.
 #[test]
 fn an_incomplete_scan_with_no_finding_says_what_did_not_complete() {
     let mut report = report_of(Vec::new(), 2, 1_000);

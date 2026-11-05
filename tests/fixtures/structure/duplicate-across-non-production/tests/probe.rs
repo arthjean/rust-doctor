@@ -1,4 +1,4 @@
-//! The other member of the family, in an integration test target.
+
 
 fn gather(numbers: &[u32], bound: u32) -> u32 {
     let mut sum = 1;

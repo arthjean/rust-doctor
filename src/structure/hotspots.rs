@@ -1,24 +1,3 @@
-//! Functions too tangled to review, and units too large to keep growing.
-//!
-//! Both detectors answer the reviewer's question rather than the compiler's:
-//! not "is this call site wrong?" but "how much of this can one reading hold?".
-//! A complexity figure is computed per function, a size figure per unit, and a
-//! unit crosses a threshold once: the finding is the unit, never the threshold,
-//! so a function over two bounds still costs the report one line.
-//!
-//! Cyclomatic complexity counts the paths: one, plus one per branch point,
-//! where a branch point is an `if`, a `while`, a `for`, a `loop`, a match arm,
-//! a lazy boolean operator or a `?`. Cognitive complexity follows SonarSource's
-//! nesting-weighted definition: a branch costs one plus its nesting depth, an
-//! `else` and a chained `else if` cost one flat, a run of one logical operator
-//! costs one however long it is, and a labeled jump costs one. Two functions
-//! with the same branch count therefore separate exactly when one buries its
-//! branches deeper, which is the property the cyclomatic figure cannot see.
-//!
-//! Neither detector walks the tree. Both read the inventory the unit's single
-//! traversal collected, because the pass runs under a wall clock and a
-//! traversal per detector spends it once per detector over the same nodes.
-
 use ra_ap_syntax::ast::{self, HasName};
 use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
@@ -27,44 +6,23 @@ use crate::policy::{ActiveRules, RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STR
 use crate::report::ComplexityFigures;
 use crate::source_text::compact;
 
-/// The rules this half of the pass produces.
 pub(super) const RULES: [&RuleDefinition; 2] =
     [&STRUCTURE_COMPLEX_FUNCTION, &STRUCTURE_OVERSIZED_UNIT];
 
-/// Lines a file may reach before it is named.
-///
-/// Measured on this repository on 2026-08-08: six of its source files sat
-/// above a thousand lines then, `src/report.rs` and `src/audit.rs` among them,
-/// and each was a file its own history routed around rather than read. Naming
-/// them on a self-scan was the admission the PRD asked the tool to make about
-/// its own code, and every file has since been brought under the bound.
 pub const FILE_LINES: usize = 1_000;
 
-/// Lines an inline `mod` block may reach before it is named.
 pub(super) const MODULE_LINES: usize = 500;
 
-/// Lines an `impl` block may reach before it is named.
 pub(super) const IMPL_LINES: usize = 500;
 
-/// Lines one function may reach before it is named. Clippy's `too_many_lines`
-/// draws this line at 100; a hotspot detector reports the tail, not the norm,
-/// so it sits half again higher.
 pub(super) const FUNCTION_LINES: usize = 150;
 
-/// Cyclomatic and cognitive complexity of one function, measured together in
-/// one walk of its body.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Metrics {
     pub(super) cyclomatic: u32,
     pub(super) cognitive: u32,
 }
 
-/// Every hotspot of one unit: the functions whose complexity crosses a
-/// threshold, and the units grown past the line bound of their kind.
-///
-/// The keys carry the qualified name under the file, never a position, so a
-/// finding keeps its identity while its unit stays where it is, however the
-/// code above it moves.
 pub(super) fn observe(
     unit: &Unit<'_>,
     settings: &StructureSettings,
@@ -72,8 +30,6 @@ pub(super) fn observe(
 ) -> Vec<(&'static RuleDefinition, Observation)> {
     let mut observations = Vec::new();
     if active.on(&STRUCTURE_OVERSIZED_UNIT) {
-        // The file is a unit like the three kinds inside it, so it goes through
-        // the same bound table rather than through a prologue of its own.
         let units = std::iter::once(unit.tree.syntax())
             .chain(unit.inventory.functions.iter().map(AstNode::syntax))
             .chain(unit.inventory.implementations.iter().map(AstNode::syntax))
@@ -95,8 +51,6 @@ pub(super) fn observe(
     observations
 }
 
-/// Tag and line bound of the kind of unit this node is, or nothing when the
-/// size rule does not judge its kind.
 const fn bound(kind: SyntaxKind) -> Option<(&'static str, usize)> {
     match kind {
         SyntaxKind::SOURCE_FILE => Some(("file", FILE_LINES)),
@@ -107,15 +61,12 @@ const fn bound(kind: SyntaxKind) -> Option<(&'static str, usize)> {
     }
 }
 
-/// The oversized-unit observation this node carries, if it carries one.
 fn oversized(unit: &Unit<'_>, node: &SyntaxNode) -> Option<Observation> {
     let (tag, limit) = bound(node.kind())?;
     let lines = lines_of(unit, node);
     if lines < limit {
         return None;
     }
-    // Naming a function means walking its ancestors, so the label is built
-    // after the bound is crossed rather than for every unit of the file.
     let label = label(unit, node)?;
     let subject = match node.kind() {
         SyntaxKind::SOURCE_FILE => format!("{label} is {lines} lines long."),
@@ -130,12 +81,6 @@ fn oversized(unit: &Unit<'_>, node: &SyntaxNode) -> Option<Observation> {
     })
 }
 
-/// What the finding calls this unit, or nothing when the node is not a unit
-/// after all: a declaration with no body and an out-of-line module both name
-/// code that lives somewhere else, and there is nothing in them to divide.
-///
-/// A file is called by its path, which is why its key repeats it: one shape of
-/// key for the four kinds is worth more than a shorter string for one of them.
 fn label(unit: &Unit<'_>, node: &SyntaxNode) -> Option<String> {
     match node.kind() {
         SyntaxKind::SOURCE_FILE => Some(unit.path.to_owned()),
@@ -157,7 +102,6 @@ fn label(unit: &Unit<'_>, node: &SyntaxNode) -> Option<String> {
     }
 }
 
-/// The complexity observation this function carries, if it crosses a threshold.
 fn complex(
     unit: &Unit<'_>,
     function: &ast::Fn,
@@ -186,18 +130,6 @@ fn complex(
     })
 }
 
-/// Lines a node covers, from the line index alone. The full span, with its
-/// column arithmetic, is only computed for the units actually reported.
-///
-/// A function, an impl or a module is counted from its first child that is
-/// not an attribute, a comment or whitespace, its keyword or its visibility:
-/// the doc comment above a function belongs to its node, and documenting it
-/// must never push it over the bound. A file is counted whole.
-///
-/// The end is read at the last character of the node, never at the position
-/// after it. A file ends on its final newline, and that position sits on the
-/// empty line past it: counted, every file ending the way files end would be
-/// reported one line longer than it is.
 fn lines_of(unit: &Unit<'_>, node: &SyntaxNode) -> usize {
     let range = node.text_range();
     let start = match node.kind() {
@@ -219,11 +151,6 @@ fn lines_of(unit: &Unit<'_>, node: &SyntaxNode) -> usize {
     end.saturating_sub(start).saturating_add(1)
 }
 
-/// Both figures of one body, in one walk of it.
-///
-/// Cyclomatic complexity counts the paths, and a body with no branch is one
-/// path: that constant lives here, so no caller can measure a body and forget
-/// it, and no test can restate it.
 pub(super) fn metrics_of(body: &ast::BlockExpr) -> Metrics {
     let mut metrics = Metrics {
         cyclomatic: 1,
@@ -233,19 +160,11 @@ pub(super) fn metrics_of(body: &ast::BlockExpr) -> Metrics {
     metrics
 }
 
-/// A nested function is skipped: it is measured on its own, and charging its
-/// branches to the function that merely contains it would report the container
-/// for the contained. A closure is not skipped, because it has no name to be
-/// reported under: its branches belong to the function that wrote it, one
-/// nesting level down.
 fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
     for child in node.children() {
         match child.kind() {
             SyntaxKind::FN => {}
             SyntaxKind::IF_EXPR => {
-                // A chained `else if` continues the decision the first `if`
-                // opened: it costs one flat, and its branches stay at the depth
-                // of the chain instead of sinking one level per link.
                 let chained = child
                     .parent()
                     .is_some_and(|parent| parent.kind() == SyntaxKind::IF_EXPR);
@@ -278,8 +197,6 @@ fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
                     ast::BinExpr::cast(child.clone()).and_then(|expression| expression.op_kind())
                 {
                     metrics.cyclomatic += 1;
-                    // `a && b && c` is one thought; `a && b || c` is two. Only
-                    // the first operator of a run costs.
                     if child
                         .parent()
                         .and_then(ast::BinExpr::cast)
@@ -296,9 +213,6 @@ fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
                 measure(&child, nesting, metrics);
             }
             SyntaxKind::BREAK_EXPR | SyntaxKind::CONTINUE_EXPR => {
-                // A jump naming a loop is the one that costs, and the label is
-                // the lifetime token under it, whichever of the two jumps
-                // carries it.
                 if child
                     .children_with_tokens()
                     .any(|element| element.kind() == SyntaxKind::LIFETIME)
@@ -312,8 +226,6 @@ fn measure(node: &SyntaxNode, nesting: u32, metrics: &mut Metrics) {
     }
 }
 
-/// Name of a function under everything that scopes it in its file: modules,
-/// impl blocks, traits, and the function it may be nested in.
 fn qualified_name(function: &ast::Fn) -> Option<String> {
     let mut segments = vec![function.name()?.text().to_string()];
     for ancestor in function.syntax().ancestors().skip(1) {
@@ -345,8 +257,6 @@ fn qualified_name(function: &ast::Fn) -> Option<String> {
     Some(segments.join("::"))
 }
 
-/// What an `impl` block is for: `Display for Report` names the trait
-/// implementation, `Report` the inherent one.
 fn impl_label(block: &ast::Impl) -> String {
     let self_type = block
         .self_ty()
@@ -386,13 +296,9 @@ mod tests {
         metrics_of(&function.body().expect("the probe has a body"))
     }
 
-    /// US-010: cyclomatic complexity is the branch points plus one, and every
-    /// counted kind counts.
     #[test]
     fn cyclomatic_complexity_is_the_branch_points_plus_one() {
         assert_eq!(measured("let value = 1;").cyclomatic, 1);
-        // One if, one while, one for, one loop, two match arms, one `&&`, one
-        // `?`-free body: eight branch points.
         let branched = "
             if a { b(); }
             while c { d(); }
@@ -408,8 +314,6 @@ mod tests {
         assert_eq!(measured("let value = fallible()?;").cyclomatic, 2);
     }
 
-    /// US-010: two functions with equal cyclomatic complexity separate on
-    /// nesting, and the deeper one reports the higher cognitive figure.
     #[test]
     fn equal_cyclomatic_complexity_still_separates_on_nesting() {
         let sequential = measured("if a { b(); }\nif c { d(); }\nif e { f(); }");
@@ -419,9 +323,6 @@ mod tests {
         assert_eq!(nested.cognitive, 6);
     }
 
-    /// The SonarSource discounts: a chained `else if` costs one flat, an
-    /// `else` costs one, and a run of one logical operator costs one however
-    /// long it runs.
     #[test]
     fn chains_runs_and_elses_cost_one_each() {
         let chain = measured("if a { b(); } else if c { d(); } else { e(); }");
@@ -439,8 +340,6 @@ mod tests {
         assert_eq!(labeled_break.cognitive, 4);
     }
 
-    /// A nested function is measured on its own; a closure charges the
-    /// function that wrote it, one level down.
     #[test]
     fn a_nested_function_is_its_own_measure_and_a_closure_is_not() {
         let with_nested = measured("fn inner() { if a { b(); } }\nc();");
@@ -452,8 +351,6 @@ mod tests {
         assert_eq!(with_closure.cognitive, 3);
     }
 
-    /// US-010: below both thresholds nothing is observed, above either the
-    /// observation carries both figures and the qualified name.
     #[test]
     fn only_a_function_over_a_threshold_is_observed() {
         let calm = unit("fn calm() { if a { b(); } }");
@@ -486,8 +383,6 @@ mod tests {
         assert!(observe(&dense, &raised, &complexity_only()).is_empty());
     }
 
-    /// US-011: each unit kind is named once when it crosses its own line
-    /// threshold, and the file that carries them is a unit of its own.
     #[test]
     fn every_oversized_unit_is_named_once() {
         let long_function = format!(
@@ -530,7 +425,6 @@ mod tests {
         );
         assert!(observed[1].1.subject.contains("spans"), "{}", observed[1].1.subject);
 
-        // One line under each threshold, nothing is observed.
         let calm = format!(
             "fn stretched() {{\n{}}}\n",
             "    call();\n".repeat(FUNCTION_LINES - 3)
@@ -538,9 +432,6 @@ mod tests {
         assert!(observe(&unit(&calm), &StructureSettings::default(), &size_only()).is_empty());
     }
 
-    /// US-011: a declaration is not a unit, however long it is written. An
-    /// out-of-line module and a bodyless method both name code that lives
-    /// somewhere else, and neither has anything to divide.
     #[test]
     fn a_declaration_without_a_body_is_never_a_unit() {
         let source = format!("mod carried;\n{}", "// filler\n".repeat(FILE_LINES));
@@ -564,9 +455,6 @@ mod tests {
         );
     }
 
-    /// US-011: the line count a file is named with is the one its reader
-    /// counts. A file ends on a newline, and the empty position past it is not
-    /// a line of the file.
     #[test]
     fn a_file_is_counted_at_its_last_line_and_never_past_it() {
         let terminated = unit("fn a() {}\nfn b() {}\n");
@@ -579,9 +467,6 @@ mod tests {
         assert_eq!(lines_of(&empty, empty.tree.syntax()), 1);
     }
 
-    /// US-025: a unit is measured from its keyword, so the doc comment and the
-    /// attributes above a function never push it over the bound, and the span
-    /// it is published with still starts at them.
     #[test]
     fn a_unit_is_counted_from_its_keyword() {
         let documented = |lines: usize| {
@@ -613,7 +498,6 @@ mod tests {
         );
     }
 
-    /// A rule the policy left off costs its half of the walk nothing.
     #[test]
     fn an_inactive_half_observes_nothing() {
         let source = format!(

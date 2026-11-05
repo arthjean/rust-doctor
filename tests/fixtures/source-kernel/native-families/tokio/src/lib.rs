@@ -1,4 +1,4 @@
-//! The surface of Tokio the fixture calls, with none of its behavior.
+
 
 pub mod fs {
     pub async fn read(_path: &str) -> std::io::Result<Vec<u8>> {

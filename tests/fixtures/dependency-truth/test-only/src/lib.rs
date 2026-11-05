@@ -1,5 +1,5 @@
-//! One dependency the shipped code uses, one only an inline test module
-//! reaches, one only the integration test reaches, one nothing reaches.
+
+
 
 pub fn shipped() -> u8 {
     probe_both::value()

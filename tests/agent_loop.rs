@@ -1,13 +1,6 @@
 #![cfg(unix)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! The agent loop from the binary's entry point: a base resolved from the
-//! repository when `--base` is omitted, a scope as narrow as the changed lines,
-//! and a staged scan that judges what `git commit` would record.
-//!
-//! Every repository here is built on `master`, the branch name a skill that
-//! hard-coded `--base main` used to fail on.
-
 mod support;
 
 use std::fs;
@@ -19,8 +12,6 @@ use serde_json::Value;
 
 static NEXT_REPOSITORY: AtomicUsize = AtomicUsize::new(0);
 
-/// Line 40 of the fixture's `src/lib.rs` holds a `todo!()`; lines 10 to 12 are
-/// the ones every change below edits.
 fn library_with_todo_on_line_40() -> String {
     let mut lines = vec!["pub fn first() -> u8 { 1 }".to_owned()];
     lines.extend((2..=39).map(|line| format!("// line {line}")));
@@ -63,7 +54,6 @@ fn commit(root: &Path, message: &str) {
     );
 }
 
-/// A one-crate repository on `master`, committed, then moved to a branch.
 fn repository(name: &str) -> PathBuf {
     let root = support::temporary_target(&format!("agent-loop-{name}"), &NEXT_REPOSITORY);
     fs::create_dir_all(root.join("src")).unwrap();
@@ -141,10 +131,6 @@ fn error_codes(report: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The definition of done of the epic: in a `master` repository the three
-/// forms an agent runs succeed with no `--base`, and each names the base it
-/// found. A finding on line 40 is out of a change to lines 10 to 12 under
-/// `lines`, and in it under `files`.
 #[test]
 fn every_changed_scope_resolves_its_base_on_a_master_repository() {
     let root = repository("master");
@@ -172,7 +158,6 @@ fn every_changed_scope_resolves_its_base_on_a_master_repository() {
     assert_eq!(staged["scope"]["staged"], true);
     assert_eq!(staged["scope"]["base_ref"], "HEAD");
 
-    // The terminal names the ref beside the commit it resolved to.
     let terminal = rust_doctor(&root, &["--yes", "--scope", "lines"]);
     let stdout = String::from_utf8_lossy(&terminal.stdout);
     assert!(
@@ -182,7 +167,6 @@ fn every_changed_scope_resolves_its_base_on_a_master_repository() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// On the default branch itself, the work to judge is what is not committed.
 #[test]
 fn on_the_default_branch_the_base_is_head() {
     let root = repository("on-master");
@@ -220,8 +204,6 @@ fn no_base_to_find_fails_with_base_undetected() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A depth-1 clone has the branch tip and nothing below it, so the merge base
-/// with a base that forked earlier is missing, and the error says why.
 #[test]
 fn a_shallow_clone_names_the_missing_fetch() {
     let origin = repository("shallow-origin");
@@ -260,8 +242,6 @@ fn a_shallow_clone_names_the_missing_fetch() {
     fs::remove_dir_all(clone).unwrap();
 }
 
-/// Untracked Rust files are counted where they could have been judged, and
-/// judged whole once `--include-untracked` asks for them.
 #[test]
 fn untracked_files_are_counted_then_included_on_request() {
     let root = repository("untracked");
@@ -275,7 +255,6 @@ fn untracked_files_are_counted_then_included_on_request() {
 
     let terminal = rust_doctor(&root, &["--yes", "--scope", "lines"]);
     let stdout = String::from_utf8_lossy(&terminal.stdout);
-    // The line wraps at the terminal width, so its two halves are matched.
     assert!(
         stdout.contains("1 untracked Rust file was compiled but not reported")
             && stdout.contains("pass --include-untracked"),
@@ -306,8 +285,6 @@ fn untracked_files_are_counted_then_included_on_request() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// An added line whose text starts with `++ ` reads `+++ ` in the patch, and is
-/// content of its hunk, not the header of another file.
 #[test]
 fn an_added_line_that_looks_like_a_file_header_is_content() {
     let root = repository("header-like-line");
@@ -337,9 +314,6 @@ fn a_diff_past_its_bound_fails_with_diff_too_large() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The staged side is what the commit records: a staged defect is reported
-/// whatever the working tree has done to it since, and an unstaged defect is
-/// not, whichever scope judges the index.
 #[test]
 fn a_staged_scan_judges_the_index_and_never_the_working_tree() {
     let root = repository("staged");
@@ -348,7 +322,6 @@ fn a_staged_scan_judges_the_index_and_never_the_working_tree() {
     let library = library_with_todo_on_line_40() + "pub mod staged;\n";
     fs::write(root.join("src/lib.rs"), &library).unwrap();
 
-    // Staged defect, unstaged fix.
     fs::write(root.join("src/staged.rs"), defect).unwrap();
     git(&root, &["add", "src/lib.rs", "src/staged.rs"]);
     fs::write(root.join("src/staged.rs"), clean).unwrap();
@@ -368,7 +341,6 @@ fn a_staged_scan_judges_the_index_and_never_the_working_tree() {
         );
     }
 
-    // Staged clean file, unstaged defect.
     fs::write(root.join("src/staged.rs"), clean).unwrap();
     git(&root, &["add", "src/staged.rs"]);
     fs::write(root.join("src/staged.rs"), defect).unwrap();
@@ -384,7 +356,6 @@ fn a_staged_scan_judges_the_index_and_never_the_working_tree() {
             "{scope}: the unstaged defect was reported: {report}"
         );
     }
-    // No temporary path leaks into what the report publishes.
     let (_, report) = json(&root, &["--staged", "--scope", "files"]);
     let wire = report.to_string();
     assert!(
@@ -416,8 +387,6 @@ fn nothing_staged_passes_and_says_so() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A conflicted or locked index fails the scan with exit 2, never an empty
-/// pass.
 #[test]
 fn an_unusable_index_fails_the_staged_scan() {
     let root = repository("conflicted");
@@ -428,8 +397,6 @@ fn an_unusable_index_fails_the_staged_scan() {
     fs::write(root.join("notes.md"), "master\n").unwrap();
     git(&root, &["add", "notes.md"]);
     commit(&root, "master notes");
-    // The identity is passed here as `commit` passes it: a runner with no
-    // global one refuses the merge before it writes the conflict.
     let merge = Command::new("git")
         .args([
             "-c",
@@ -484,8 +451,6 @@ fn staged_is_refused_with_the_full_scope() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The vendored-registry fixture, committed on `master` with a bounded
-/// requirement, so a change can make it unbounded without touching the lock.
 fn registry_repository(name: &str) -> PathBuf {
     fn copy(source: &Path, destination: &Path) {
         fs::create_dir_all(destination).unwrap();
@@ -515,7 +480,6 @@ fn registry_repository(name: &str) -> PathBuf {
     root
 }
 
-/// Rewrites line 7 of the manifest, the one dependency's declaration.
 fn set_requirement(root: &Path, requirement: &str) {
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
     let mut lines: Vec<&str> = manifest.lines().collect();
@@ -558,10 +522,6 @@ fn registry_findings(report: &Value) -> Vec<(String, u64)> {
         .collect()
 }
 
-/// US-002: a dependency requirement made unbounded in the change is judged by
-/// the scope that judges the change, at its key, by the pre-commit command and
-/// by the Stop hook alike; a change that leaves the manifest alone does not
-/// bring the declaration back.
 #[test]
 fn an_unbounded_requirement_the_change_adds_is_reported_under_a_lines_scope() {
     let root = registry_repository("unbounded");
@@ -590,8 +550,6 @@ fn an_unbounded_requirement_the_change_adds_is_reported_under_a_lines_scope() {
         "{report}"
     );
 
-    // The Stop hook judges the working tree against HEAD: the same addition,
-    // unstaged, blocks the turn and is named at its key.
     git(&root, &["reset", "--quiet", "Cargo.toml"]);
     let mut hook = Command::new(env!("CARGO_BIN_EXE_rust-doctor"));
     hook.args(["hook", "run", "claude"]).stdin(std::process::Stdio::null());
@@ -603,8 +561,6 @@ fn an_unbounded_requirement_the_change_adds_is_reported_under_a_lines_scope() {
         "{message}"
     );
 
-    // Committed as unbounded, then a change elsewhere: the declaration is
-    // legacy, and a lines scope that does not touch the manifest drops it.
     git(&root, &["add", "Cargo.toml"]);
     commit(&root, "unbounded");
     fs::write(
@@ -616,8 +572,6 @@ fn an_unbounded_requirement_the_change_adds_is_reported_under_a_lines_scope() {
     let report = staged_lines(&root);
     assert!(registry_findings(&report).is_empty(), "{report}");
 
-    // The span is a location, not an identity: lines inserted above the key
-    // move it, and a baseline run still pairs it with the base's finding.
     commit(&root, "other");
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
     fs::write(
@@ -637,8 +591,6 @@ fn an_unbounded_requirement_the_change_adds_is_reported_under_a_lines_scope() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// US-002: a lockfile finding has no line, so it is in a lines scope exactly
-/// when the lockfile changed, a change that only deletes entries included.
 #[test]
 fn a_lockfile_deletion_alone_keeps_its_span_less_finding_in_scope() {
     let root = support::temporary_target("agent-loop-lockfile", &NEXT_REPOSITORY);
@@ -696,7 +648,6 @@ fn a_lockfile_deletion_alone_keeps_its_span_less_finding_in_scope() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A function large enough for the clone rules, named once per copy.
 fn clone_body(name: &str) -> String {
     format!(
         "pub fn {name}(values: &[u32]) -> u32 {{\n    let mut sum = 0;\n    for value in values {{\n        \
@@ -717,9 +668,6 @@ fn duplicates(report: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// US-003: a copy the change wrote next to committed code is reported at the
-/// copy, under the same identity a full scan gives the family; a change that
-/// reaches no member leaves the family out.
 #[test]
 fn a_staged_copy_of_committed_code_is_reported_at_the_copy() {
     let root = repository("clone");

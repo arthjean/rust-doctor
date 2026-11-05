@@ -1,13 +1,3 @@
-//! Tests for the report: the pipeline that assembles one, the gate it
-//! publishes, and the statuses and errors a degraded scan carries into it.
-//!
-//! The fixtures below are shared with [`normalization`], which carries the
-//! other half: what a producer's finding becomes once it is a diagnostic. They
-//! sit in two files so that every file of the module stays under the thousand
-//! lines `oversized_unit` reports at, for the reason the rest of the crate
-//! holds that bound: the module that declares the shape has to pass the rule
-//! the shape publishes.
-
 mod normalization;
 
 use std::collections::BTreeSet;
@@ -38,11 +28,6 @@ use crate::policy::PolicyPlan;
 use crate::source_kernel;
 use crate::workspace_path;
 
-/// The report passes the rule it publishes. `oversized_unit` reports a file at
-/// a thousand lines, and this module holds that bound across all six of its
-/// files. It was one file of 3226 lines, three times over, and the self-scan
-/// that named it froze the defect rather than gating it: a test asserting the
-/// crate's largest violation is a test that fails when the violation is fixed.
 #[test]
 fn the_report_holds_the_size_bound_it_publishes() {
     for own in [
@@ -385,7 +370,6 @@ fn gate_counts_deduplicated_diagnostics_and_exit_codes_follow_both_states() {
     assert_eq!(none.status, GateStatus::Passed);
     assert_eq!(error.blocking_diagnostics, Some(1));
     assert_eq!(error.status, GateStatus::Failed);
-    // The codeless warning is a compiler note: published, and blocking nothing.
     assert_eq!(diagnostics[1].unscored, Some(UnscoredReason::Uncatalogued));
     assert_eq!(warning.blocking_diagnostics, Some(1));
     assert_eq!(warning.status, GateStatus::Failed);
@@ -404,9 +388,6 @@ fn gate_counts_deduplicated_diagnostics_and_exit_codes_follow_both_states() {
     assert_eq!(report.exit_code(), 2);
 }
 
-/// An older Clippy that does not know a catalogued lint warns E0602 and closes
-/// on a `failure-note`. Both are compiler notes: the scan built, so neither
-/// blocks the gate nor gives the score a reason to be partial.
 #[test]
 fn a_failure_note_after_an_unknown_lint_is_a_note_not_an_error() {
     let workspace = fixture("clean");
@@ -579,9 +560,6 @@ fn scan(
     }
 }
 
-/// The dependency pack now runs inside the execution, like the source
-/// kernel. The test constructors reproduce that wiring rather than letting
-/// normalization run it again.
 fn cargo_health_scan(metadata: &Metadata) -> Option<cargo_health::CargoHealthScan> {
     Some(cargo_health::inspect(metadata, &PolicyPlan::default(), None))
 }

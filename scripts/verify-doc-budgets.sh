@@ -1,15 +1,3 @@
-#!/usr/bin/env bash
-# Checks docs/doc-budgets.json against what is on disk.
-#
-# `budgets` holds the standing documents and their word ceilings. A file over
-# its ceiling fails, and a file under 85 percent of it fails too, so a ceiling
-# ratchets down with the words the document no longer needs rather than
-# accumulating slack: a new ceiling leaves 5 percent of headroom, the band a
-# document may grow in before it has to earn more.
-#
-# `frozen` holds the measurement records, which carry no ceiling. A markdown
-# file under docs/ that is in neither list fails, because otherwise the way out
-# of a ceiling is a new unlisted file. docs/doc-gates.md holds the reasoning.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

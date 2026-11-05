@@ -1,17 +1,3 @@
-//! The agent skill the CLI offers to install.
-//!
-//! The skill is compiled into the binary rather than fetched, so an install
-//! never reaches the network and a binary always carries the skill of its own
-//! version: the commands it documents are the commands it accepts, and
-//! `tests/skill_contract.rs` is what keeps that true.
-//!
-//! Like the CI workflow, this writes into the workspace only when asked and
-//! never over what is not its own. A first install creates the skill directory
-//! itself, and `create_dir` fails when it exists, so either the whole skill
-//! lands or nothing does. `--update` rewrites a directory only when its
-//! `SKILL.md` says it is this skill, and every copy records the version that
-//! wrote it, so the refresh can say what it replaced.
-
 use std::fmt;
 use std::fs;
 use std::io;
@@ -21,15 +7,6 @@ use clap::ValueEnum;
 
 use rust_doctor::workspace_write::symlinked_component;
 
-/// Where each agent reads a project's skills. Each entry was checked against
-/// the agent's own documentation on 2026-09-25:
-///
-/// - Claude Code: <https://code.claude.com/docs/en/skills>
-/// - Codex: "Codex scans `.agents/skills` in every directory from your current
-///   working directory up to the repository root",
-///   <https://developers.openai.com/codex/skills>
-/// - Cursor: project skills live in `.cursor/skills/`,
-///   <https://cursor.com/docs/context/skills>
 const TARGETS: [(Agent, &str); 3] = [
     (Agent::Claude, ".claude/skills/rust-doctor"),
     (Agent::Codex, ".agents/skills/rust-doctor"),
@@ -44,8 +21,6 @@ const DOCUMENTS: [(&str, &str); 2] = [
     ),
 ];
 
-/// Written under the front matter of every installed `SKILL.md`, and read back
-/// by the next `--update`.
 const VERSION_MARK: &str = "<!-- Installed by rust-doctor ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -55,8 +30,6 @@ pub enum Agent {
     Cursor,
 }
 
-/// What `--agent` names: one agent, every one with a confirmed target, or
-/// the ones `setup` detects on `PATH` and in the workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum AgentSelection {
     Claude,
@@ -131,19 +104,12 @@ const fn write_reason(kind: io::ErrorKind) -> &'static str {
     }
 }
 
-/// What one install did, with workspace-relative paths only: the tool
-/// publishes no absolute path.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Installed {
     pub written: Vec<PathBuf>,
-    /// On a refresh, the version the replaced copy recorded, `None` when it
-    /// recorded none.
     pub replaced: Option<Option<String>>,
 }
 
-/// The version an installed `SKILL.md` recorded, when it is one: the line
-/// is printed to the agent the skill is for, so anything but a version-shaped
-/// token counts as unrecorded rather than reaching its stderr.
 fn recorded_version(skill: &str) -> Option<String> {
     let (_, rest) = skill.split_once(VERSION_MARK)?;
     let version = rest.split_once(". ")?.0;
@@ -155,10 +121,8 @@ fn recorded_version(skill: &str) -> Option<String> {
     .then(|| version.to_owned())
 }
 
-/// The longest recorded version read back: a semver with a build tag fits.
 const MAX_VERSION_BYTES: usize = 64;
 
-/// Whether a `SKILL.md` front matter declares `name: rust-doctor`.
 fn is_this_skill(skill: &str) -> bool {
     let Some(front) = skill.strip_prefix("---\n") else {
         return false;
@@ -170,8 +134,6 @@ fn is_this_skill(skill: &str) -> bool {
         .any(|name| name.trim().trim_matches(['"', '\'']) == "rust-doctor")
 }
 
-/// `SKILL.md` as installed: the shipped document with the version that wrote
-/// it recorded under the front matter.
 fn stamped(document: &str) -> String {
     let mark = format!(
         "{VERSION_MARK}{}. Refresh with `rust-doctor skill install --update`. -->\n",
@@ -186,8 +148,6 @@ fn stamped(document: &str) -> String {
     }
 }
 
-/// The agent markers the scan checks a skill for, each naming the agent
-/// whose environment sets it.
 const AGENT_MARKERS: [(&str, Agent); 3] = [
     ("CLAUDECODE", Agent::Claude),
     ("CODEX_SANDBOX", Agent::Codex),
@@ -195,7 +155,6 @@ const AGENT_MARKERS: [(&str, Agent); 3] = [
 ];
 
 impl Agent {
-    /// The value `--agent` takes for it.
     pub const fn name(self) -> &'static str {
         match self {
             Self::Claude => "claude",
@@ -205,8 +164,6 @@ impl Agent {
     }
 }
 
-/// The agent running this process, from the first marker set to a
-/// non-empty value.
 pub fn running_agent(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<Agent> {
     AGENT_MARKERS
         .into_iter()
@@ -214,9 +171,6 @@ pub fn running_agent(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> O
         .map(|(_, agent)| agent)
 }
 
-/// The line to show the agent when its skill under `workspace_root` is
-/// absent or was written by another version; nothing when it is current, or
-/// when the directory holds a skill that is not this one.
 pub fn stale_or_missing(workspace_root: &Path, agent: Agent) -> Option<String> {
     let name = agent.name();
     let current = env!("CARGO_PKG_VERSION");
@@ -234,8 +188,6 @@ pub fn stale_or_missing(workspace_root: &Path, agent: Agent) -> Option<String> {
     })
 }
 
-/// The line a handoff prompt opens with when the agent's skill directory is
-/// absent, so the agent can install it before following the prompt.
 pub fn install_line(workspace_root: &Path, agent: Agent) -> Option<String> {
     let name = agent.name();
     (!workspace_root.join(directory(agent)).exists()).then(|| {
@@ -243,10 +195,6 @@ pub fn install_line(workspace_root: &Path, agent: Agent) -> Option<String> {
     })
 }
 
-/// Installs the skill for every agent `selection` names.
-///
-/// Every target is checked before any is written, so a refusal of the third
-/// leaves the first two untouched rather than written and never reported.
 pub fn install(
     workspace_root: &Path,
     selection: AgentSelection,
@@ -273,8 +221,6 @@ pub fn install(
         .collect()
 }
 
-/// `skill install`: installs, prints every path it wrote or would write and
-/// every copy it replaced, and answers the exit status.
 pub fn install_and_print(workspace_root: &Path, selection: AgentSelection, options: InstallOptions) -> u8 {
     let installed = match install(workspace_root, selection, options) {
         Ok(installed) => installed,
@@ -379,8 +325,6 @@ mod tests {
         dry_run: false,
     };
 
-    /// The recorded version reaches the agent's stderr, so only a
-    /// version-shaped token is read back.
     #[test]
     fn only_a_version_shaped_token_is_read_back_as_the_recorded_version() {
         let skill = |version: &str| format!("{VERSION_MARK}{version}. Refresh. -->\n");
@@ -428,7 +372,6 @@ mod tests {
         );
         assert!(refused.to_string().contains("--update"));
 
-        // An older copy is replaced whole, and the refresh names its version.
         let skill_path = root.join(".claude/skills/rust-doctor/SKILL.md");
         fs::write(
             &skill_path,

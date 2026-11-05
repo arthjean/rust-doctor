@@ -1,12 +1,3 @@
-//! Tests of the code frame.
-//!
-//! They live in their own file for the reason the frame itself checks: the
-//! crate passes its own `oversized_unit` rule, and a module carrying the
-//! workspace check, the reader, the sanitizer and their tests in one file would
-//! not. They also live here rather than beside the rest of the presentation,
-//! which is what lets the reader and its bounds stay private to this module.
-
-
 use super::*;
 use crate::test_scratch::scratch;
 use crate::DiagnosticSpan;
@@ -31,10 +22,6 @@ fn primary(frame: &CodeFrame) -> &CodeFrameLine {
         .expect("a frame always carries its reported line")
 }
 
-/// The frame passes the rule the report publishes. `oversized_unit` reports a
-/// file at a thousand lines, and this module holds that bound: these tests have
-/// a file of their own for that reason, and a file that grows back past it
-/// fails here rather than on a self-scan nobody reads.
 #[test]
 fn the_frame_holds_the_size_bound_the_report_reports_for() {
     for own in [include_str!("../code_frame.rs"), include_str!("tests.rs")] {
@@ -136,9 +123,6 @@ fn hostile_paths_binary_and_invalid_utf8_never_render_source() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A path the workspace exposes as something other than a regular file is
-/// refused before it is opened. Opening a named pipe blocks in the call itself,
-/// so the check on the handle below the open could never be reached.
 #[test]
 fn a_path_that_is_not_a_regular_file_is_refused() {
     let root = scratch("presentation-tests", "not-a-file");
@@ -180,10 +164,6 @@ fn symlink_escape_and_replacement_between_validation_and_open_are_rejected() {
     fs::remove_dir_all(outside).unwrap();
 }
 
-/// The reader walks lines rather than a byte prefix, so a finding deep in a
-/// file is framed exactly like one at its top. A cap on the bytes decoded left
-/// everything past the first kilobytes of a file with no frame at all, which is
-/// most of a file the crate's own `oversized_unit` rule reports on.
 #[test]
 fn a_line_past_any_byte_prefix_is_still_framed() {
     let root = scratch("presentation-tests", "deep-line");
@@ -226,10 +206,6 @@ fn a_line_past_any_byte_prefix_is_still_framed() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Decoding only the lines that are kept is what keeps a character straddling a
-/// bound from making a valid file look like it is not UTF-8. Under the byte
-/// prefix this replaced, one accented character at the wrong offset cost the
-/// file every frame it had, including the ones on its first line.
 #[test]
 fn a_character_straddling_a_read_bound_leaves_a_valid_file_readable() {
     let root = scratch("presentation-tests", "straddle");
@@ -253,8 +229,6 @@ fn a_character_straddling_a_read_bound_leaves_a_valid_file_readable() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The line bound is applied on a character boundary, so cutting a very long
-/// line never turns it into a decoding failure either.
 #[test]
 fn a_line_cut_at_its_own_bound_is_still_decoded() {
     let root = scratch("presentation-tests", "long-line");
@@ -298,15 +272,10 @@ fn a_window_never_leaves_the_file_it_frames() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The caret stays inside the text the frame shows. A span pointing past what
-/// the sanitizer had room for stops where the text stops rather than at the
-/// frame's own edge, where it would hang in empty columns.
 #[test]
 fn a_marker_never_points_past_the_text_the_frame_shows() {
     let root = scratch("presentation-tests", "marker-bound");
     fs::create_dir_all(root.join("src")).unwrap();
-    // The emoji sanitizes to nine columns and would overflow, so the rendered
-    // line stops five columns short of the frame's width.
     let source = format!("{}\u{1F469}{}", "a".repeat(155), "b".repeat(40));
     fs::write(root.join("src/wide.rs"), format!("{source}\n")).unwrap();
 
@@ -330,9 +299,6 @@ fn a_marker_never_points_past_the_text_the_frame_shows() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A span that ends on a later line has no end column on the line the frame
-/// shows. It marks to the end of what is shown rather than borrowing a column
-/// from a line the reader cannot see.
 #[test]
 fn a_span_ending_on_a_later_line_marks_to_the_end_of_the_line_shown() {
     let root = scratch("presentation-tests", "multi-line-span");
@@ -365,9 +331,6 @@ fn a_span_ending_on_a_later_line_marks_to_the_end_of_the_line_shown() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A line the scan budget cut short is dropped rather than shown. The frame
-/// would otherwise render a fragment as if it were the source, and the reader
-/// has no way to tell one from the other.
 #[test]
 fn a_line_the_scan_budget_cut_short_is_never_shown() {
     let root = scratch("presentation-tests", "scan-budget");
@@ -375,19 +338,15 @@ fn a_line_the_scan_budget_cut_short_is_never_shown() {
     let path = root.join("src/budget.rs");
     fs::write(&path, "one\ntwo\nthree\n").unwrap();
 
-    // Seven bytes reach the end of "one\n" and stop three bytes into "two\n".
     let (cut, _) = read_window(File::open(&path).unwrap(), 1, 7).unwrap();
     assert_eq!(cut, vec!["one".to_owned()]);
 
-    // The same read with the budget landing on a line terminator keeps the line.
     let (whole, _) = read_window(File::open(&path).unwrap(), 1, 8).unwrap();
     assert_eq!(whole, vec!["one".to_owned(), "two".to_owned()]);
 
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Both reports lay their gutter out from this, so a frame reaching a wider
-/// line number widens the source row and the caret row together.
 #[test]
 fn the_gutter_widens_with_the_widest_line_number_of_the_frame() {
     let frame = |numbers: &[usize]| CodeFrame {
@@ -430,8 +389,6 @@ fn terminal_width_is_exact_because_non_ascii_is_escaped() {
     assert_eq!(sanitize_line("a\tb").text, "a   b");
 }
 
-/// US-001: a key the repository pass matches never reaches a frame, on the
-/// reported line or around it, and the caret covers what replaced it.
 #[test]
 fn every_credential_of_a_frame_is_masked_and_the_caret_covers_the_mask() {
     let root = scratch("presentation-tests", "redaction");
@@ -461,8 +418,6 @@ fn every_credential_of_a_frame_is_masked_and_the_caret_covers_the_mask() {
     assert_eq!(masked, "AKIA<redacted>");
 }
 
-/// A value too short to spare four characters keeps none of them, and the
-/// body of a PEM key the frame opened is masked whole.
 #[test]
 fn a_short_value_and_a_private_key_body_print_no_character_of_the_key() {
     assert_eq!(masked("sk-1234"), REDACTED);
@@ -497,9 +452,6 @@ fn a_short_value_and_a_private_key_body_print_no_character_of_the_key() {
     assert_eq!(rendered[3], "-----END PRIVATE KEY-----");
 }
 
-/// A frame whose window opens inside a PEM body, below a header it does not
-/// show, still masks the body: the header read on the way to the window is
-/// what says the key is open.
 #[test]
 fn a_window_opening_inside_a_private_key_body_masks_it() {
     let root = scratch("presentation-tests", "pem-window");
@@ -521,9 +473,6 @@ fn a_window_opening_inside_a_private_key_body_masks_it() {
     assert_eq!(rendered[1], "-----END PRIVATE KEY-----\";");
 }
 
-/// EP-003 US-011: a one-line PEM escaped with `\n` is masked from its header
-/// to its footer, and its footer closes the key on its own line, so the line
-/// below prints as it is.
 #[test]
 fn a_one_line_private_key_is_masked_whole_and_the_line_below_is_not() {
     let root = scratch("presentation-tests", "pem-one-line");
@@ -550,8 +499,6 @@ fn a_one_line_private_key_is_masked_whole_and_the_line_below_is_not() {
     assert_eq!(rendered[1], "fn below() {}");
 }
 
-/// EP-003 US-011: the body line that carries the footer is masked up to the
-/// footer, and the caret stays on the footer it pointed at.
 #[test]
 fn a_body_line_carrying_the_footer_is_masked_up_to_it() {
     let root = scratch("presentation-tests", "pem-glued-footer");
@@ -581,9 +528,6 @@ fn a_body_line_carrying_the_footer_is_masked_up_to_it() {
     assert!(rendered.contains(&"fn below() {}"), "{rendered:?}");
 }
 
-/// FR-01: the literal a secret environment variable falls back to is the
-/// secret `secret_env_fallback` matched, and no frame prints it, on the call's
-/// line or on the line below a call that wrapped.
 #[test]
 fn a_secret_fallback_literal_is_masked_on_its_line_and_after_a_wrap() {
     let root = scratch("presentation-tests", "fallback-redaction");
@@ -620,8 +564,6 @@ fn a_secret_fallback_literal_is_masked_on_its_line_and_after_a_wrap() {
     );
 }
 
-/// Self-scan audit US-006: redaction returns on every line of the non-ASCII
-/// table, and every column edit it returns is ordered.
 #[test]
 fn redaction_returns_on_every_line_of_the_non_ascii_table() {
     for line in crate::boundary_table::lines() {

@@ -1,16 +1,3 @@
-//! Cargo's `--message-format=json` stream: the shape of what it carries, and
-//! the line-by-line reader that turns it into that shape.
-//!
-//! One rule holds the file together: **every bound here is a budget on work,
-//! never a filter on meaning**. A line past `LINE_MAX_BYTES` is dropped as
-//! malformed and counted, a stream past `MESSAGE_MAX_COUNT` messages stops with
-//! an error at the `parsing` stage, and neither decides which diagnostic the
-//! report is allowed to publish. The reader used to have no bound at all, in a
-//! crate whose git layer documents that every way out of it is bounded: the
-//! scanned workspace's procedural macros decide how many diagnostics Cargo
-//! emits, and `has_contaminated_cargo_suffix` costs one JSON parse per `{` of
-//! the line it is handed.
-
 use std::io::{BufRead, Read};
 
 use cargo_metadata::Message;
@@ -19,20 +6,8 @@ use serde_json::Value;
 
 use crate::internal_error::InternalError;
 
-/// What one line of the stream may contribute.
-///
-/// Cargo emits one object per line, and the largest of them is a compiler
-/// message carrying its own rendered form. A megabyte is far past any of them;
-/// past it, the only producers are a `RUSTC_WRAPPER` or a wrapper script
-/// writing into Cargo's stdout.
 const LINE_MAX_BYTES: usize = 1024 * 1024;
 
-/// How many messages one scan may keep.
-///
-/// The report ranks a finite list and the terminal renders a finite report, so
-/// a scan that has already collected this many has collected every diagnostic
-/// anyone will read. Stopping here says so; growing until the allocator gives
-/// up would not.
 const MESSAGE_MAX_COUNT: usize = 100_000;
 
 #[derive(Debug, Default)]
@@ -45,23 +20,11 @@ pub(crate) struct ScanExecution {
     pub(crate) malformed_messages: usize,
     pub(crate) messages: Vec<CapturedMessage>,
     pub(crate) errors: Vec<InternalError>,
-    /// What the pass reports without it costing the scan its completeness: a
-    /// lint list the toolchain would not print is a narrower check, not a
-    /// failed one.
     pub(crate) notices: Vec<InternalError>,
-    /// The tail of what Cargo wrote on stderr, scrubbed, kept only when the
-    /// pass failed: a successful run publishes nothing from there.
     pub(crate) cargo_cause: Option<String>,
-    /// The run's deadline killed the pass before it finished.
     pub(crate) deadline_exceeded: bool,
-    /// Catalogued Clippy rules the installed Clippy does not list, which the
-    /// command therefore does not carry.
     pub(crate) not_evaluated: Vec<&'static str>,
-    /// The lint-level flags removed from the caller's rustflags.
     pub(crate) removed_lint_flags: Vec<String>,
-    /// Members the pass never linted, a build failure or the deadline having
-    /// stopped it first. Their silence is no clean bill of health, so none of
-    /// them is scored.
     pub(crate) unlinted: Vec<String>,
 }
 
@@ -69,11 +32,6 @@ pub(crate) struct ScanExecution {
 pub(crate) enum CapturedMessage {
     Compiler(CompilerMessageData),
     Known(Box<Message>),
-    /// A message Cargo emitted under a reason this crate does not model. It is
-    /// counted, never read: retaining the `Value` kept one parsed document per
-    /// unrecognized message alive for the whole scan, up to
-    /// `MESSAGE_MAX_COUNT` of them, and the only thing any reader ever asked
-    /// of the variant was that it existed.
     Unknown,
 }
 
@@ -87,12 +45,6 @@ pub(crate) struct CompilerMessageData {
 #[derive(Debug, Deserialize)]
 pub(crate) struct CapturedTarget {
     pub(crate) name: String,
-    /// Target kind as Cargo declares it: `lib`, `bin`, `test`, `bench`,
-    /// `example`, `custom-build`. The build system answers, not a path
-    /// heuristic, and it stays exact where `target.test` does not: under
-    /// `--all-targets`, Cargo marks `test` true even on a binary with no test
-    /// at all, while `kind` keeps separating what the project ships from what
-    /// it compiles to check itself.
     #[serde(default)]
     pub(crate) kind: Vec<String>,
 }
@@ -104,9 +56,6 @@ pub(crate) struct CapturedDiagnostic {
     pub(crate) level: String,
     #[serde(default)]
     pub(crate) spans: Vec<CapturedSpan>,
-    /// The sub-diagnostics rustc attaches: its `help` and `note` lines, whose
-    /// spans are where a suggested replacement lives. Only the replacement is
-    /// read out of them; their text stays with the toolchain.
     #[serde(default)]
     pub(crate) children: Vec<CapturedDiagnostic>,
 }
@@ -124,15 +73,10 @@ pub(crate) struct CapturedSpan {
     pub(crate) column_start: usize,
     pub(crate) column_end: usize,
     pub(crate) is_primary: bool,
-    /// What rustc proposes to write over this span, on the spans of a
-    /// `children` entry. Absent on a primary span.
     #[serde(default)]
     pub(crate) suggested_replacement: Option<String>,
-    /// rustc's own `Applicability` spelling for the replacement above.
     #[serde(default)]
     pub(crate) suggestion_applicability: Option<String>,
-    /// The source lines the span covers, with the highlighted columns: what
-    /// a replacement would write over.
     #[serde(default)]
     pub(crate) text: Vec<CapturedSpanLine>,
 }
@@ -140,15 +84,11 @@ pub(crate) struct CapturedSpan {
 #[derive(Debug, Deserialize)]
 pub(crate) struct CapturedSpanLine {
     pub(crate) text: String,
-    /// One-based character columns, the end exclusive.
     pub(crate) highlight_start: usize,
     pub(crate) highlight_end: usize,
 }
 
 impl CapturedSpanLine {
-    /// The highlighted characters, or the whole line when the columns do not
-    /// fit it: a caller asking what a span covers is better served by too much
-    /// text than by none.
     pub(crate) fn highlighted(&self) -> String {
         let start = self.highlight_start.saturating_sub(1);
         let length = self.highlight_end.saturating_sub(self.highlight_start);
@@ -168,8 +108,6 @@ pub(super) struct CollectedMessages {
     pub(super) errors: Vec<InternalError>,
 }
 
-/// One record of the stream: the bytes of a line, and whether the line ended
-/// where the reader stopped keeping it.
 enum Record {
     Line { bytes: Vec<u8>, truncated: bool },
     End,
@@ -180,9 +118,6 @@ pub(super) fn collect(reader: impl BufRead) -> CollectedMessages {
     collect_observed(reader, &mut |_| {})
 }
 
-/// Reads the stream to its end, handing every message of a modelled reason to
-/// `observe` as it arrives: the progress line is drawn from the
-/// `compiler-artifact` records while Cargo is still writing the next ones.
 pub(super) fn collect_observed(
     reader: impl BufRead,
     observe: &mut dyn FnMut(&Message),
@@ -193,16 +128,10 @@ pub(super) fn collect_observed(
     loop {
         match read_record(&mut reader) {
             Ok(Record::End) => break,
-            // A line the reader had to cut is a line no parser can be given: a
-            // truncated JSON object is not the message Cargo emitted, and the
-            // suffix scan below is quadratic in the length it was cut from.
             Ok(Record::Line {
                 truncated: true, ..
             }) => collected.malformed_messages += 1,
             Ok(Record::Line { bytes, .. }) => {
-                // A line that is not UTF-8 is a malformed message, not a
-                // failed read: the stream keeps going, and one unreadable line
-                // no longer costs the report every message after it.
                 let Ok(record) = str::from_utf8(&bytes) else {
                     collected.malformed_messages += 1;
                     continue;
@@ -231,10 +160,6 @@ pub(super) fn collect_observed(
     collected
 }
 
-/// Reads one line, keeping at most `LINE_MAX_BYTES` of it.
-///
-/// The rest of an oversized line is consumed rather than left in the pipe: the
-/// producer is still writing, and stopping the read would block it forever.
 fn read_record(reader: &mut impl BufRead) -> std::io::Result<Record> {
     let mut bytes = Vec::new();
     let read = (&mut *reader)
@@ -243,8 +168,6 @@ fn read_record(reader: &mut impl BufRead) -> std::io::Result<Record> {
     if read == 0 {
         return Ok(Record::End);
     }
-    // A last line with no newline is a complete line, not a cut one: only a
-    // line that filled the whole budget without ending was cut.
     let truncated = !bytes.ends_with(b"\n") && bytes.len() >= LINE_MAX_BYTES;
     if truncated {
         let mut discarded = Vec::new();

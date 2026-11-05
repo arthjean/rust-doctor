@@ -17,9 +17,6 @@ mod sweep;
 
 pub(crate) use staged::{StagedIndex, locate_index, materialize_index};
 
-/// Whether `path` is the root of a snapshot's tree, the directory standing for
-/// the repository root. Nothing above it belongs to the snapshot, and an
-/// upward walk that went on would read the parent directory's neighbours.
 pub(crate) fn is_snapshot_tree(path: &Path) -> bool {
     sweep::is_snapshot_tree(path)
 }
@@ -32,9 +29,6 @@ const PATH_LIMIT: usize = 4_096;
 const COMMAND_OUTPUT_LIMIT: usize = 4_096;
 const TEMP_ATTEMPTS: usize = 128;
 
-/// Every git call of this module reports at this stage, including the two
-/// outcomes it does not name: a git that could not start, and a stream that
-/// overflowed the bound this module publishes in its own oracle.
 const STAGE: &str = "baseline";
 
 const INVENTORY_FAILURE: GitFailure =
@@ -103,9 +97,6 @@ pub(crate) struct Snapshot {
     tree: PathBuf,
     target: PathBuf,
     workspace: PathBuf,
-    /// How git sees the tree, for the one pass that asks git what it tracks.
-    /// Its index lives under `root` or is the repository's own, so it lasts
-    /// as long as the snapshot.
     view: GitView,
     cleanup_pending: bool,
 }
@@ -153,24 +144,6 @@ impl Drop for Snapshot {
     }
 }
 
-/// Where the base side builds: `rust-doctor/<side>` under the workspace's own
-/// Cargo target directory, or `None` when that directory cannot be created or
-/// written, and the snapshot's temporary target serves instead.
-///
-/// The base side used to build under the snapshot's temporary root, removed
-/// after every run, so each `--scope baseline` paid a cold build of the whole
-/// dependency graph. Its sources still move with every snapshot, but a
-/// registry dependency's fingerprint does not depend on where the workspace
-/// sits, so a directory that outlives the snapshot keeps them fresh. It lives
-/// where `cargo clippy` itself writes, so `cargo clean` removes it with the
-/// rest, and Cargo's build-directory lock serializes two baseline runs of the
-/// same workspace. The staged tree of `--staged` keeps its own, `staged`, for
-/// the same reason.
-///
-/// A target directory can be committed, so a component of the path that is a
-/// symlink is refused rather than followed, and the probe is created only
-/// where nothing sits: a link planted at its PID-named path would otherwise
-/// have the probe truncate whatever it points at.
 pub(crate) fn persistent_target(target_directory: &Path, side: &str) -> Option<PathBuf> {
     let relative = Path::new("rust-doctor").join(side);
     if symlinked_component(target_directory, &relative).is_some() {
@@ -400,8 +373,6 @@ fn repository_root(workspace_root: &Path) -> Result<PathBuf, InternalError> {
         .ok_or_else(materialization_failed)
 }
 
-/// A new owner-only snapshot root under the first private parent
-/// `parent::choose` accepts, after sweeping that parent of dead runs.
 fn create_temp_root(repository_root: &Path) -> Result<TempRoot, InternalError> {
     let temporary = parent::choose(repository_root, parent::candidates())?;
     sweep::dead_snapshots(&temporary);
@@ -714,12 +685,6 @@ mod tests {
         assert!(!root.exists(), "the RAII owner must retry cleanup on drop");
     }
 
-    /// The rejected case is containment, and it is built from a scratch tree
-    /// rather than from this repository. Deriving it from `CARGO_MANIFEST_DIR`
-    /// made the test assert a property of the machine: where `target/` is a
-    /// symlink to a build directory elsewhere, the path canonicalizes outside
-    /// the repository, the guard rightly accepts it, and the test fails while
-    /// the code under test is correct.
     #[test]
     fn temporary_root_inside_the_repository_is_rejected() {
         let scratch = env::temp_dir()

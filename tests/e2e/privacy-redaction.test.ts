@@ -1,7 +1,3 @@
-// `tasks/e2e-catalog/failures.md` section PV: privacy and secret redaction.
-// One planted probe (privacy-support.ts) is scanned once per output mode, and
-// every mode is searched for every planted value, environment value and
-// private path. Its credentials are built at runtime.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -54,7 +50,6 @@ function at(code: string, line: number): Diagnostic | undefined {
   return report().diagnostics.find((entry) => entry.code === code && entry.path === "src/lib.rs" && entry.span?.line_start === line);
 }
 
-// A one-crate workspace of `files` outside any HOME the scan is told about.
 function crate(name: string, files: Record<string, string>): string {
   const dir = join(scratchDir(name), name);
   const manifest = `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2024"\npublish = false\n\n[workspace]\n`;
@@ -90,7 +85,6 @@ describe("privacy and secret redaction", () => {
     const password = planted.databaseUrl!.split(":")[2]!.split("@")[0]!;
     expect(out).toContain(`${password.slice(0, 4)}<redacted>@db.prod.net`);
     expect(out).toMatch(/> {4}1 \| ----<redacted>\n[^\n]*\n {5}2 \| <redacted>\n {5}3 \| <redacted>\n/);
-    // The access key's line is masked in the frame of the neighboring unwrap too.
     expect(out).toMatch(/\n {5}2 \| {5}"AKIA<redacted>"/);
   });
 
@@ -156,8 +150,6 @@ describe("privacy and secret redaction", () => {
   });
 
   test.skipIf(!requireNetns())("PV-09 a rustup error under a RUSTUP_HOME outside HOME names $RUSTUP_HOME, never the path", async () => {
-    // Inside a namespace with no network, so rustup's install attempt fails
-    // at once instead of downloading a toolchain.
     const rustupHome = join(scratchDir("pv-09"), "rustup");
     mkdirSync(rustupHome);
     const workspace = crate("pinned", { "rust-toolchain.toml": '[toolchain]\nchannel = "1.80.0"\n' });
@@ -179,9 +171,6 @@ describe("privacy and secret redaction", () => {
   });
 
   test("PV-13 a private key a failing build script echoes is masked in the report error and its markdown", async () => {
-    // The header is assembled in the build script and here, so neither this
-    // file nor the scanned tree tracks a key; no three characters of the body
-    // occur in a message that does not carry it.
     const body = "Q+/Z9".repeat(13);
     const script = [
       "fn main() {",

@@ -1,26 +1,3 @@
-//! Coarse crate-reference collector over the enumeration.
-//!
-//! The dependency-truth rules judge a manifest entry against evidence: the
-//! set of crate names each package's sources actually reference. The
-//! collection is syntactic and deliberately coarse, in the cargo-shear
-//! posture: it reads the first segment of written paths, `extern crate`
-//! declarations and macro invocation paths, and never resolves a name. A
-//! local module shadowing a dependency name therefore credits the entry, and
-//! that direction of error silences a finding instead of publishing a wrong
-//! one.
-//!
-//! Inside a macro invocation, arguments are token trees rather than parsed
-//! paths, and test code lives there almost entirely (`assert_eq!` and its
-//! siblings). An identifier followed by `::` in a token tree is therefore
-//! read as a crate-qualifying reference too, with the same classification as
-//! a parsed path.
-//!
-//! What neither reading can see, the textual fallback bounds: before a rule
-//! reports an entry, `mentioned` scans the package's source text for the
-//! crate name between identifier boundaries, which covers doctests and
-//! attribute arguments. The residual invisible class, a path constructed by
-//! a macro, is named in the rule help as an abstention.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use ra_ap_syntax::ast::{self, HasAttrs};
@@ -30,15 +7,10 @@ use crate::source_text::compact;
 
 use super::{Enumeration, SourceUnit};
 
-/// Where a package's sources reference one crate name.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReferenceSites {
-    /// Seen from a lib, bin or build-script target, outside any inline
-    /// `#[cfg(test)]` module.
     pub(crate) production: bool,
-    /// Seen from a test, bench or example target.
     pub(crate) test_target: bool,
-    /// Seen inside an inline `#[cfg(test)]` module of a production target.
     pub(crate) inline_test: bool,
 }
 
@@ -48,15 +20,10 @@ impl ReferenceSites {
     }
 }
 
-/// References collected for every workspace package, keyed by package id.
 #[derive(Debug, Default)]
 pub(crate) struct CrateReferences {
     names: BTreeMap<String, BTreeMap<String, ReferenceSites>>,
-    /// Packages one of whose units the parser rejected: their collection is
-    /// incomplete and the dependency rules abstain for them.
     incomplete_packages: BTreeSet<String>,
-    /// An enumeration failure that names no package, a module the walk could
-    /// not reach for instance: no package's collection can claim completeness.
     incomplete_everywhere: bool,
 }
 
@@ -74,16 +41,12 @@ impl CrateReferences {
     }
 }
 
-/// The reach a textual mention must have to count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mention {
     Anywhere,
     ProductionOnly,
 }
 
-/// Builds the per-package reference sets from the one enumeration the source
-/// producers already share. No file is read and no directory is walked here:
-/// the units were loaded once, and this pass only re-reads their trees.
 pub(crate) fn collect(enumeration: &Enumeration) -> CrateReferences {
     let mut references = CrateReferences {
         incomplete_everywhere: enumeration
@@ -99,8 +62,6 @@ pub(crate) fn collect(enumeration: &Enumeration) -> CrateReferences {
             references.incomplete_packages.extend(packages);
             continue;
         }
-        // A unit a production target also reaches counts as production, because
-        // reporting shipped code as test-only is the expensive mistake.
         let test_unit = unit.is_test_target(enumeration.contexts());
         collect_unit(unit, &packages, test_unit, &mut references);
     }
@@ -114,8 +75,6 @@ fn collect_unit(
     test_unit: bool,
     references: &mut CrateReferences,
 ) {
-    // Every site of a test unit is a test site, so the gated ranges only have
-    // to be found inside a production one.
     let gated = if test_unit {
         Vec::new()
     } else {
@@ -124,9 +83,6 @@ fn collect_unit(
 
     for node in unit.tree().syntax().descendants() {
         match node.kind() {
-            // Only the outermost path of a chain carries the crate-naming
-            // first segment: `a::b::c` nests three PATH nodes and the two
-            // inner ones repeat what the outer one already says.
             SyntaxKind::PATH
                 if node
                     .parent()
@@ -172,9 +128,6 @@ fn collect_unit(
     }
 }
 
-/// First segment of a written path, which is the only one that can name a
-/// crate. A segment that is not a plain name, `crate` or `<T as Trait>` for
-/// instance, names no crate.
 fn written_crate_name(node: &SyntaxNode) -> Option<String> {
     match ast::Path::cast(node.clone())?.segments().next()?.kind()? {
         ast::PathSegmentKind::Name(name) => Some(name.text().to_string()),
@@ -182,13 +135,6 @@ fn written_crate_name(node: &SyntaxNode) -> Option<String> {
     }
 }
 
-/// Identifiers heading a written path inside a macro's token tree.
-///
-/// Macro arguments are tokens rather than parsed paths, and test code lives
-/// there almost entirely (`assert_eq!` and its siblings). An identifier a `::`
-/// follows and no `::` precedes is the head of a written chain; inside a token
-/// tree that separator is two bare `:` tokens. Nested trees are their own
-/// nodes, so each token is read exactly once.
 fn chain_heads(tree: &SyntaxNode) -> Vec<SyntaxToken> {
     let tokens: Vec<SyntaxToken> = tree
         .children_with_tokens()
@@ -257,10 +203,6 @@ fn record(
     }
 }
 
-/// Only the exact form `#[cfg(test)]` gates a module here. A wider condition,
-/// `#[cfg(any(test, feature = "..."))]` for instance, keeps its references in
-/// production, because misclassifying shipped code as test-only is the
-/// expensive direction.
 fn is_cfg_test(attribute: &ast::Attr) -> bool {
     let Some(ast::Meta::CfgMeta(meta)) = attribute.meta() else {
         return false;
@@ -268,15 +210,6 @@ fn is_cfg_test(attribute: &ast::Attr) -> bool {
     compact(meta.syntax()) == "cfg(test)"
 }
 
-/// Does any source text of the package mention the name between identifier
-/// boundaries? This is the abstention check the rules run before reporting:
-/// it reads what the parser cannot claim, doc comments, macro token trees and
-/// attribute arguments, and one mention is enough to silence a finding.
-///
-/// Under `Mention::ProductionOnly`, a mention living in a test unit or inside
-/// an inline `#[cfg(test)]` module does not count: that text is exactly what
-/// the test-only rule reports, so reading it as production evidence would
-/// silence the rule against itself.
 pub(crate) fn mentioned(
     enumeration: &Enumeration,
     package_id: &str,
@@ -302,9 +235,6 @@ pub(crate) fn mentioned(
         })
 }
 
-/// Ranges of the unit's inline `#[cfg(test)]` modules. One implementation, so
-/// what the collector calls a test site and what the textual fallback refuses
-/// to read as production evidence cannot come apart.
 fn test_gated_ranges(unit: &SourceUnit) -> Vec<TextRange> {
     unit.tree()
         .syntax()
@@ -315,9 +245,6 @@ fn test_gated_ranges(unit: &SourceUnit) -> Vec<TextRange> {
         .collect()
 }
 
-/// Substring match whose both neighbors are outside the identifier alphabet,
-/// hyphen included, so "serde" never matches inside "serde_json" or
-/// "serde-json". A match inside an excluded range does not count.
 fn contains_identifier(haystack: &str, needle: &str, excluded: &[TextRange]) -> bool {
     if needle.is_empty() {
         return false;
@@ -367,8 +294,6 @@ mod tests {
             reachability: BTreeSet::from([Reachability {
                 package_id: package.to_owned(),
                 package_name: package.to_owned(),
-                // One synthetic target per unit: the path keeps two units of
-                // the same package from sharing a context entry.
                 target_key: format!("{package}:{path}"),
                 target_name: package.to_owned(),
                 test_gated: false,
@@ -398,8 +323,6 @@ mod tests {
         enumeration
     }
 
-    /// US-005: the four written reference forms are collected, and the first
-    /// segment is the only one that names a crate.
     #[test]
     fn use_qualified_extern_and_macro_references_are_collected() {
         let source = "use serde::Serialize;
@@ -416,14 +339,11 @@ fn build() -> String {
             assert!(sites.production, "{name} was not collected");
             assert!(!sites.test_target && !sites.inline_test, "{name}");
         }
-        // The tail segments of a chain never name a crate.
         assert!(!references.sites("alpha", "Serialize").anywhere());
         assert!(!references.sites("alpha", "to_string").anywhere());
         assert!(!references.sites("alpha", "json").anywhere());
     }
 
-    /// `self::`, `crate::` and `super::` heads are module navigation, not
-    /// crate references.
     #[test]
     fn module_navigation_heads_are_not_collected() {
         let source = "mod inner { pub fn probe() {} }
@@ -436,14 +356,9 @@ fn run() {
         assert!(!references.sites("alpha", "self").anywhere());
         assert!(!references.sites("alpha", "crate").anywhere());
         assert!(!references.sites("alpha", "super").anywhere());
-        // `inner` only ever appears as a tail segment behind a navigation
-        // head, and a tail segment never names a crate.
         assert!(!references.sites("alpha", "inner").anywhere());
     }
 
-    /// US-007's evidence: a reference inside an inline `#[cfg(test)]` module
-    /// of a production unit is recorded as such, and a reference from a unit
-    /// every target marks as test material lands in `test_target`.
     #[test]
     fn references_are_classified_by_target_context_and_test_gate() {
         let lib = "pub fn shipped() { probe_shipped::run(); }
@@ -470,9 +385,6 @@ mod tests {
         assert!(integration.test_target && !integration.production && !integration.inline_test);
     }
 
-    /// A qualifying identifier inside a macro token tree is a reference, with
-    /// the same classification as a parsed path, and a tail or an
-    /// already-qualified identifier is not.
     #[test]
     fn qualifying_identifiers_inside_macro_arguments_are_collected() {
         let source = "pub fn shipped() { assert_eq!(probe_macro_arg::value(), 1); }
@@ -487,15 +399,11 @@ mod tests {
         assert!(references.sites("alpha", "probe_macro_arg").production);
         let gated = references.sites("alpha", "probe_macro_gated");
         assert!(gated.inline_test && !gated.production);
-        // `probe` sits behind `tail_module::` and is not a chain head.
         assert!(!references.sites("alpha", "probe").anywhere());
         assert!(references.sites("alpha", "tail_module").inline_test);
-        // `value` heads no chain anywhere.
         assert!(!references.sites("alpha", "value").anywhere());
     }
 
-    /// A wider cfg than the exact `#[cfg(test)]` keeps its references in
-    /// production: silencing a shipped reference is the expensive direction.
     #[test]
     fn a_wider_cfg_condition_stays_production() {
         let source = "#[cfg(any(test, feature = \"probe\"))]
@@ -505,8 +413,6 @@ mod gated { pub fn run() { probe_wide::run(); } }";
         assert!(references.sites("alpha", "probe_wide").production);
     }
 
-    /// US-005: a unit the parser rejects contributes nothing and marks its
-    /// packages incomplete, while the other packages keep their collection.
     #[test]
     fn a_parse_failure_marks_only_its_packages_incomplete() {
         let broken = "fn broken( { probe_broken::run(); }";
@@ -522,9 +428,6 @@ mod gated { pub fn run() { probe_wide::run(); } }";
         assert!(references.sites("beta", "probe_fine").production);
     }
 
-    /// An enumeration error that names no package, a module the walk never
-    /// reached for instance, leaves no package able to claim a complete
-    /// collection.
     #[test]
     fn an_unattributed_enumeration_error_makes_every_collection_incomplete() {
         let mut enumeration =
@@ -538,9 +441,6 @@ mod gated { pub fn run() { probe_wide::run(); } }";
         assert!(references.incomplete("beta"));
     }
 
-    /// The textual fallback reads doc comments and macro token trees between
-    /// identifier boundaries, in both the hyphenated and the underscored
-    /// spelling, and never across a longer identifier.
     #[test]
     fn textual_mentions_respect_identifier_boundaries() {
         let source = "/// Compare with the `probe-doc` crate before removing.
@@ -550,15 +450,10 @@ pub fn shipped() { let serde_json = 1; let _ = serde_json; }";
 
         assert!(mentioned(&enumeration, "alpha", "probe-doc", Mention::Anywhere));
         assert!(mentioned(&enumeration, "alpha", "probe_macro", Mention::Anywhere));
-        // `serde` never matches inside `serde_json`.
         assert!(!mentioned(&enumeration, "alpha", "serde", Mention::Anywhere));
         assert!(!mentioned(&enumeration, "beta", "probe_macro", Mention::Anywhere));
     }
 
-    /// The production-only reach ignores mentions living in test units and
-    /// mentions inside an inline `#[cfg(test)]` module: that text is what the
-    /// test-only rule reports, so it cannot also be the evidence that
-    /// silences it.
     #[test]
     fn production_reach_ignores_test_units_and_gated_modules() {
         let lib = "pub fn shipped() {}

@@ -1,16 +1,3 @@
-//! The workspace walk: which files the kernel is allowed to read, and reading
-//! them once.
-//!
-//! Every target Cargo names is a root, and `mod` declarations are followed from
-//! there. A file is loaded at most once per edition, and the reachability of
-//! each unit accumulates as more targets arrive at it, which is what lets a
-//! finding name its package only when every reacher agrees on one.
-//!
-//! Nothing outside the workspace is ever read. Containment is decided twice,
-//! lexically before `canonicalize` is called at all, so a `..` climb is refused
-//! without touching the filesystem, and again on the resolved path, which is
-//! what catches a symbolic link pointing out of the tree.
-
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -30,22 +17,9 @@ use super::{
     WalkCounters, literal_string, push_error, push_limit_error,
 };
 
-/// What the walk could not read, and whether anything was lost with it.
-///
-/// The two are held together because they are one fact: a refusal that costs
-/// the walk a file also costs the measurement its exactness, and the only way
-/// to keep the second true as refusals are added is to make recording the
-/// first the thing that sets it. The alternative, deriving the flag from the
-/// error list afterwards, is what the crate already learned not to do: the one
-/// error a file survives is the parse error at the end of `load_unit`, so a
-/// derivation reads either the code or the message back out, and control flow
-/// through a display string moves when the string does.
 struct Refusals {
     errors: Vec<SourceError>,
     every_file_was_read: bool,
-    /// Packages one of whose `mod` requests, or a file one of them named, was
-    /// lost: their module tree is a floor, and no file of theirs is provably
-    /// unreached.
     incomplete: BTreeSet<String>,
 }
 
@@ -60,33 +34,25 @@ impl Default for Refusals {
 }
 
 impl Refusals {
-    /// The traversal `work` lost part of its package's module tree.
     fn lost_tree(&mut self, work: &WorkItem) {
         self.incomplete.insert(work.reachability.package_id.clone());
     }
 
-    /// A file the walk will not read. The counts become a floor.
     fn lost(&mut self, error: SourceError) {
         self.errors.push(error);
         self.every_file_was_read = false;
     }
 
-    /// A file a bound refused. The counts become a floor.
     fn lost_to_limit(&mut self, limit: Limit, maximum: impl std::fmt::Display) {
         push_limit_error(&mut self.errors, limit, maximum);
         self.every_file_was_read = false;
     }
 
-    /// A file the walk read and kept, reported for what is wrong inside it.
-    /// The unit exists, so its lines are counted and nothing is a floor.
     fn kept(&mut self, code: &'static str, message: String) {
         push_error(&mut self.errors, code, message);
     }
 }
 
-/// One file to visit, and the module context it is visited in. Two targets
-/// reaching the same file produce two items: the file is parsed once, but each
-/// traversal contributes its own reachability.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct WorkItem {
     lexical_path: PathBuf,
@@ -96,12 +62,6 @@ struct WorkItem {
     depth: usize,
 }
 
-/// What loading one unit produced.
-///
-/// The three outcomes drive three different decisions, and that is the whole
-/// reason this is a type: `Skipped` leaves the walk running, `BudgetExhausted`
-/// ends it, because the byte budget is global and no later file can fit in what
-/// is left.
 enum Loaded {
     Unit(SourceUnit),
     Skipped,
@@ -142,8 +102,6 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
             }
         };
 
-        // Read before the entry borrows the map, which is the only reason this
-        // is not asked inside the arm that needs it.
         let occupancy = units.len();
         let unit = match units.entry(Identity {
             path: canonical,
@@ -186,7 +144,6 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
         }
         queue.extend(module_requests(unit, &work, &workspace_root, &mut refusals));
     }
-    // A walk that stopped early never reached what is still queued.
     for work in &queue {
         refusals.lost_tree(work);
     }
@@ -209,8 +166,6 @@ fn source_roots(metadata: &Metadata, refusals: &mut Refusals) -> BTreeSet<WorkIt
     let mut roots = BTreeSet::new();
     for package in workspace_packages(metadata) {
         let Some(edition) = syntax_edition(package.edition.to_string().as_str()) else {
-            // Every file of the package goes with it, so this is a loss even
-            // though nothing was opened.
             refusals.lost(SourceError {
                 code: "parse-error",
                 message: format!(
@@ -236,8 +191,6 @@ fn source_roots(metadata: &Metadata, refusals: &mut Refusals) -> BTreeSet<WorkIt
                     package_name: package.name.to_string(),
                     target_key: target_key(&package.id.repr, target_index),
                     target_name: target.name.clone(),
-                    // A target Cargo names is reached by nothing: there is no
-                    // declaration above it to carry a gate.
                     test_gated: false,
                 },
                 depth: 0,
@@ -254,8 +207,6 @@ fn workspace_packages(metadata: &Metadata) -> impl Iterator<Item = &cargo_metada
         .filter(|package| metadata.workspace_members.contains(&package.id))
 }
 
-/// How `Reachability` names a target, and how `target_contexts` keys it. One
-/// spelling, so the two tables cannot key the same target differently.
 fn target_key(package_id: &str, target_index: usize) -> String {
     format!("{package_id}:{target_index}")
 }
@@ -266,9 +217,6 @@ fn crate_alias_tables(metadata: &Metadata) -> BTreeMap<String, CrateAliases> {
         .collect()
 }
 
-/// Non-production mark of every workspace target, keyed the way `Reachability`
-/// names it. The kind comes from Cargo, so a producer never guesses a context
-/// from a path.
 fn target_contexts(metadata: &Metadata) -> BTreeMap<String, Option<DiagnosticContext>> {
     workspace_packages(metadata)
         .flat_map(|package| {
@@ -305,8 +253,6 @@ fn load_unit(
     refusals: &mut Refusals,
 ) -> Loaded {
     let relative_path = relative_path(workspace_root, &identity.path);
-    // One shape for every reason a file cannot become a unit, so the path is
-    // sanitized in one place rather than at each refusal.
     let refused = |reason: &str| SourceError {
         code: "read-failed",
         message: format!("Source path \"{relative_path}\" {reason}."),
@@ -336,8 +282,6 @@ fn load_unit(
         refusals.lost(refused("could not be opened"));
         return Loaded::Skipped;
     };
-    // One byte past the largest read that could still be admitted, so a file
-    // that overruns a limit is detected instead of being silently truncated.
     let remaining = limits.total_bytes.saturating_sub(counters.bytes_read);
     let read_limit = limits.file_bytes.min(remaining).saturating_add(1);
     let mut bytes = Vec::with_capacity(metadata.len().min(read_limit) as usize);
@@ -345,9 +289,6 @@ fn load_unit(
         refusals.lost(refused("could not be read"));
         return Loaded::Skipped;
     }
-    // The budget charges what left the disk, not what survived decoding. A file
-    // that is not UTF-8 was still read, and a walk that did not charge it could
-    // read the per-file limit over and over with the total never moving.
     counters.bytes_read = counters.bytes_read.saturating_add(bytes.len() as u64);
     if bytes.len() as u64 > limits.file_bytes {
         refusals.lost_to_limit(Limit::FileBytes, limits.file_bytes);
@@ -387,15 +328,6 @@ fn load_unit(
     })
 }
 
-/// The files `unit`'s out-of-line `mod` declarations name, for the walk to
-/// visit next. A request that cannot be followed is lost, and so is the
-/// completeness of the declaring package's module tree.
-///
-/// A `path` a `cfg_attr(..)` would set is followed too, whatever its
-/// predicate, the way a `#[cfg(windows)] mod` is: Cargo compiles that file on
-/// the configuration it names. Its default file may then legitimately not
-/// exist, since the `cfg_attr`s can cover every configuration, so it is
-/// unresolved only when no alternative exists either.
 fn module_requests(
     unit: &SourceUnit,
     work: &WorkItem,
@@ -424,11 +356,6 @@ fn module_requests(
         };
 
         let base = inline_module_directory(&work.module_directory, &module);
-        // A `path` on a declaration outside every inline `mod` block is
-        // relative to the directory of the file holding it, even when that file
-        // is `src/a/b.rs` and its plain declarations resolve under `src/a/b/`
-        // (the Reference, "The path attribute"). Inside an inline block it
-        // starts from the same directory a plain declaration does.
         let attributed = if base == work.module_directory {
             work.lexical_path.parent().map_or_else(|| base.clone(), Path::to_path_buf)
         } else {
@@ -455,8 +382,6 @@ fn module_requests(
         };
         let declared = candidates.len();
         let candidates = confined(candidates, workspace_root, work, refusals);
-        // An escaping path was already refused as such, and saying it was also
-        // not found would report one declaration twice.
         let escaped = candidates.len() < declared;
         let mut existing = candidates.into_iter().filter(|path| path_exists(path));
         match (existing.next(), existing.next()) {
@@ -484,11 +409,6 @@ fn module_requests(
 
         for path in alternatives {
             let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
-            // The gate travels with the file the declaration resolved to,
-            // never with the lexical spelling, and a gated file gates
-            // everything it declares in turn: the whole subtree of a
-            // `#[cfg(test)] mod tests;` is compiled only under `cfg(test)`,
-            // not just its root file.
             let mut reachability = work.reachability.clone();
             reachability.test_gated |= is_test_gate(&module);
             requests.push(WorkItem {
@@ -503,9 +423,6 @@ fn module_requests(
     requests
 }
 
-/// The paths of `candidates` that stay inside the workspace, lexically. Each
-/// one that escapes is refused, and costs its package the completeness of its
-/// module tree.
 fn confined(
     candidates: Vec<PathBuf>,
     workspace_root: &Path,
@@ -522,8 +439,6 @@ fn confined(
     confined
 }
 
-/// Directory a `mod` declaration resolves against, once the inline `mod` blocks
-/// it is nested in have been walked back down from the file's own directory.
 fn inline_module_directory(module_directory: &Path, module: &ast::Module) -> PathBuf {
     let mut inline: Vec<String> = module
         .syntax()
@@ -564,8 +479,6 @@ fn path_attribute(module: &ast::Module) -> PathAttribute {
     }
 }
 
-/// Every literal `path` a `cfg_attr(..)` on this declaration would set, at any
-/// nesting of `cfg_attr` the parser types, whatever its predicate.
 fn conditional_paths(module: &ast::Module) -> Vec<String> {
     let mut paths = Vec::new();
     let mut pending: Vec<ast::Meta> = module.attrs().filter_map(|attribute| attribute.meta()).collect();
@@ -583,29 +496,8 @@ fn conditional_paths(module: &ast::Module) -> Vec<String> {
     paths
 }
 
-/// Nesting of `all(...)` the gate reader descends before it stops answering.
-///
-/// A budget on work, not a judgement on meaning: the predicate comes out of a
-/// file this walk did not write, and a recursive reader with no floor is a
-/// stack depth the scanned workspace chooses. A predicate nested deeper than
-/// this is read as no gate, which is the answer that keeps the file weighing.
 const CFG_NESTING_LIMIT: usize = 32;
 
-/// Is this `mod` declaration gated by `#[cfg(test)]`?
-///
-/// The accepted grammar, stated once, here, beside the only code that reads it.
-/// `test` is a gate wherever it stands as the bare predicate: at the top of the
-/// `cfg`, or inside an `all(...)` at any depth this reader follows, since every
-/// arm of an `all` has to hold for the module to be compiled. Nothing else is.
-/// `not(test)` compiles the module out of a test build, which is the opposite
-/// claim. `any(test, ...)` leaves the module compiled outside tests whenever
-/// another arm holds, so the conservative reading refuses it. `feature =
-/// "test-util"` is a string, never the `test` predicate, however it is spelled,
-/// and `test = "..."` is a key rather than the bare predicate.
-///
-/// Refusing is always the safe answer: a declaration this reader does not
-/// recognize leaves its file weighing on the score, and silencing shipped code
-/// is the only mistake the context can make expensive.
 fn is_test_gate(module: &ast::Module) -> bool {
     module.attrs().any(|attribute| match attribute.meta() {
         Some(ast::Meta::CfgMeta(cfg)) => cfg
@@ -615,20 +507,11 @@ fn is_test_gate(module: &ast::Module) -> bool {
     })
 }
 
-/// Does this `cfg` predicate gate on `test`?
-///
-/// The parser hands the attribute over already typed: an atom is one predicate,
-/// with or without a value, and a composite is a keyword and the predicates
-/// written inside its parentheses. So the whitelist above is read off the shape
-/// rather than searched for in the text. Only `all` is descended, and a nesting
-/// deeper than `CFG_NESTING_LIMIT` answers no gate.
 fn predicate_gates(predicate: &ast::CfgPredicate, depth: usize) -> bool {
     if depth > CFG_NESTING_LIMIT {
         return false;
     }
     match predicate {
-        // `test`, and never `test = "..."`: a value makes it a key, and the
-        // gate is the bare predicate.
         ast::CfgPredicate::CfgAtom(atom) => {
             atom.eq_token().is_none()
                 && atom
@@ -646,10 +529,6 @@ fn predicate_gates(predicate: &ast::CfgPredicate, depth: usize) -> bool {
     }
 }
 
-/// Does something occupy this path? A path the process cannot stat counts as
-/// occupied: with two candidate forms for one `mod`, an unreadable `foo.rs`
-/// beside a readable `foo/mod.rs` is reported ambiguous rather than silently
-/// resolved to the one form that happened to be visible.
 fn path_exists(path: &Path) -> bool {
     match path.symlink_metadata() {
         Ok(_) => true,
@@ -668,7 +547,6 @@ fn module_directory_for_file(path: &Path) -> PathBuf {
     }
 }
 
-/// The canonical path of a file the walk may read, or the error refusing it.
 fn confine(workspace_root: &Path, path: &Path) -> Result<PathBuf, SourceError> {
     if !lexically_within_workspace(workspace_root, path) {
         return Err(outside_workspace(workspace_root, path));
@@ -698,21 +576,11 @@ fn outside_workspace(workspace_root: &Path, path: &Path) -> SourceError {
     }
 }
 
-/// Workspace-relative path of a file the kernel did not enumerate, or nothing
-/// when it resolves outside the workspace.
-///
-/// It canonicalizes before comparing, because the caller's root is canonical
-/// while a path assembled from a manifest or read from a directory is not: where
-/// the workspace sits under a symbolic link, a lexical comparison of the two
-/// answers no for every file of it. The structural pass relativizes through this
-/// and nothing else, so the invariant every report depends on, that no absolute
-/// path ever reaches the wire, has one implementation to be right in.
 pub(crate) fn workspace_relative(workspace_root: &Path, path: &Path) -> Option<String> {
     let canonical = path.canonicalize().ok()?;
     display_path(canonical.strip_prefix(workspace_root).ok()?)
 }
 
-/// Path a finding publishes, for a file the walk already proved contained.
 fn relative_path(workspace_root: &Path, path: &Path) -> String {
     path.strip_prefix(workspace_root)
         .ok()
@@ -720,10 +588,6 @@ fn relative_path(workspace_root: &Path, path: &Path) -> String {
         .unwrap_or_else(|| ".".to_owned())
 }
 
-/// Path an error message may name. A path that escapes the workspace is
-/// reduced to its file name, and an unnameable one to a placeholder: an error
-/// is published, and no absolute path or directory outside the tree belongs in
-/// what gets published.
 fn safe_lexical_path(workspace_root: &Path, path: &Path) -> String {
     path.strip_prefix(workspace_root)
         .ok()
@@ -740,8 +604,6 @@ fn safe_lexical_path(workspace_root: &Path, path: &Path) -> String {
         .unwrap_or_else(|| "<source>".to_owned())
 }
 
-/// Wire spelling of a relative path: forward slashes on every platform, and
-/// nothing at all for the empty path.
 fn display_path(relative: &Path) -> Option<String> {
     let relative = relative.to_string_lossy().replace('\\', "/");
     (!relative.is_empty()).then_some(relative)
@@ -790,8 +652,6 @@ mod tests {
         assert!(!lexically_within_workspace(&root(), Path::new("/elsewhere")));
     }
 
-    /// An error message names a workspace-relative path, a bare file name, or
-    /// nothing. It never names a directory the reader did not scan.
     #[test]
     fn a_published_path_never_escapes_the_workspace() {
         assert_eq!(
@@ -806,9 +666,6 @@ mod tests {
             safe_lexical_path(&root(), Path::new("/workspace/../secret.rs")),
             "secret.rs"
         );
-        // The root reduces to its own directory name, which the reader already
-        // knows, and a path carrying no file name at all reaches the
-        // placeholder rather than publishing anything.
         assert_eq!(safe_lexical_path(&root(), &root()), "workspace");
         assert_eq!(safe_lexical_path(&root(), Path::new("/")), "<source>");
     }
@@ -835,22 +692,12 @@ mod tests {
             .expect("the fixture declares one module")
     }
 
-    /// `test` is the bare predicate, and `test = "..."` is a key that happens to
-    /// be spelled with the same word. The `test-gate` fixture carries every
-    /// other form of the grammar, through the walk that reads it; this one lives
-    /// here because a `cfg` the compiler has no value for is a warning the
-    /// fixture would then publish as a compiler note, one more finding in its
-    /// own scan to assert one line of grammar.
     #[test]
     fn a_key_named_test_is_not_the_test_predicate() {
         assert!(is_test_gate(&declaration("#[cfg(test)]")));
         assert!(!is_test_gate(&declaration("#[cfg(test = \"yes\")]")));
     }
 
-    /// The nesting limit is a budget on the work of reading a predicate this
-    /// walk did not write, never a judgement on what the predicate means. A
-    /// predicate nested past it is read as no gate, which is the answer that
-    /// leaves the file weighing on the score: refusing is always the safe side.
     #[test]
     fn a_predicate_nested_past_the_limit_is_read_as_no_gate() {
         let nested = |depth: usize| {
@@ -865,8 +712,6 @@ mod tests {
         assert!(!is_test_gate(&declaration(&nested(CFG_NESTING_LIMIT + 1))));
     }
 
-    /// Two targets of the same package never share a key, and the two tables
-    /// keyed by target agree on the spelling.
     #[test]
     fn every_target_of_a_package_gets_its_own_key() {
         let keys: HashSet<String> = (0..4).map(|index| target_key("alpha", index)).collect();

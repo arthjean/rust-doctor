@@ -1,10 +1,3 @@
-#!/bin/sh
-# Recording stand-in for an external program the tool may start: an agent, a
-# clipboard writer, a browser opener, gh or git-lfs. Each profile directory of
-# fakes.ts links one of those names here; a call records its argv
-# (NUL-separated), its stdin unless stdin is a terminal, its working directory
-# and whether it ran on a terminal, under $RD_FAKE_LOG/<name>.<n>.
-# RD_FAKE_<NAME>_EXIT and RD_FAKE_<NAME>_SLEEP make it fail or hang.
 set -u
 tool=$(basename "$0")
 log=${RD_FAKE_LOG:?RD_FAKE_LOG is not set}

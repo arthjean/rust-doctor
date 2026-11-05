@@ -1,18 +1,3 @@
-//! The end-of-turn hook of a coding agent: installed into the agent's settings
-//! file as one merged entry, and run by the agent when its turn ends.
-//!
-//! Claude Code runs a `Stop` hook and keeps the turn going when it exits 2,
-//! feeding its stderr back to the model; `stop_hook_active` in the hook's
-//! input says the turn is already continuing because of one, which is the
-//! loop guard (<https://code.claude.com/docs/en/hooks>). Cursor's `stop` hook
-//! cannot block: it can only submit a follow-up message, capped at five in a
-//! row by default (<https://cursor.com/docs/agent/hooks>). Its input carries
-//! two guards of its own: a `status` other than `completed` means the user
-//! aborted the turn or it errored, and a `loop_count` of at least
-//! [`MAX_FOLLOWUPS`] means this hook already sent the turn back. Either one
-//! ends the hook silently, before any scan. An input missing a field, or
-//! holding it with another type, scans as if the guard were absent.
-
 use std::env;
 use std::fs;
 use std::io::{self, IsTerminal, Read};
@@ -31,27 +16,21 @@ use super::{ClippyArgs, FAILED, WriteArgs};
 use rust_doctor::terminal_text::sanitize;
 use rust_doctor::workspace_write::{create_new, on_path, symlinked_component};
 
-/// The agents with an end-of-turn hook this tool installs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum AgentHook {
     Claude,
     Cursor,
 }
 
-/// Seconds Claude Code gives the hook. The scan's own deadline sits under it,
-/// so a slow build ends as a scan that stopped, not as a hook that was killed.
 const HOOK_TIMEOUT_SECONDS: u64 = 600;
 const SCAN_DEADLINE_SECONDS: u64 = 540;
 const LISTED_FINDINGS: usize = 10;
 const STDIN_LIMIT: u64 = 1_048_576;
-/// Follow-ups a Cursor turn receives from this hook before it is let end.
 const MAX_FOLLOWUPS: u64 = 1;
 
-/// The scan the hook runs, spelled as a reader would rerun it.
 const RESCAN: &str =
     "rust-doctor . --scope lines --base HEAD --include-untracked --blocking warning";
 
-/// What an install without `--no-clippy` grants, said once as it is written.
 pub(crate) const COMPILE_AUTHORITY: &str = "Note: this hook runs `cargo clippy`, which executes the \
 build scripts and procedural macros of the tree the agent wrote, at the end of every turn and with \
 your account's authority. `--no-clippy` installs a hook that compiles nothing.";
@@ -74,8 +53,6 @@ impl AgentHook {
         }
     }
 
-    /// The hook object the agent runs: the entry itself for Cursor, the one
-    /// hook of a matcher group for Claude.
     fn hook(self, clippy: ClippyArgs) -> Value {
         match self {
             Self::Claude => json!({
@@ -87,7 +64,6 @@ impl AgentHook {
         }
     }
 
-    /// The entry merged into the settings file.
     fn entry(self, clippy: ClippyArgs) -> Value {
         match self {
             Self::Claude => json!({ "hooks": [self.hook(clippy)] }),
@@ -102,8 +78,6 @@ impl AgentHook {
         }
     }
 
-    /// The hook objects of the event's entries that rust-doctor wrote: those
-    /// whose command runs `rust-doctor hook run`, the marker of this install.
     fn ours(self, entries: &mut [Value]) -> Vec<&mut Value> {
         let hooks: Vec<&mut Value> = match self {
             Self::Claude => entries
@@ -124,8 +98,6 @@ impl AgentHook {
     }
 }
 
-/// Whether a hook object holds every key of the current template, any other
-/// key the user added aside.
 fn current(hook: &Value, template: &Value) -> bool {
     template.as_object().is_some_and(|keys| {
         keys.iter()
@@ -133,7 +105,6 @@ fn current(hook: &Value, template: &Value) -> bool {
     })
 }
 
-/// `rust-doctor hook install claude|cursor`.
 pub(crate) fn install(
     agent: AgentHook,
     workspace: &Path,
@@ -188,8 +159,6 @@ pub(crate) fn install(
     0
 }
 
-/// The settings file as it stands, an empty object when absent, and whether
-/// it existed; or the exit code of a file that could not be read or parsed.
 fn read_settings(path: &Path, relative: &str) -> Result<(bool, Value), u8> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
@@ -211,9 +180,6 @@ fn read_settings(path: &Path, relative: &str) -> Result<(bool, Value), u8> {
     })
 }
 
-/// Adds the hook to the event's entries, or refreshes the one an older release
-/// wrote under `--update`, printing what changes. Answers the exit code when
-/// nothing is to be written.
 fn merge(
     agent: AgentHook,
     entries: &mut Vec<Value>,
@@ -235,8 +201,6 @@ fn merge(
             );
             return Some(1);
         }
-        // Both objects come from the settings file, extra keys included, and
-        // serde escapes C0 but writes C1 controls as they are.
         let previous = sanitize(&hook.to_string());
         if let (Some(hook), Some(keys)) = (hook.as_object_mut(), template.as_object()) {
             hook.extend(keys.clone());
@@ -253,8 +217,6 @@ fn merge(
     None
 }
 
-/// The array of entries the agent reads for its end-of-turn event, created
-/// when absent, or `None` when a key on the way holds something else.
 fn event_entries(settings: &mut Value, agent: AgentHook) -> Option<&mut Vec<Value>> {
     let root = settings.as_object_mut()?;
     if agent == AgentHook::Cursor {
@@ -268,14 +230,8 @@ fn event_entries(settings: &mut Value, agent: AgentHook) -> Option<&mut Vec<Valu
         .as_array_mut()
 }
 
-/// `rust-doctor hook run claude|cursor`: rescans what the turn changed. Under
-/// `--no-clippy` every Clippy rule is overridden off, and a request override
-/// wins over `rust-doctor.toml` under every path, so the plan holds no active
-/// Clippy rule and the scan starts no toolchain process and compiles nothing.
 pub(super) fn run(agent: AgentHook, clippy: ClippyArgs) -> ExitCode {
     let mut input = String::new();
-    // The input is advisory: a hook whose input cannot be read still scans,
-    // and a reader at a terminal is not made to type one.
     if !io::stdin().is_terminal() {
         let _ = io::stdin().take(STDIN_LIMIT).read_to_string(&mut input);
     }
@@ -289,8 +245,6 @@ pub(super) fn run(agent: AgentHook, clippy: ClippyArgs) -> ExitCode {
         .with_blocking(BlockingLevel::Warning)
         .with_max_duration(Duration::from_secs(SCAN_DEADLINE_SECONDS));
     if clippy.no_clippy {
-        // A rule's id prefix names its producer, which `validate_catalog`
-        // holds for every rule.
         for rule in catalog().iter().filter(|rule| rule.id.starts_with("clippy::")) {
             request = request.with_rule_override(RuleOverride::new(rule.id, RuleLevel::Off));
         }
@@ -299,7 +253,6 @@ pub(super) fn run(agent: AgentHook, clippy: ClippyArgs) -> ExitCode {
     let verdict = verdict(&report);
     match (agent, verdict) {
         (_, Verdict::Pass) => ExitCode::SUCCESS,
-        // A broken toolchain must never trap the agent in its turn.
         (_, Verdict::Unscanned(reason)) => {
             eprintln!("rust-doctor could not scan ({reason}); not blocking this turn.");
             ExitCode::SUCCESS
@@ -315,9 +268,6 @@ pub(super) fn run(agent: AgentHook, clippy: ClippyArgs) -> ExitCode {
     }
 }
 
-/// Whether the agent's input says this turn must end without a scan: Claude
-/// is already continuing because of this hook, or Cursor's turn did not
-/// complete or was already sent back [`MAX_FOLLOWUPS`] times.
 fn guarded(agent: AgentHook, input: &Value) -> bool {
     match agent {
         AgentHook::Claude => input.get("stop_hook_active") == Some(&Value::Bool(true)),
@@ -334,9 +284,6 @@ fn guarded(agent: AgentHook, input: &Value) -> bool {
     }
 }
 
-/// The workspace the agent's turn ran in: Claude Code names its project root
-/// in `CLAUDE_PROJECT_DIR`, and Cursor starts project hooks in the project
-/// root.
 fn workspace(agent: AgentHook) -> PathBuf {
     match agent {
         AgentHook::Claude => env::var_os("CLAUDE_PROJECT_DIR")
@@ -408,8 +355,6 @@ mod tests {
     const COMPILING: ClippyArgs = ClippyArgs { no_clippy: false };
     const COMPILE_FREE: ClippyArgs = ClippyArgs { no_clippy: true };
 
-    /// Every command a hook runs or prints parses as the CLI stands, so a
-    /// renamed flag fails here rather than in someone's commit or turn.
     #[test]
     fn every_hook_command_parses_as_the_cli_stands() {
         for command in [
@@ -478,8 +423,6 @@ mod tests {
         }
     }
 
-    /// `--update` moves an installed hook to the invocation it is given, the
-    /// flag set or dropped, and the hook stays recognized as this tool's.
     #[test]
     fn an_update_sets_or_drops_the_compile_free_flag() {
         let mut settings = json!({});

@@ -1,6 +1,3 @@
-//! Tests of the Clippy pass, in a file of their own so that both halves of the
-//! module stay under the size bound `oversized_unit` reports at.
-
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -29,9 +26,6 @@ fn arguments_prune_off_rules_but_keep_error_rules_at_warning() {
     );
     assert!(!arguments.contains(&"-D"));
 
-    // Turning off every category turns off every rule, whatever the catalog
-    // volume: the command then carries the silencing alone, so the scan reports
-    // nothing rather than everything Clippy warns about.
     let all_off = CATEGORIES
         .iter()
         .fold(PolicyInput::default(), |input, category| {
@@ -73,9 +67,6 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
     let arguments: Vec<_> = built.get_args().collect();
 
     assert_eq!(built.get_program(), OsStr::new("cargo"));
-    // The catalog is the only source of the list: the command must carry every
-    // Clippy rule on by default, in catalog order, under `-W`, and none of the
-    // opt-in ones.
     let expected: Vec<String> = [
         "clippy",
         "--workspace",
@@ -111,8 +102,6 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
     for forbidden in ["clippy::restriction", "--force-warn", "-D"] {
         assert!(!arguments.contains(&OsStr::new(forbidden)));
     }
-    // `clippy::all` appears once, and only to be switched off: raising the
-    // whole group would flood the report with rules the catalog cannot explain.
     assert_eq!(
         arguments
             .windows(2)
@@ -129,8 +118,6 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
         1
     );
     assert_eq!(built.get_current_dir(), Some(workspace.as_path()));
-    // The occurrence count follows incremental compilation, so the command
-    // pins it rather than inheriting it.
     assert!(
         built
             .get_envs()
@@ -138,8 +125,6 @@ fn the_command_carries_the_shipped_catalog_and_nothing_else() {
     );
 }
 
-/// `Disabled` is a complete outcome and `NotRun` is not: a policy that switches
-/// Clippy off must not cost the report its authoritative flag.
 #[test]
 fn a_disabled_pass_is_complete_and_an_unstarted_one_is_not() {
     assert!(ClippyExecution::Disabled.is_complete());
@@ -148,9 +133,6 @@ fn a_disabled_pass_is_complete_and_an_unstarted_one_is_not() {
     assert!(!ClippyExecution::NotRun.has_outcome());
 }
 
-/// The deadline names the lock Cargo waited on, and only that one: a wait on
-/// the package cache is another Cargo under the same home, never the build
-/// directory rust-analyzer holds.
 #[test]
 fn a_deadline_names_the_lock_cargo_actually_waited_on() {
     let deadline = Some(RunDeadline::starting_now(std::time::Duration::from_secs(5)));
@@ -164,9 +146,6 @@ fn a_deadline_names_the_lock_cargo_actually_waited_on() {
     assert!(!message("   Compiling sleeper v0.1.0\n").contains("lock"));
 }
 
-/// Self-scan remediation EP-002 US-012: the run is cut at the last dependency
-/// artifact, a run with none spends nothing on dependencies, and the two
-/// phases always sum to the run.
 #[test]
 fn the_clippy_run_is_split_at_the_last_dependency_artifact() {
     use std::time::Duration;

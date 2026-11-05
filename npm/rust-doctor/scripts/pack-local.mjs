@@ -89,12 +89,6 @@ function validateBinary(binaryPath) {
   }
 }
 
-// The dual license is two files at the repository root, and npm auto-includes a
-// license only from a package root and only under a name it recognizes, which
-// `LICENSE-MIT` is not. So every published package declares the pair in `files`
-// and is handed the text at staging: the six tarballs each state
-// `MIT OR Apache-2.0`, and a tarball that states terms it does not carry is a
-// license claim with nothing behind it.
 export const LICENSE_FILES = ["LICENSE-MIT", "LICENSE-APACHE"];
 
 export function stageLicenses(directory) {
@@ -105,14 +99,15 @@ export function stageLicenses(directory) {
   }
 }
 
-// The wrapper is staged rather than published from the checkout, for the reason
-// the five native packages are: what a release uploads is then exactly what the
-// packed smoke test installs, down to the license text, instead of the two
-// diverging on whichever files happen to sit next to the manifest.
+export const NODE_SHEBANG = "#!/usr/bin/env node\n";
+
 export function stageWrapper(directory) {
-  mkdirSync(directory, { recursive: true });
+  mkdirSync(join(directory, "bin"), { recursive: true });
   copyFileSync(join(packageRoot, "package.json"), join(directory, "package.json"));
-  cpSync(join(packageRoot, "bin"), join(directory, "bin"), { recursive: true });
+  writeFileSync(
+    join(directory, "bin/rust-doctor.js"),
+    NODE_SHEBANG + readFileSync(join(packageRoot, "bin/rust-doctor.js"), "utf8"),
+  );
   cpSync(join(packageRoot, "lib"), join(directory, "lib"), { recursive: true });
   stageLicenses(directory);
 }
@@ -124,8 +119,6 @@ export function nativeManifest(packageName, version, key) {
     version,
     description: `Rust Doctor native binary for ${os} ${cpu}`,
     license: "MIT OR Apache-2.0",
-    // The canonical git+https form: npm resolves provenance against this field,
-    // and a bare https URL is not what it matches the workflow's repository to.
     repository: {
       type: "git",
       url: "git+https://github.com/arthjean/rust-doctor.git",
@@ -174,9 +167,6 @@ export function packLocal({ binaryPath } = {}) {
   const version = cargoVersion();
   const wrapperManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
   validateWrapperManifest(wrapperManifest, version);
-  if (!readFileSync(join(packageRoot, "bin/rust-doctor.js"), "utf8").startsWith("#!/usr/bin/env node\n")) {
-    fail("wrapper bin must start with the Node shebang");
-  }
 
   const key = platformKey();
   const packageName = PLATFORM_PACKAGES[key];

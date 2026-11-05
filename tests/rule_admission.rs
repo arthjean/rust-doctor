@@ -1,16 +1,4 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-//! Admission gate: no rule ships without a recorded trigger.
-//!
-//! `tests/corpus.json` measures how often a rule is wrong on healthy public
-//! code, and its `gate.unproven` names the rules that corpus never triggered,
-//! because a healthy repository does not commit the defect they aim at. That
-//! silence proves nothing either way, so it cannot be what admits a rule.
-//! `tests/rule_evidence.json` carries the other half of the admission: for
-//! every catalogued rule, the place where a test has seen it fire.
-//!
-//! Only observed positions count. A rule named by a negative fixture is a rule
-//! that must stay quiet there, which is why the arrays read here are the ones
-//! listing what the oracle saw, never the ones listing what it refuses.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -22,10 +10,8 @@ use serde_json::Value;
 
 mod support;
 
-/// Arrays of a frozen oracle that list observed diagnostics.
 const OBSERVED_ARRAYS: [&str; 4] = ["positive", "rules", "historical_rules", "findings"];
 
-/// Fields such an array uses to carry the rule identifier.
 const IDENTIFIER_FIELDS: [&str; 2] = ["code", "id"];
 
 fn repository() -> &'static Path {
@@ -57,8 +43,6 @@ fn entries(index: &Value) -> &Vec<Value> {
         .expect("the index publishes an array of entries")
 }
 
-/// Rules a frozen oracle records as observed, read only from the arrays that
-/// list what it saw.
 fn observed_in(oracle: &Value) -> BTreeSet<String> {
     let mut observed = BTreeSet::new();
     for array in OBSERVED_ARRAYS {
@@ -104,8 +88,6 @@ fn every_catalogued_rule_records_where_it_was_seen_firing() {
         declared.insert(id);
     }
 
-    // Both directions: a rule shipping without evidence is the failure this
-    // gate exists for, and an entry outliving its rule rots in silence.
     let catalogued = catalogued();
     assert_eq!(
         catalogued.difference(&declared).collect::<Vec<_>>(),
@@ -119,8 +101,6 @@ fn every_catalogued_rule_records_where_it_was_seen_firing() {
     );
 }
 
-/// What each Clippy lint of the toolchain says it catches, read from the same
-/// table the candidate queue reads.
 fn published_meanings() -> BTreeMap<String, String> {
     let help = Command::new("clippy-driver")
         .args(["-W", "help"])
@@ -129,8 +109,6 @@ fn published_meanings() -> BTreeMap<String, String> {
     assert!(help.status.success(), "clippy-driver refused to list lints");
     let help = String::from_utf8(help.stdout).expect("the lint table should be UTF-8");
 
-    // The table is column-aligned, so each field is split off the front of the
-    // line rather than counted from a fixed offset.
     help.lines()
         .filter_map(|line| {
             let (name, rest) = line.trim_start().split_once(char::is_whitespace)?;
@@ -160,9 +138,6 @@ fn what_a_clippy_rule_catches_is_what_the_toolchain_says_it_catches() {
             "{id} states nothing about what it catches"
         );
 
-        // A native detector has no upstream description to agree with; a
-        // Clippy lint does, and a meaning that shifts upstream is a contract
-        // that no longer describes what ships.
         if let Some(published) = meanings.get(id) {
             assert_eq!(
                 &catches, published,
@@ -200,16 +175,6 @@ fn an_oracle_reference_names_its_rule_in_an_observed_position() {
     assert!(!oracles.is_empty(), "the index cites no oracle at all");
 }
 
-/// Trigger of every rule admitted outside a pack and outside a frozen oracle.
-///
-/// The packs cover the dimensions they were built for, and the EP-018 archive
-/// is frozen on the five candidates it measured. A rule that belongs to
-/// neither gets its own single-purpose crate under
-/// `tests/fixtures/rule-admission/<kebab-name>/`, holding the form the lint
-/// reports and the neighbouring form it must leave alone. This test is the
-/// pointer those entries name, so the fixture is scanned through the same
-/// `inspect` a user runs, and the published category, tier and help are the
-/// catalog's own.
 #[test]
 fn every_rule_admitted_outside_a_pack_fires_on_its_own_fixture() {
     const POINTER: &str =
@@ -226,9 +191,7 @@ fn every_rule_admitted_outside_a_pack_fires_on_its_own_fixture() {
         let lint = id
             .strip_prefix("clippy::")
             .expect("this fixture set holds Clippy lints");
-        let root = repository()
-            .join("tests/fixtures/rule-admission")
-            .join(lint.replace('_', "-"));
+        let root = support::fixture_dir(&format!("rule-admission/{}", lint.replace('_', "-")));
         assert!(root.is_dir(), "{id} names the missing {}", root.display());
 
         let report = inspect(InspectRequest::new(&root));
@@ -257,9 +220,6 @@ fn every_rule_admitted_outside_a_pack_fires_on_its_own_fixture() {
             "{id}: the fixture reports something else, or nothing"
         );
 
-        // The positive is one site, and the neighbouring form next to it stays
-        // quiet: a rule with no recorded silence is a rule nobody checked for
-        // over-reach.
         let finding = observed[0];
         assert_eq!(finding["occurrences"], 1, "{id}");
         assert_eq!(finding["category"], rule["category"], "{id}");
@@ -300,12 +260,6 @@ fn a_test_reference_names_a_function_that_still_exists() {
     }
 }
 
-/// The README is not a third source of truth: the single rule count it states
-/// follows the published catalog, which the corpus test already proves equal to
-/// the shipped policy. Growing the catalog without touching the README fails
-/// here. What each rule catches is published by `rust-doctor rules list` and by
-/// the website that generates from that command, never by a table the README
-/// would have to keep in step.
 #[test]
 fn the_readme_rule_count_matches_the_published_catalog() {
     let catalog = catalogued();
@@ -317,12 +271,6 @@ fn the_readme_rule_count_matches_the_published_catalog() {
     );
 }
 
-/// US-032: a workspace whose `unsafe` is confined and documented carries none
-/// of the unsafe and transmute lints the catalog admitted. This repository is
-/// one: its only `unsafe` is the signal and process-group boundary, every
-/// block of it under a `SAFETY:` comment. The confinement is read from the
-/// syntax of every file under `src/`, so an `unsafe` inside a string or a
-/// comment does not count, and the scan is the one a user runs.
 #[test]
 fn a_workspace_whose_unsafe_is_documented_fires_no_unsafe_lint() {
     const UNSAFE_LINTS: [&str; 3] = [

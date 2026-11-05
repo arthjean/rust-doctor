@@ -1,8 +1,3 @@
-// `tasks/e2e-catalog/real-codebases.md` section 2: this repository scanned
-// through the CLI as a real codebase, invariants 1 to 4, 6, 10, 14, 17 and 18.
-// The subject is a clone of HEAD, never the working tree, and no test reads
-// the score, the label, a count or a finding this repository happens to have:
-// the self-scan is a gate, and every assertion here is a contract it must keep.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -24,7 +19,6 @@ const target = clone.target("scan");
 
 let main: Promise<{ report: Report; stderr: string; exitCode: number | null }> | undefined;
 
-// The scan most invariants read: JSON with timings, on this file's warm target.
 function mainScan() {
   main ??= scanSelf(clone, ["--json", "--timings"], { target }).then((run) => ({ report: report(run), stderr: run.stderr, exitCode: run.exitCode }));
   return main;
@@ -43,7 +37,6 @@ describe("this repository as a real codebase", () => {
     expect(scan.audit.score?.applied_ceiling).toBeNull();
     expect(scan.gate).toMatchObject({ blocking: "error", status: "passed", blocking_diagnostics: 0 });
     expect(["P0", "P1"]).not.toContain(scan.audit.score?.worst_tier);
-    // A site under tests/ is test context, which the score never ranks.
     const tier = tiers(scan);
     const severe = scan.diagnostics.filter((diagnostic) => ["P0", "P1"].includes(tier.get(diagnostic.code) ?? "")
       && !/^(tests|benches|examples)\//.test(diagnostic.path ?? ""));
@@ -63,7 +56,6 @@ describe("this repository as a real codebase", () => {
     expect(action.inputs.version.default).toBe(version);
   }, TEST_TIMEOUT_MS);
 
-  // CI installs the pin, so there a missing one fails rather than skips.
   test.skipIf(!PIN_INSTALLED && process.env.CI !== "true")(`INV-03 under the pinned toolchain ${TOOLCHAIN_PIN} every catalogued lint is evaluated and no flag is removed`, async () => {
     const { report: scan } = await mainScan();
     const [major, minor] = TOOLCHAIN_PIN.split(".");
@@ -76,9 +68,6 @@ describe("this repository as a real codebase", () => {
     expect(unevaluated).toEqual([]);
   }, TEST_TIMEOUT_MS);
 
-  // Valid because this repository commits its lockfile: a lockless workspace
-  // would have the first scan's lockfile removed, as US-005 requires, and
-  // still be stable, but this one never writes it at all.
   test("INV-04 a cold scan, a warm one and a third agree once timings are removed", async () => {
     const { report: warm } = await mainScan();
     const cold = report(await scanSelf(clone, ["--json"], { target: join(scratchDir("cold-target"), "target") }));
@@ -109,10 +98,6 @@ describe("this repository as a real codebase", () => {
     expect(hits.map((diagnostic) => `${diagnostic.code} ${diagnostic.path}`)).toEqual([]);
   }, TEST_TIMEOUT_MS);
 
-  // A single-member workspace scanned as its one package judges the same
-  // code. The repository pass belongs to the whole repository, so a package
-  // scan reports its five rules as `package-scoped` and its score loses
-  // authority for it: those are the only differences allowed.
   test("INV-14 --package on the single member judges what the full scan judges", async () => {
     const { report: full } = await mainScan();
     const member = report(await scanSelf(clone, ["--json", "--package", "rust-doctor"], { target }));

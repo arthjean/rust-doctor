@@ -1,12 +1,3 @@
-//! What the text counts: the category tallies and the occurrences a group
-//! heading announces.
-//!
-//! Both count only what weighs. A finding outside production code, or one the
-//! catalog does not describe, is published and costs nothing, and counting it
-//! among the warnings is how this crate's own Maintainability line read 138
-//! warnings of which one was scored. The rest is shown apart, so nothing the
-//! report publishes vanishes from the text.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
@@ -15,7 +6,6 @@ use crate::{AuditCategoryName, Diagnostic, InspectReport, Severity};
 
 use super::{RenderError, Style, TerminalOptions, line};
 
-/// What one category or one group counts, split by whether it weighs.
 #[derive(Default)]
 struct Split {
     weighing: crate::SeverityCounts,
@@ -34,7 +24,6 @@ impl Split {
         }
     }
 
-    /// The occurrences set apart, in parentheses, or nothing when none were.
     fn apart(&self) -> String {
         let parts: Vec<String> = [
             (self.outside_production, "outside production code"),
@@ -52,8 +41,6 @@ impl Split {
     }
 }
 
-/// The diagnostics the text speaks for: the introduced ones under a baseline
-/// comparison, which is also the population `audit.categories` was rebuilt on.
 fn scoped(report: &InspectReport) -> Vec<&Diagnostic> {
     let introduced: Option<BTreeSet<&str>> = report
         .delta
@@ -76,8 +63,6 @@ fn bucket(category: Option<&str>) -> AuditCategoryName {
         .map_or(AuditCategoryName::Other, |(name, _)| name)
 }
 
-/// One line per category the audit published, counting what weighs, with the
-/// rest set apart.
 pub(super) fn render_categories<W: Write>(
     writer: &mut W,
     report: &InspectReport,
@@ -119,13 +104,6 @@ pub(super) fn render_categories<W: Write>(
     Ok(())
 }
 
-/// What a group announces beside its title: the weighing occurrences of its
-/// own severity, then whatever else it holds.
-///
-/// A group takes the worst severity among its sites, and its count used to be
-/// every site's: `Warning: Print stderr (33 occurrences)` over one warning and
-/// thirty-two sites published at Info, since a binary's own output channel is
-/// not a defect.
 pub(super) fn group_occurrences(group: &DiagnosticGroup) -> String {
     let mut split = Split::default();
     for diagnostic in &group.diagnostics {
@@ -167,8 +145,6 @@ pub(super) fn group_occurrences(group: &DiagnosticGroup) -> String {
     }
 }
 
-/// Why a rule's sites sit at a severity below the one its group takes, when
-/// the report knows: the binary output channels are published at Info.
 fn where_published(group: &DiagnosticGroup, severity: Severity) -> &'static str {
     let binary_channel = crate::report::BINARY_CHANNEL_RULES.contains(&group.rule_id.as_str());
     if binary_channel && severity == Severity::Info {
@@ -187,8 +163,6 @@ const fn severity_count(counts: crate::SeverityCounts, severity: Severity) -> us
     }
 }
 
-/// The occurrences of one site the summary row counts: the same split, so the
-/// row and the verbose heading never disagree on a group.
 pub(super) fn summary_occurrences(group: &DiagnosticGroup) -> String {
     let weighing: usize = group
         .diagnostics

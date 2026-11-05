@@ -24,8 +24,6 @@ fn metadata(relative: &str) -> Metadata {
         .expect("fixture metadata should load")
 }
 
-/// This repository, as the pass reads it. Two tests scan it: what the
-/// nomination recalls, and which of its own hotspots it names.
 pub(super) fn repository() -> Metadata {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     MetadataCommand::new()
@@ -36,10 +34,6 @@ pub(super) fn repository() -> Metadata {
         .expect("this repository should describe itself")
 }
 
-/// Every rule the catalogue publishes under this producer is a rule the
-/// pass runs, and the reverse. A rule declared in the catalogue and left
-/// out of a family's table would be published by `rules list`, scored
-/// against, and never actually observed.
 #[test]
 fn the_pass_produces_every_catalogued_structural_rule() {
     let mut produced: Vec<&str> = rules().map(|rule| rule.id).collect();
@@ -58,8 +52,6 @@ fn the_pass_produces_every_catalogued_structural_rule() {
     );
 }
 
-/// A workspace with no unit at all returns an empty result and no error:
-/// there is nothing to be partial about.
 #[test]
 fn an_empty_enumeration_produces_neither_finding_nor_error() {
     let scan = analyze(
@@ -72,9 +64,6 @@ fn an_empty_enumeration_produces_neither_finding_nor_error() {
     assert_eq!(scan, StructureScan::default());
 }
 
-/// US-020: a package whose module tree the walk lost part of, or whose
-/// modules a macro declares, is withheld from the orphan rule and counted,
-/// never reported as an error of the pass.
 #[test]
 fn an_incomplete_module_tree_withholds_its_package_and_counts_it() {
     let orphans = |relative: &str| {
@@ -106,8 +95,6 @@ fn an_incomplete_module_tree_withholds_its_package_and_counts_it() {
     assert!(errors.is_empty(), "{errors:?}");
 }
 
-/// A unit the parser could not read is skipped and named, and the pass
-/// completes over every other unit of the same workspace.
 #[test]
 fn an_unparseable_unit_is_skipped_named_and_never_aborts_the_pass() {
     let errors = metadata("source-kernel/errors");
@@ -145,15 +132,10 @@ fn an_unparseable_unit_is_skipped_named_and_never_aborts_the_pass() {
     );
 }
 
-/// US-009, FR-10: a budget the pass cannot meet stops it rather than
-/// letting it run, and the stop is published as an error under the
-/// `structure` stage, which is what takes the authoritative flag off the
-/// score.
 #[test]
 fn an_exhausted_budget_stops_the_pass_and_says_so() {
     let duplicates = metadata("structure/duplicate-function");
     let enumeration = enumerate(&duplicates);
-    // A run whose `--max-duration` has nothing left caps the pass at zero.
     let stopped = analyze(
         &duplicates,
         &enumeration,
@@ -179,8 +161,6 @@ fn an_exhausted_budget_stops_the_pass_and_says_so() {
         stopped.errors
     );
 
-    // The same workspace under the shipped budget finishes, so the stop
-    // above is the budget and not the workspace.
     let complete = analyze(
         &duplicates,
         &enumeration,
@@ -192,17 +172,10 @@ fn an_exhausted_budget_stops_the_pass_and_says_so() {
     assert!(!complete.findings.is_empty());
 }
 
-/// FR-10: partiality is what a phase reports, never what a clock reads
-/// afterwards. A pass that analysed every unit publishes a complete report
-/// even when it finished after its own budget, because calling it partial
-/// costs the score its authoritative flag for nothing.
 #[test]
 fn a_pass_that_finished_late_is_not_a_partial_pass() {
     let duplicates = metadata("structure/duplicate-function");
     let enumeration = enumerate(&duplicates);
-    // A budget of one nanosecond is spent by the time the first unit is
-    // read, so every phase of this scan ran with an exceeded clock. The
-    // walk itself is what decides, and it decided to stop.
     let stopped = analyze_within(
         &duplicates,
         &enumeration,
@@ -212,8 +185,6 @@ fn a_pass_that_finished_late_is_not_a_partial_pass() {
     );
     assert!(stopped.errors.iter().any(|error| error.code == "time-budget"));
 
-    // The same scan under a budget it cannot exceed reports nothing, and
-    // that is the only difference between the two.
     let complete = analyze_within(
         &duplicates,
         &enumeration,
@@ -224,8 +195,6 @@ fn a_pass_that_finished_late_is_not_a_partial_pass() {
     assert!(complete.errors.is_empty(), "{:?}", complete.errors);
 }
 
-/// The pass is switched off by the policy like any other producer, and
-/// costs nothing when it is.
 #[test]
 fn an_inactive_rule_leaves_the_pass_with_nothing_to_do() {
     let allows = metadata("structure/unreasoned-allow");
@@ -253,7 +222,6 @@ fn an_inactive_rule_leaves_the_pass_with_nothing_to_do() {
     );
 }
 
-/// Every rule off, and the pass does not even look at the units.
 #[test]
 fn a_policy_with_no_structural_rule_returns_the_empty_scan() {
     let mut input = crate::policy::PolicyInput::default();
@@ -272,7 +240,6 @@ fn a_policy_with_no_structural_rule_returns_the_empty_scan() {
     assert_eq!(scan, StructureScan::default());
 }
 
-/// The identity of a family is its rule and its key, and nothing else.
 #[test]
 fn the_structural_hash_depends_only_on_the_rule_and_the_key() {
     let hash = structural_hash("rust_doctor::structure::unreasoned_allow_attribute", "outer|a");
@@ -322,17 +289,6 @@ fn a_family_is_marked_only_when_every_member_agrees() {
     assert_eq!(unanimous_context(&[]), None);
 }
 
-/// A family no member of which ships takes the mark of its anchor.
-///
-/// The members disagree on which non-production context they carry, and each of
-/// them is right about itself: this is the family layer, where the question is
-/// not what one unit is but whether the family weighs, and it does not. The
-/// abstention `source_kernel::unanimous` performs over a unit reached by
-/// disagreeing traversals answers a different question, and stays.
-///
-/// The anchor rather than one of the two kinds because the anchor is the site
-/// the family is reported at, so the mark the reader is shown is the mark of
-/// the file they are sent to.
 #[test]
 fn a_family_no_member_of_which_ships_takes_the_mark_of_its_anchor() {
     let benched = Member {
@@ -352,14 +308,9 @@ fn a_family_no_member_of_which_ships_takes_the_mark_of_its_anchor() {
         unanimous_context(&[tested.clone(), benched.clone()]),
         Some(DiagnosticContext::Tests)
     );
-    // One member that ships is the whole family shipping: the straddling case
-    // keeps abstaining to production, unchanged.
     assert_eq!(unanimous_context(&[benched, tested, member("src/lib.rs")]), None);
 }
 
-/// One key, one family: the first arrival says what the family is, and
-/// every later one adds a member to it. Recording is a merge, never a
-/// replacement, whichever producer the members come from.
 #[test]
 fn recording_the_same_key_twice_merges_instead_of_replacing() {
     let mut families = BTreeMap::new();
@@ -384,8 +335,6 @@ fn recording_the_same_key_twice_merges_instead_of_replacing() {
     assert_eq!(family.summary.subject, "first");
     assert_eq!(family.members.len(), 2);
 
-    // An empty subject is a subject, not a signal: nothing later overwrites
-    // it.
     let mut empty = BTreeMap::new();
     record_family(
         &mut empty,
@@ -409,8 +358,6 @@ fn recording_the_same_key_twice_merges_instead_of_replacing() {
     );
 }
 
-/// US-011: a recognized generator header excludes the file from the whole
-/// structural pass, silently.
 #[test]
 fn a_generated_file_is_excluded() {
     for header in [
@@ -421,11 +368,9 @@ fn a_generated_file_is_excluded() {
         assert!(has_generator_header(&format!("{header}\nfn free() {{}}\n")), "{header}");
     }
     assert!(!has_generator_header("fn free() {}\n"));
-    // The markers this file documents are not a header of it.
     assert!(!has_generator_header(include_str!("../generated.rs")));
 }
 
-/// The inventory is one walk, and it is the one every family reads.
 #[test]
 fn the_inventory_collects_every_kind_the_detectors_read() {
     let unit = Unit::probe(
@@ -439,12 +384,6 @@ fn the_inventory_collects_every_kind_the_detectors_read() {
     assert_eq!(unit.inventory.macro_calls.len(), 1);
 }
 
-/// The pass over this repository under a budget it cannot exceed.
-///
-/// `analyze` grants a scan the ten wall-clock seconds `TIME_BUDGET` sets, and
-/// an unoptimized test build spends about six of them here on an idle machine.
-/// Past the budget the pass publishes what it reached, so a gate over its
-/// findings went green on a loaded runner without reading the whole crate.
 fn whole_repository(metadata: &Metadata) -> StructureScan {
     analyze_within(
         metadata,
@@ -455,20 +394,6 @@ fn whole_repository(metadata: &Metadata) -> StructureScan {
     )
 }
 
-/// EP-003, definition of done, inverted: a scan of this repository names no
-/// oversized unit and no complexity hotspot anywhere under `src/`, through the
-/// same pass `inspect` runs.
-///
-/// It used to assert the opposite, that `src/report.rs` was named oversized,
-/// which froze the crate's largest self-violation in place: repairing the file
-/// failed the suite. The rule's own evidence that it fires belongs on a
-/// fixture, and `tests/rule_evidence.json` names the two tests that carry it.
-/// What belongs here is the gate: the tool has to pass what it reports.
-///
-/// The `the_X_holds_the_size_bound` tests scattered across the crate stay,
-/// because each of them fails on its own module and says which one. This one
-/// covers every file none of them names, and the three units below the file
-/// level that none of them can see.
 #[test]
 fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
     let metadata = repository();
@@ -497,34 +422,11 @@ fn no_unit_of_this_crate_s_own_source_is_a_hotspot() {
     );
 }
 
-/// A family every member of which is test material is never published as
-/// production, on this repository's own source.
-///
-/// Separate from the hotspot gate above, which asks a different question of a
-/// different population: that one filters on `src/` and names two rules, this
-/// one reads every finding the pass publishes and asks what context it carries.
-///
-/// The structural pass is where the whole population lives. It is the only
-/// producer whose finding spans several files, so it is the only one that can
-/// straddle a test file and a shipped one, and it is the only one that reads
-/// every enumerated file: the scan runs `cargo clippy --workspace` without
-/// `--all-targets`, so no Clippy diagnostic is ever raised inside a
-/// `#[cfg(test)]` module.
-///
-/// `src/cargo_health/tests.rs` and `tests/cargo_health_product_proof.rs` are
-/// what this froze. The two carry one near-duplicate family, the second is an
-/// integration test target Cargo names, and the first was reached only through
-/// `#[cfg(test)] mod tests;`, which nothing read: the family straddled a test
-/// context and a production one, abstained, and the tool charged itself for a
-/// duplication between two test files.
 #[test]
 fn no_finding_of_this_crate_s_own_test_code_is_published_as_production() {
     let metadata = repository();
     let scan = whole_repository(&metadata);
 
-    /// Is this path test material by its position alone? Read here from the
-    /// path and nowhere else, so the assertion cannot agree with the scan by
-    /// asking the scan.
     fn is_test_path(path: &str) -> bool {
         let mut components = path.split('/').collect::<Vec<_>>();
         let file = components.pop().unwrap_or_default();
@@ -560,9 +462,6 @@ fn no_finding_of_this_crate_s_own_test_code_is_published_as_production() {
     );
 }
 
-/// The pass no longer names its own root as oversized: extracting the
-/// suppression rules and the benchmark is what took it back under the bound
-/// it publishes.
 #[test]
 fn the_structure_holds_the_size_bound_it_reports_for() {
     for own in [

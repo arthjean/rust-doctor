@@ -199,16 +199,6 @@ fn normalized_for_entry(report: &Value) -> Value {
     normalized
 }
 
-/// The fixture's own commit hash, held out of the pinned output hash.
-///
-/// `prepare_fixture` writes the absolute path of the git dependency into the
-/// manifest it then commits, so the fixture's tree, and with it its commit,
-/// differ between one machine's checkout root and another's: `/home/runner`
-/// on the Linux runner, `/Users/runner` on the macOS one. The value names
-/// where the fixture was built, never what the product did, which is why the
-/// hash is taken with it replaced rather than with the whole scope dropped.
-/// Its shape is still asserted at the call site, where a 40-digit hexadecimal
-/// base is required of every `files` case.
 fn without_fixture_commit(output: &[u8]) -> Vec<u8> {
     const FIELD: &str = "\"comparison_base\":\"";
     const PINNED: &str = "0000000000000000000000000000000000000000";
@@ -299,9 +289,6 @@ fn run_case(
         assert_eq!(report["project"]["manifest_path"], expected_manifest);
         let diagnostics = report["diagnostics"].as_array().unwrap();
         assert_eq!(diagnostics.len(), expected_diagnostics);
-        // Both quantities of the report recompute from the published
-        // diagnostics: a finding reported by two targets stays one distinct
-        // diagnostic and two occurrences.
         assert_eq!(
             report["summary"]["distinct"]["total"].as_u64().unwrap(),
             expected_diagnostics as u64
@@ -372,9 +359,6 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
     let mut reports = BTreeMap::new();
     let mut cases = Vec::new();
 
-    // Nine since EP-002 of the suppression PRD: the two decoy dependencies
-    // this fixture declares and never references, the unbounded registry
-    // alias and the local git alias, are now findings of their own.
     let (report, evaluation) = run_case(&fixture, "full", &[], None, 9);
     reports.insert("full", report);
     cases.push(evaluation);
@@ -476,8 +460,6 @@ fn git_change_scope_matrix_is_deterministic_private_and_non_mutating() {
     );
     assert_eq!(missing.0.status.code(), Some(2));
     assert_private(&missing.0, &fixture);
-    // The ref, then whether the clone is shallow, which would make a missing
-    // base a fetch that stopped short.
     assert_eq!(
         missing.1,
         BTreeMap::from([("git-rev-parse".to_owned(), 2), ("metadata".to_owned(), 1),])
@@ -613,7 +595,6 @@ fn files_projection_keeps_workspace_execution_failure_observable() {
 
 static NEXT_STAGED: AtomicUsize = AtomicUsize::new(0);
 
-/// A committed library a test then stages changes into.
 fn staged_repository() -> PathBuf {
     let root = support::temporary_target("staged-configuration", &NEXT_STAGED);
     let _ = fs::remove_dir_all(&root);
@@ -647,10 +628,6 @@ fn staged_scan(root: &Path, arguments: &[&str]) -> (Option<i32>, Value, String) 
     (output.status.code(), report, stdout)
 }
 
-/// EP-001 US-003: a staged scan judges what the commit records. Its gate obeys
-/// the `rust-doctor.toml` the index holds, never an unstaged edit of it nor an
-/// untracked one, and its code frames show the staged lines, not the working
-/// tree's.
 #[test]
 fn a_staged_scan_obeys_the_staged_configuration_and_frames_the_staged_lines() {
     let root = staged_repository();
@@ -685,8 +662,6 @@ fn a_staged_scan_obeys_the_staged_configuration_and_frames_the_staged_lines() {
     assert!(verbose.contains("6 |     todo!()"), "{verbose}");
     assert!(!verbose.contains("unimplemented") && !verbose.contains("an unstaged line"), "{verbose}");
 
-    // Untracked, the file is not part of the commit, and not read: an
-    // unparsable one changes nothing.
     git(&root, &["rm", "--cached", "--quiet", "-f", "rust-doctor.toml"]);
     fs::write(root.join("rust-doctor.toml"), "this is = = not toml\n").unwrap();
     let (code, report, _) = staged_scan(&root, &["--json"]);
@@ -695,9 +670,6 @@ fn a_staged_scan_obeys_the_staged_configuration_and_frames_the_staged_lines() {
     assert_eq!(code, Some(0));
 }
 
-/// EP-001 US-003: a staged `--json` scan whose tree cannot be removed fails
-/// the published document, as it did before the linear report began drawing
-/// its frames from that tree.
 #[test]
 fn a_staged_tree_left_behind_fails_the_json_report() {
     use std::os::unix::fs::PermissionsExt;
@@ -737,8 +709,6 @@ fn a_staged_tree_left_behind_fails_the_json_report() {
     fs::remove_dir_all(&temporary).unwrap();
 }
 
-/// EP-001 US-003: a conflicted index still fails the staged scan with
-/// `index-conflicted`, before any snapshot is written.
 #[test]
 fn a_conflicted_index_still_fails_the_staged_scan() {
     let root = staged_repository();
@@ -756,8 +726,6 @@ fn a_conflicted_index_still_fails_the_staged_scan() {
     assert_eq!(report["errors"][0]["code"], "index-conflicted", "{report:#}");
 }
 
-/// EP-002 US-008: a scope that never resolved is named as asked above the
-/// failure, never as the whole codebase, and the JSON keeps `scope: null`.
 #[test]
 fn a_scope_that_failed_to_resolve_is_named_as_asked() {
     let root = staged_repository();

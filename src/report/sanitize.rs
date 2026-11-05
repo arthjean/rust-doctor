@@ -1,12 +1,3 @@
-//! Every published path and home directory taken out of the text a scan
-//! produced, and every escape sequence and detected credential with them.
-//!
-//! `--json` reports stay workspace-relative and carry no user data: this is
-//! where that holds. The escape grammar itself lives in
-//! [`crate::terminal_text`], the one the interactive report draws through, so
-//! a message and the frame that shows it cannot disagree on where a sequence
-//! ends.
-
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -15,9 +6,6 @@ use std::path::{Path, PathBuf};
 pub(super) struct HomePaths {
     pub(super) lexical: Option<String>,
     pub(super) canonical: Option<String>,
-    /// `RUSTUP_HOME` and `CARGO_HOME` as resolved, in both forms, each with
-    /// the name that replaces it. They usually sit under the home directory,
-    /// and naming them says more than `<home>/.rustup` would.
     pub(super) toolchain: Vec<(&'static str, String)>,
 }
 
@@ -35,24 +23,12 @@ impl HomePaths {
     }
 }
 
-/// Every credential the repository pass matches is masked here too, once,
-/// so a message that quotes a key reaches no renderer with it.
-///
-/// Cargo and rustup print the paths they read: a toolchain under
-/// `RUSTUP_HOME`, a registry under `CARGO_HOME`, a manifest a workspace
-/// points outside itself at. Each is named by what it is under, and an
-/// absolute path under none of them keeps only its last directory and its
-/// file name, so a report posted to a pull request discloses no machine's
-/// layout.
 pub(super) fn sanitize_text(value: &str, workspace_root: Option<&Path>, home: &HomePaths) -> String {
     let mut value = sanitize_source_text(value, workspace_root, home, true);
     value = external_paths(&value);
     value
 }
 
-/// What a suggested replacement goes through: it is source text, and an
-/// absolute path literal in it is the code's own, which a rewrite would turn
-/// into a fix that writes something else.
 pub(super) fn sanitize_replacement(
     value: &str,
     workspace_root: Option<&Path>,
@@ -94,13 +70,6 @@ fn sanitize_source_text(
     value
 }
 
-/// `text` with every occurrence of `path` that ends where a path component
-/// does replaced by `replacement`.
-///
-/// A plain substring replace read `~/.cargo` inside `~/.cargo-target` and
-/// published `$CARGO_HOME-target/…`: a name that is not the one replaced, and
-/// a path no later pass recognizes as one. An occurrence counts only when
-/// what follows it cannot continue the last name.
 pub(crate) fn replace_path(text: &str, path: &str, replacement: &str) -> String {
     if path.is_empty() {
         return text.to_owned();
@@ -120,9 +89,6 @@ pub(crate) fn replace_path(text: &str, path: &str, replacement: &str) -> String 
     replaced
 }
 
-/// Whether `after` opens with more of the name a path ended on: a name
-/// character, or a dot followed by one, as in an extension. A dot that ends a
-/// sentence does not.
 fn continues_a_name(after: &str) -> bool {
     let name = |character: char| character.is_alphanumeric() || matches!(character, '-' | '_');
     let mut characters = after.chars();
@@ -133,9 +99,6 @@ fn continues_a_name(after: &str) -> bool {
     }
 }
 
-/// Carriage returns become newlines before the sanitizer runs, because it
-/// drops a lone `\r` as the control character it is and a Cargo message written
-/// on Windows would lose its line breaks with it.
 pub(super) fn normalize_text(value: &str) -> String {
     let line_endings = value.replace("\r\n", "\n").replace('\r', "\n");
     let without_ansi = crate::terminal_text::sanitize_multiline(&line_endings);
@@ -146,8 +109,6 @@ pub(super) fn normalize_text(value: &str) -> String {
         .join("\n")
 }
 
-/// The directory a report names `<home>`: `HOME`, or `USERPROFILE` in a
-/// Windows shell, which sets no `HOME`.
 pub(crate) fn home_directory() -> Option<PathBuf> {
     home_from(env::var_os("HOME"), env::var_os("USERPROFILE"))
 }
@@ -178,8 +139,6 @@ pub(super) fn home_paths() -> HomePaths {
     paths
 }
 
-/// Whether an absolute path may start right after `previous`: never after a
-/// colon, which is a URL's, nor after a dot, which is a relative path's.
 const fn opens_a_path(previous: Option<char>) -> bool {
     match previous {
         None => true,
@@ -194,10 +153,6 @@ const fn ends_a_path(character: char) -> bool {
         || matches!(character, '`' | '\'' | '"' | ')' | ']' | '>' | ',' | ';' | ':')
 }
 
-/// The length of the root an absolute path opens `text` with: `/`, `~/`,
-/// which is how Cargo's own stderr reaches here once its home is replaced, a
-/// drive (`C:\`), a verbatim drive (`\\?\C:\`), a verbatim UNC share
-/// (`\\?\UNC\`) or a UNC share (`\\server\share`).
 fn root_length(text: &str) -> Option<usize> {
     if let Some(verbatim) = text.strip_prefix("\\\\?\\") {
         if verbatim.starts_with("UNC\\") {
@@ -222,18 +177,6 @@ fn drive_root(text: &str) -> Option<usize> {
     (rest.starts_with(":\\") || rest.starts_with(":/")).then_some(3)
 }
 
-/// The length of the absolute path `text` opens with, right after `opener`,
-/// when it opens with one of at least two components: `/usr/lib`,
-/// `C:\Users\x`, `~/src/x`. A lone `/`, `/=` or `/ 2` is arithmetic in a
-/// message, not a path.
-///
-/// Where it ends depends on what opened it. A backtick or a double quote,
-/// which is how Cargo quotes the paths it names, closes at its match. An
-/// apostrophe, which is rustup's, closes at the first apostrophe no letter or
-/// digit follows, so `Jane's Drive` stays inside it. A quote that never closes
-/// runs to the end of its line. An unquoted path ends where a path character
-/// cannot continue it, or at a blank the next word does not continue with a
-/// separator of its own, which keeps `C:\Users\First Last\x` whole.
 fn absolute_path_at(text: &str, opener: Option<char>) -> Option<usize> {
     let start = root_length(text)?;
     let body = text.get(start..)?;
@@ -263,9 +206,6 @@ fn absolute_path_at(text: &str, opener: Option<char>) -> Option<usize> {
         .then_some(start + length)
 }
 
-/// Where an unquoted path ends: at a character no path continues with, past
-/// each run of blanks the next word continues with a separator and does not
-/// open a new absolute path with.
 fn unquoted_length(body: &str) -> usize {
     let mut length = body.find(ends_a_path).unwrap_or(body.len());
     loop {
@@ -283,10 +223,6 @@ fn unquoted_length(body: &str) -> usize {
     }
 }
 
-/// Every absolute path still in `value` lies outside the workspace and the
-/// homes, and becomes `<external>/` followed by its last directory and file
-/// name: enough to tell which manifest Cargo could not read, and nothing about
-/// where it sits.
 fn external_paths(value: &str) -> String {
     let mut published = String::with_capacity(value.len());
     let mut previous = None;
@@ -320,8 +256,6 @@ fn external_paths(value: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Self-scan audit US-006: sanitizing returns on every line of the
-    /// non-ASCII table.
     #[test]
     fn sanitizing_returns_on_every_line_of_the_non_ascii_table() {
         for line in crate::boundary_table::lines() {

@@ -1,13 +1,5 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-//! `skills/rust-doctor/` ships the commands an agent runs and the rule ids it
-//! names. A flag the CLI does not accept is a skill that dies on its first
-//! step, and a rule id the catalog does not carry is a fix recipe for a finding
-//! nobody can trigger. The score it explains is the same kind of copy: a model
-//! name or a band boundary the binary no longer computes is an agent reading a
-//! number against a scale that was retired. All four are checked against the
-//! shipped binary rather than against a copy of what it once accepted.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,7 +14,6 @@ fn skill_document(name: &str) -> String {
     fs::read_to_string(skill_root().join(name)).unwrap()
 }
 
-/// Every markdown file of the skill: `SKILL.md` and the references it discloses.
 fn skill_documents() -> Vec<(PathBuf, String)> {
     let mut documents = Vec::new();
     let mut pending = vec![skill_root()];
@@ -41,9 +32,6 @@ fn skill_documents() -> Vec<(PathBuf, String)> {
     documents
 }
 
-/// A token as it sits in prose or in a table cell, stripped of the markdown and
-/// punctuation around it. Dashes, underscores and colons are what a flag and a
-/// rule id are made of, so they never bound the token.
 fn bare(token: &str) -> &str {
     token.trim_matches(|character: char| {
         !character.is_ascii_alphanumeric()
@@ -53,7 +41,6 @@ fn bare(token: &str) -> &str {
     })
 }
 
-/// A long flag, `--json`, and never a markdown rule or a frontmatter fence.
 fn is_flag(token: &str) -> bool {
     token
         .strip_prefix("--")
@@ -104,8 +91,6 @@ fn every_flag_the_skill_documents_is_a_flag_the_cli_accepts() {
     }
 }
 
-/// The two subcommands that explain without a rerun are the ones an agent
-/// reaches for before suppressing anything, so the skill names both.
 #[test]
 fn the_skill_names_the_subcommands_that_explain_a_rule_and_a_site() {
     let skill = skill_document("SKILL.md");
@@ -116,8 +101,6 @@ fn the_skill_names_the_subcommands_that_explain_a_rule_and_a_site() {
     assert!(help(&["rules"]).contains("explain"), "`rules --help` omits `explain`");
 }
 
-/// Every row of the exit-status table `--help` prints is a row of the skill's,
-/// word for word.
 #[test]
 fn the_skill_carries_the_exit_status_table_help_prints() {
     let skill = skill_document("SKILL.md");
@@ -162,9 +145,6 @@ fn the_skill_states_the_size_of_the_catalog_it_scans_with() {
     );
 }
 
-/// The three bands the reports label a value by, spelled the way `SKILL.md`
-/// has to spell them. Derived from `label_for` rather than restated here, so a
-/// band the model moves or gains fails on the document that describes it.
 fn bands_sentence() -> String {
     let mut bands: Vec<(u8, u8, &'static str)> = Vec::new();
     for value in 0..=100u8 {
@@ -217,8 +197,6 @@ fn the_skill_names_the_score_model_the_binary_computes() {
 #[test]
 fn the_bands_the_skill_states_are_the_bands_the_reports_label_by() {
     let stated = bands_sentence();
-    // Compared against the document with its line breaks flattened, since where
-    // markdown wraps a sentence is not something the score decides.
     let text = skill_document("SKILL.md")
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -229,9 +207,6 @@ fn the_bands_the_skill_states_are_the_bands_the_reports_label_by() {
     );
 }
 
-/// EP-005 US-021: every command that may compile the workspace says so in its
-/// `--help`, `why` and `hook run` as the root and `inspect` already did, and
-/// `hook run` names the flag that compiles nothing.
 #[test]
 fn every_command_that_may_compile_carries_the_trust_warning() {
     let warning = "Cargo may execute build.rs files and procedural macros. Inspect trusted local repositories only.";

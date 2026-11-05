@@ -1,13 +1,3 @@
-//! What leaves the report before it is scored, and in which order.
-//!
-//! Five narrowings, each one answering a question the reader asked for: a path
-//! `[ignore]` covers, a file declared generated or vendored, a member
-//! `--package` did not select, a site a native directive suppresses, and a
-//! level an `[[overrides]]` table sets under a path. Each is counted or listed,
-//! so nothing leaves without the report saying so. They run before the scope
-//! projection, so a directive whose finding sits outside the changed lines is
-//! still applied rather than called unused.
-
 use std::collections::BTreeMap;
 
 use super::normalize::canonical_severity;
@@ -16,8 +6,6 @@ use crate::directive::Directive;
 use crate::execution::ScanExclusions;
 use crate::policy::{CATALOG, PolicyPlan, RuleLevel, find};
 
-/// A directive may name the rule it meant within this many edits and still be
-/// pointed at it.
 const HINT_DISTANCE: usize = 3;
 
 #[derive(Debug, Default)]
@@ -59,17 +47,12 @@ pub(super) fn apply(
     }
 }
 
-/// Removes every diagnostic whose path `excluded` names, and counts them.
 fn remove(diagnostics: &mut Vec<Diagnostic>, excluded: impl Fn(&str) -> bool) -> usize {
     let before = diagnostics.len();
     diagnostics.retain(|diagnostic| !diagnostic.path.as_deref().is_some_and(&excluded));
     before - diagnostics.len()
 }
 
-/// Applies one directive, or says why it may not suppress anything. A reason
-/// is checked first, since a directive without one is refused whatever it
-/// names; a Clippy lint next, since the compiler already has the attribute
-/// that suppresses it with a reason.
 fn suppress(
     diagnostics: &mut Vec<Diagnostic>,
     directive: &Directive,
@@ -115,10 +98,6 @@ fn suppress(
     }
 }
 
-/// A native finding of a named rule, in the directive's file, whose primary
-/// span starts on the directive's line or on the next one. A dependency
-/// finding is also covered when the next line declares its key, which is all
-/// an inherited entry, published without a span, can be matched by.
 fn covers(
     directive: &Directive,
     diagnostic: &Diagnostic,
@@ -140,7 +119,6 @@ fn covers(
         && (on_line || by_key)
 }
 
-/// The catalogued id nearest to `rule`, when one is within `HINT_DISTANCE`.
 fn closest(rule: &str) -> Option<String> {
     CATALOG
         .iter()
@@ -168,8 +146,6 @@ pub(crate) fn edit_distance(left: &str, right: &str) -> usize {
     previous.last().copied().unwrap_or_default()
 }
 
-/// The level an `[[overrides]]` table sets under the finding's path: `off`
-/// removes it, any other level restamps it.
 fn apply_overrides(diagnostics: &mut Vec<Diagnostic>, plan: &PolicyPlan) {
     diagnostics.retain_mut(|diagnostic| {
         let (Some(code), Some(path)) = (diagnostic.code.as_deref(), diagnostic.path.as_deref())

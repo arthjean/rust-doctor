@@ -1,14 +1,3 @@
-//! The shape a scan publishes, and the one place its version is declared.
-//!
-//! This file is the wire format and nothing else: the request that starts a
-//! scan, the report that comes back, and the closed vocabularies its members
-//! draw from. How a report is assembled lives in [`assembly`], how a
-//! producer's finding becomes one of its diagnostics in [`normalize`], and
-//! what is taken out of the text a scan produced in [`sanitize`].
-//!
-//! Any change to the shape below bumps [`SCHEMA_VERSION`], and the frozen v7
-//! archive keeps projecting from it.
-
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
@@ -45,8 +34,6 @@ pub(crate) use assembly::{
 
 pub const SCHEMA_VERSION: u8 = 24;
 
-/// The error code every stage a passed `--max-duration` stopped or skipped
-/// reports under.
 pub(crate) const DEADLINE_EXCEEDED: &str = "deadline-exceeded";
 
 #[derive(Debug, Clone)]
@@ -79,41 +66,30 @@ impl InspectRequest {
         }
     }
 
-    /// Publishes how long each phase took, as the report's `timings`.
     pub const fn with_timings(mut self) -> Self {
         self.timings = true;
         self
     }
 
-    /// The RustSec database the two advisory rules read. Without it they are
-    /// published as not evaluated: the library never looks for one on its
-    /// own, and the command line hands it the one `--advisory-db` names or
-    /// the one `cargo audit` or `cargo deny` left under `$CARGO_HOME`.
     pub fn with_advisory_db(mut self, database: AdvisoryDatabase) -> Self {
         self.advisory_db = Some(database);
         self
     }
 
-    /// Scans and scores this workspace member only. Repeated, it selects
-    /// several. Without it, every member is scanned.
     pub fn with_package(mut self, name: impl Into<String>) -> Self {
         self.packages.insert(name.into());
         self
     }
 
-    /// The members the request selected, `None` when it selected none.
     pub(crate) fn packages(&self) -> Option<&BTreeSet<String>> {
         (!self.packages.is_empty()).then_some(&self.packages)
     }
 
-    /// Bounds the whole run in wall-clock time. Past it, every process the
-    /// scan started is killed and the report says `deadline-exceeded`.
     pub const fn with_max_duration(mut self, limit: Duration) -> Self {
         self.max_duration = Some(limit);
         self
     }
 
-    /// Where the scan reports its phases while it runs.
     pub fn with_progress(mut self, progress: ProgressSink) -> Self {
         self.progress = Some(progress);
         self
@@ -142,23 +118,17 @@ impl InspectRequest {
         self.with_scope(ScopeMode::Baseline, Some(base.into()))
     }
 
-    /// Scans under `mode`, comparing against `base`, or, when it is `None`,
-    /// against the default branch the repository answers for itself (`HEAD`
-    /// for a staged scan). `ScopeMode::Full` compares against nothing.
     pub fn with_scope(mut self, mode: ScopeMode, base: Option<String>) -> Self {
         self.scope_mode = mode;
         self.base = base.map(CallerBase);
         self
     }
 
-    /// Judges the index rather than the working tree: what `git commit` would
-    /// record. Only a changed-work scope reads it.
     pub const fn with_staged(mut self) -> Self {
         self.change_options.staged = true;
         self
     }
 
-    /// Adds untracked files to a files or lines scope, as changed whole.
     pub const fn with_untracked(mut self) -> Self {
         self.change_options.include_untracked = true;
         self
@@ -183,7 +153,6 @@ impl InspectRequest {
         }
     }
 
-    /// The run's options, its deadline starting now.
     pub(crate) fn run_options(&self) -> RunOptions {
         RunOptions {
             deadline: self.max_duration.map(RunDeadline::starting_now),
@@ -195,8 +164,6 @@ impl InspectRequest {
     }
 }
 
-/// A base selector as the caller wrote it. A branch name is the caller's, so
-/// the request's `Debug` never prints it, as `ScopeRequest`'s does not.
 #[derive(Clone)]
 struct CallerBase(String);
 
@@ -224,38 +191,27 @@ pub struct InspectReport {
     pub toolchain: ToolchainReport,
     pub scan: ScanReport,
     pub diagnostics: Vec<Diagnostic>,
-    /// Every `rust-doctor: allow(...)` directive in a scanned file, and what
-    /// became of it.
     pub suppressions: Vec<SuppressionReport>,
     pub delta: Option<DeltaReport>,
     pub errors: Vec<ReportError>,
     pub summary: Summary,
     pub gate: GateReport,
-    /// Milliseconds per phase, present only when the request asked for them.
     pub timings: Option<Timings>,
-    /// Whether a baseline comparison read its base side from the side cache.
-    /// Shown under `--verbose`, never serialized: a report says what was
-    /// found, not how fast.
     pub base_side_cache: Option<CacheOutcome>,
 }
 
-/// One site-level suppression directive, and whether it suppressed anything.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SuppressionReport {
     pub path: String,
     pub line: usize,
     pub rules: Vec<String>,
     pub status: SuppressionStatus,
-    /// What to write instead, on a directive that names a Clippy lint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
-    /// The catalogued id closest to an unknown one, within three edits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
 }
 
-/// What became of a directive. Only `applied` suppressed a finding; every
-/// other status suppressed nothing, and says why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SuppressionStatus {
@@ -283,9 +239,7 @@ pub struct PolicyReport {
     pub config_file: Option<String>,
     pub blocking: PolicyBlockingReport,
     pub rules: Vec<PolicyRuleReport>,
-    /// The globs of `[ignore] paths`, as the configuration wrote them.
     pub ignore: Vec<String>,
-    /// The `[[overrides]]` tables, in the order the later one wins in.
     pub overrides: Vec<PathOverrideReport>,
 }
 
@@ -302,49 +256,21 @@ pub struct PolicyRuleReport {
     pub tier: RuleTier,
     pub level: RuleLevel,
     pub source: RuleLevelSource,
-    /// Smoothed false-positive rate of this rule on the pinned corpus, in
-    /// basis points, absent when the corpus never adjudicated it.
-    ///
-    /// It is published because it ranks: the report tells the user what to fix
-    /// first by discounting each rule's cost by this rate, so a rule with many
-    /// findings can be left out of that list, and without the number the
-    /// omission reads as a defect of the tool rather than a measurement.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corpus_noise_basis_points: Option<u16>,
-    /// How many sites the rate above rests on.
-    ///
-    /// A rate published alone is a rate the reader cannot weigh: one adjudicated
-    /// site and forty adjudicated sites are two different claims, and the
-    /// smoothing that separates them is invisible in the rate it produces. The
-    /// two members move together, so a rule carrying neither is a rule the
-    /// corpus never adjudicated rather than a rule measured at zero.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corpus_reviewed_sites: Option<u64>,
-    /// Why the scan did not evaluate this rule, absent when it did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_evaluated: Option<NotEvaluated>,
 }
 
-/// Why a rule the policy left on was not evaluated. Closed, like
-/// `errors[].code`, so a reader branches on it rather than on a sentence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NotEvaluated {
-    /// The installed Clippy does not list the lint, so the command left it out.
     UnknownToToolchain,
-    /// `--package` scoped the scan to members, and the rule judges the
-    /// repository rather than a member.
     PackageScoped,
-    /// No local RustSec database was found to read the rule from. The score
-    /// keeps its authority: the machine never fetched one, and the tool never
-    /// fetches.
     AdvisoryDbMissing,
-    /// The rule's detectors match a crate no package of the workspace
-    /// depends on. The score keeps its authority: there was nothing to read.
     CrateAbsent,
-    /// Every package depending on the rule's crate resolves it outside the
-    /// versions the rule was validated against. The score keeps its
-    /// authority, and the rule reports nothing rather than misreading an API.
     CrateVersionUnsupported,
 }
 
@@ -401,12 +327,6 @@ impl Status {
 }
 
 impl InspectReport {
-    /// A report is publishable only when its counts agree.
-    ///
-    /// `summary` describes the whole set of diagnostics of the report. `audit`
-    /// describes the score scope: the complete report, or the introduced
-    /// diagnostics alone when a delta is present. Both quantities, distinct
-    /// diagnostics and occurrences, are checked separately.
     pub fn is_valid(&self) -> bool {
         if self.schema_version != SCHEMA_VERSION || !self.audit.is_valid() {
             return false;
@@ -431,9 +351,6 @@ impl InspectReport {
     }
 }
 
-/// The report as it goes on the wire, field for field and in this order. A
-/// derived shape keeps the one optional member, `timings`, out of the bytes
-/// a run that did not ask for it writes.
 #[derive(Serialize)]
 #[serde(rename = "InspectReport")]
 struct Wire<'a> {
@@ -511,11 +428,7 @@ pub struct ToolchainReport {
     pub rustc: Option<String>,
     pub cargo: Option<String>,
     pub clippy: Option<String>,
-    /// The version of the rust-doctor binary that produced the report, so a
-    /// report read later names the catalog and the score model it was built with.
     pub rust_doctor: &'static str,
-    /// The lint-level flags taken out of the caller's rustflags before Clippy
-    /// ran, as `-D warnings`, so the scan kept its own levels.
     pub removed_lint_flags: Vec<String>,
 }
 
@@ -525,14 +438,8 @@ pub struct ScanReport {
     pub exit_code: Option<i32>,
     pub build_finished: Option<bool>,
     pub noise_lines: Option<usize>,
-    /// Diagnostics removed because `[ignore] paths` covers their file.
     pub ignored: usize,
-    /// Diagnostics removed because their file is declared generated or
-    /// vendored, or opens on a generator header.
     pub excluded_generated: usize,
-    /// The RustSec database the advisory rules read: which tool left it and
-    /// how recent it is, never where it sits. Absent when none was read, and
-    /// discovery reads none but a clone of the RustSec remote.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisory_db: Option<AdvisoryDbReport>,
 }
@@ -549,49 +456,18 @@ pub struct Diagnostic {
     pub help: Option<String>,
     pub package: Option<String>,
     pub target: Option<String>,
-    /// Non-production target the diagnostic comes from, absent otherwise.
-    ///
-    /// Shipped code is not marked: its lack of a mark is what designates it,
-    /// exactly like react-doctor's `fileContext`, which stamps only `test` and
-    /// `story`. A marked diagnostic stays published and counted, but stops
-    /// weighing on the score and stops blocking: a `println!` in `build.rs` is
-    /// the channel Cargo imposes, not a defect of the shipped codebase.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<DiagnosticContext>,
-    /// Why a production diagnostic is published without weighing, absent when
-    /// it weighs. A warning whose code the catalog does not describe is shown
-    /// so it never vanishes, and weighs nothing so it never voids the score.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unscored: Option<UnscoredReason>,
     pub path: Option<String>,
     pub span: Option<DiagnosticSpan>,
-    /// Every other site the finding spans, workspace-relative.
-    ///
-    /// A structural finding is a family: reporting one member per diagnostic
-    /// would turn a helper cloned six times into six unrelated spans. The key
-    /// is absent rather than empty when a finding names a single site, so a
-    /// per-site diagnostic serializes exactly as it did before this field
-    /// existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<RelatedLocation>,
-    /// How alike the sites of the finding are, in basis points, when the rule
-    /// grouped them on a similarity rather than on an equality.
-    ///
-    /// A finding whose members are exactly equal does not carry it: publishing
-    /// 10000 on every exact family would say nothing, and absence is what
-    /// distinguishes "these are the same" from "these are 87 % the same".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub similarity_basis_points: Option<u16>,
-    /// Cyclomatic and cognitive complexity of the reported function, when the
-    /// rule measured them. Absent on every other diagnostic, so a report that
-    /// carries no hotspot serializes exactly as it did before this field
-    /// existed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub complexity: Option<ComplexityFigures>,
-    /// The replacement the toolchain proposed for the span, when it proposed
-    /// one. Absent on every native finding and on every Clippy finding the
-    /// lint wrote no replacement for, so a report without one serializes
-    /// exactly as it did before this field existed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<Suggestion>,
     pub occurrences: usize,
@@ -603,36 +479,18 @@ pub struct RelatedLocation {
     pub span: DiagnosticSpan,
 }
 
-/// Both complexity figures of one function, published together because each
-/// answers what the other cannot: cyclomatic counts the paths a test suite has
-/// to cover, cognitive weights the nesting a reader has to hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComplexityFigures {
     pub cyclomatic: u32,
     pub cognitive: u32,
 }
 
-/// The replacement the toolchain proposed for the reported span, when it
-/// proposed one, and how far it vouches for it.
-///
-/// Clippy emits one for most of the performance lints and a few others, and
-/// the report used to drop it on the floor: every finding carried the one
-/// sentence the catalog wrote for its rule, and a reader was told to "use get"
-/// at a site where the toolchain had already written the exact expression.
-/// The catalogued help still travels beside it, since a replacement says what
-/// to write and not why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Suggestion {
     pub replacement: String,
     pub applicability: Applicability,
 }
 
-/// How far the toolchain vouches for a replacement, in its own vocabulary.
-///
-/// `MachineApplicable` is what `cargo clippy --fix` would apply unasked. The
-/// others are worth reading and not worth pasting: `MaybeIncorrect` may not
-/// compile, `HasPlaceholders` carries text the reader fills in, and
-/// `Unspecified` is a suggestion the lint author never rated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Applicability {
@@ -643,8 +501,6 @@ pub enum Applicability {
 }
 
 impl Applicability {
-    /// Closed reading of the toolchain's spelling. Anything else is refused
-    /// rather than guessed, and the suggestion carrying it is dropped.
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "MachineApplicable" => Some(Self::MachineApplicable),
@@ -665,25 +521,16 @@ impl Applicability {
     }
 }
 
-/// Non-production target a diagnostic comes from, derived from the target kind
-/// Cargo declares. A library or a binary are not represented: they are the
-/// production, and a diagnostic coming from them simply does not carry this
-/// field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticContext {
-    /// Integration test target, under `tests/`.
     Tests,
-    /// Measurement bench, under `benches/`.
     Benchmark,
-    /// Demonstration, under `examples/`.
     Example,
-    /// Build script executed by Cargo.
     BuildScript,
 }
 
 impl DiagnosticContext {
-    /// How a site of this target is labeled wherever a report prints it.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Tests => "tests",
@@ -693,10 +540,6 @@ impl DiagnosticContext {
         }
     }
 
-    /// Closed reading of a Cargo target kind. A library, a binary and an
-    /// unknown value are not marked: when in doubt, the diagnostic counts,
-    /// because silencing a defect of the shipped code is the only mistake this
-    /// field can make expensive.
     pub(crate) fn from_target_kinds(kinds: &[String]) -> Option<Self> {
         kinds.iter().find_map(|kind| match kind.as_str() {
             "test" => Some(Self::Tests),
@@ -707,21 +550,6 @@ impl DiagnosticContext {
         })
     }
 
-    /// Closed reading of a workspace-relative path, for a file no Cargo target
-    /// and no module declaration speaks for.
-    ///
-    /// This is the last evidence there is, and the only producer that needs it
-    /// is the orphan walk: a file compiled by nothing is reached by nothing, so
-    /// neither the target kind above nor the `cfg(test)` gate the source walk
-    /// propagates has anything to say about it. The convention is Cargo's own,
-    /// `tests/`, `benches/` and `examples/`, read on the outermost directory
-    /// that matches, so `benches/tests.rs` is a bench and not a test. A file
-    /// named `tests.rs` is the module spelling of the same convention and is
-    /// read last, since a directory above it is the stronger claim.
-    ///
-    /// Anything else is not marked, for the reason `from_target_kinds` gives:
-    /// silencing a defect of the shipped code is the only mistake this field
-    /// can make expensive.
     pub(crate) fn from_conventional_path(path: &str) -> Option<Self> {
         let path = Path::new(path);
         path.parent()
@@ -736,24 +564,14 @@ impl DiagnosticContext {
             .or_else(|| (path.file_name()? == "tests.rs").then_some(Self::Tests))
     }
 
-    /// Does a diagnostic weigh on the score and on the gate?
-    ///
-    /// This is the decision react-doctor makes in `filterForSurface`: a
-    /// diagnostic stamped with a non-production context leaves the `score` and
-    /// `ciFailure` surfaces, and stays in `cli`. It is not removed, it stops
-    /// costing. An unscored one follows the same path for another reason: the
-    /// catalog has nothing to weigh it with.
     pub(crate) const fn weighs(diagnostic: &Diagnostic) -> bool {
         diagnostic.context.is_none() && diagnostic.unscored.is_none()
     }
 }
 
-/// Closed reason a diagnostic is published and weighs nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnscoredReason {
-    /// A compiler warning whose code the catalog does not describe: a rustc
-    /// lint, or a Clippy lint the workspace's own `[lints]` table enabled.
     Uncatalogued,
 }
 
@@ -832,11 +650,6 @@ pub struct ReportError {
     pub message: String,
 }
 
-/// Counts of the report, published under two explicit quantities.
-///
-/// The five flat fields are the historical alias of `distinct`: a diagnostic
-/// reported by two compilation targets counts as one distinct diagnostic and
-/// two occurrences.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Summary {
     pub errors: usize,
@@ -849,8 +662,6 @@ pub struct Summary {
 }
 
 impl Summary {
-    /// The only admitted derivation of the counts: a report whose `summary`
-    /// departs from this function is refused at serialization.
     pub fn from_diagnostics(diagnostics: &[Diagnostic]) -> Self {
         let mut distinct = SeverityCounts::default();
         let mut occurrences = SeverityCounts::default();
@@ -902,8 +713,6 @@ pub struct GateReport {
 }
 
 impl InspectReport {
-    /// A run the deadline cut short exits 2 like a failed one, while its
-    /// status stays `incomplete` so the findings collected before it are kept.
     pub fn exit_code(&self) -> u8 {
         if self
             .errors
@@ -920,10 +729,6 @@ impl InspectReport {
         }
     }
 
-    /// The exit status under `--warning-exit-code`: `warning` when the run
-    /// would exit 0, its gate is not `none`, and a finding would block under
-    /// `--blocking warning` with the gate's own weighting, counting only what
-    /// a baseline scope introduced. The precedence is 2, 1, `warning`, 0.
     pub fn exit_code_with_warning(&self, warning: Option<u8>) -> u8 {
         let code = self.exit_code();
         let Some(warning) = warning else {

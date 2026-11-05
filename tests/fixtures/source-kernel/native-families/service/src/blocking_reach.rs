@@ -1,5 +1,5 @@
-//! Blocking calls the rule reaches through an external prelude glob and
-//! through the synchronous helpers of the file.
+
+
 
 use std::io::prelude::*;
 use std::time::Duration;

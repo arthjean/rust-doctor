@@ -24,7 +24,6 @@ pub enum Producer {
 }
 
 impl Producer {
-    /// The name `rules list --json` publishes.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Clippy => "clippy",
@@ -36,11 +35,6 @@ impl Producer {
     }
 }
 
-/// One catalogued rule, as the outside world reads it.
-///
-/// `RuleDefinition` stays crate-private because it is the shape the scan
-/// compiles against; this is the published projection of it, and the reason the
-/// website can state what the tool checks without anyone retyping the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CatalogEntry {
     pub id: &'static str,
@@ -50,22 +44,11 @@ pub struct CatalogEntry {
     pub tier: RuleTier,
     pub help: &'static str,
     pub diff_scope: DiffScope,
-    /// What the rule catches, in at most eight words.
     pub title: &'static str,
-    /// When a finding of the rule is not a defect: the check to apply before
-    /// editing the code.
     pub not_a_defect_when: &'static str,
-    /// The crates the rule's detectors match and the versions they were
-    /// validated against.
     pub requires: &'static [CrateGate],
 }
 
-/// A crate a rule's detectors match, and the version range they were written
-/// against, as a Cargo requirement: `>=1, <2`, or `*` for any version.
-///
-/// A unit is judged when at least one gated crate reaches it and every gated
-/// crate that does sits inside its range: CORS is read from `tower-http` or
-/// from `actix-cors`, and a unit with neither has nothing to read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CrateGate {
     #[serde(rename = "crate")]
@@ -73,16 +56,6 @@ pub struct CrateGate {
     pub versions: &'static str,
 }
 
-/// How far from the site a rule reports the change that caused it can sit,
-/// which is what `--scope contextual` reads, as react-doctor's per-rule
-/// `diffScope` does.
-///
-/// Most rules report the line that holds the defect, and a lines scope judges
-/// them exactly. A few report a site the change did not touch: Clippy puts
-/// `await_holding_lock` on the guard's `let` when the edit added an `.await`
-/// below it, and `blocking_call_in_async` turns on an `async` keyword above
-/// the call. Those reach their enclosing function. A span-less finding about a
-/// lockfile reaches its whole file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiffScope {
@@ -91,7 +64,6 @@ pub enum DiffScope {
     File,
 }
 
-/// Every catalogued rule, in catalog order.
 #[must_use]
 pub fn catalog() -> Vec<CatalogEntry> {
     CATALOG
@@ -111,15 +83,6 @@ pub fn catalog() -> Vec<CatalogEntry> {
         .collect()
 }
 
-/// Criticality of a rule, independent of `default_level` and of the effective
-/// severity of a diagnostic.
-///
-/// The tier only drives the `core-v3` score: it imposes a cap on the dimension
-/// concerned and on the overall score. It enters neither `base_severity` nor
-/// `fingerprint()`, so it moves no baseline.
-///
-/// The declared order runs from gravest to least grave: `P0 < P1 < P2 < P3`, so
-/// the worst tier of a set is its minimum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum RuleTier {
     P0,
@@ -141,9 +104,6 @@ impl RuleTier {
         }
     }
 
-    /// Closed reading of a published tier. Any other value is refused without
-    /// echoing the input. It is what every frozen record compares against, so
-    /// it lives with the type rather than with any one of its readers.
     #[cfg(test)]
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
@@ -170,10 +130,6 @@ pub(crate) struct RuleDefinition {
     pub(crate) requires: &'static [CrateGate],
 }
 
-/// Admissible categories, sorted: `find`/`validate_catalog` look them up by
-/// binary search. Each maps to a score dimension through
-/// `audit::category_mapping`, so opening a category makes its dimension
-/// reachable.
 pub(crate) const CATEGORIES: [&str; 6] = [
     "correctness",
     "dependencies",

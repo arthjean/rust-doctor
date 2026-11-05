@@ -22,11 +22,6 @@ static SYNTHETIC_CLIPPY_RULE: RuleDefinition = RuleDefinition {
     requires: &[],
 };
 
-/// The shipped catalog with one more rule in it, built rather than retyped.
-///
-/// A second hand-written list is a second list to keep sorted, and one the
-/// catalog can outgrow in silence: a rule admitted here and forgotten there
-/// left every assertion below passing over a catalog that no longer shipped.
 fn synthetic_catalog() -> [&'static RuleDefinition; CATALOG.len() + 1] {
     let mut rules = CATALOG.to_vec();
     rules.push(&SYNTHETIC_CLIPPY_RULE);
@@ -41,9 +36,6 @@ fn historical_oracle() -> Value {
         .expect("policy oracle should be valid JSON")
 }
 
-/// Identifiers published by the historical oracle, in catalog order. The
-/// catalog grows, the oracle does not move: the comparison therefore bears
-/// on this frozen subset, not on a filter by exclusion.
 const HISTORICAL_IDS: [&str; 7] = [
     "clippy::dbg_macro",
     "clippy::todo",
@@ -70,11 +62,6 @@ fn catalog_is_the_exact_normative_inventory() {
         ]
     );
 
-    // The oracle is compared against what the tool publishes, `CatalogEntry`,
-    // rather than against the definition it projects from. A field added to
-    // the published shape is what would change `rules list --json` and the
-    // website that generates from it, so that is the shape the frozen record
-    // has to hold.
     let historical: Vec<_> = catalog()
         .into_iter()
         .filter(|entry| HISTORICAL_IDS.contains(&entry.id))
@@ -102,8 +89,6 @@ fn catalog_is_the_exact_normative_inventory() {
                         .all(|byte| byte.is_ascii_lowercase() || byte == b'_')))
     );
 
-    // Every score dimension owns at least three rules, without which it
-    // would stay frozen at 100 and its weight would be inert.
     let mut per_dimension = BTreeMap::new();
     for definition in CATALOG {
         let (_, dimension) = crate::audit::category_mapping(definition.category)
@@ -127,8 +112,6 @@ fn exact_lookup_and_producer_subsets_use_canonical_definitions() {
     }
 
     let plan = PolicyPlan::default();
-    // Two of the 104 Clippy rules are catalogued opt-in, so a default plan
-    // runs 102 of them.
     assert_eq!(plan.active_rules(Producer::Clippy).count(), 102);
     assert_eq!(plan.active_rules(Producer::CargoHealth).count(), 13);
     assert_eq!(plan.active_rules(Producer::SourceKernel).count(), 11);
@@ -148,17 +131,12 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
 
     static EMPTY_HELP: RuleDefinition = RuleDefinition {
         help: "",
-        // Derived from the first catalog entry: the substitution happens at
-        // position 0, so the identifier must stay that one for a single
-        // defect at a time to be under test.
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut empty = CATALOG;
     empty[0] = &EMPTY_HELP;
     assert_eq!(validate_catalog(&empty), Err(CatalogError::EmptyMetadata));
 
-    // US-045: a rule says what it catches in a headline and when a finding
-    // of it is not a defect, and a gate's range is a Cargo requirement.
     static EMPTY_CHECK: RuleDefinition = RuleDefinition {
         not_a_defect_when: " ",
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
@@ -191,9 +169,6 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
 
     static UNKNOWN_CATEGORY: RuleDefinition = RuleDefinition {
         category: "style",
-        // Derived from the first catalog entry: the substitution happens at
-        // position 0, so the identifier must stay that one for a single
-        // defect at a time to be under test.
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut category = CATALOG;
@@ -205,9 +180,6 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
 
     static TIER_TOO_MILD: RuleDefinition = RuleDefinition {
         tier: RuleTier::P3,
-        // Derived from the first catalog entry: the substitution happens at
-        // position 0, so the identifier must stay that one for a single
-        // defect at a time to be under test.
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut mild = CATALOG;
@@ -230,9 +202,6 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
 
     static INVALID_PRODUCER: RuleDefinition = RuleDefinition {
         producer: Producer::SourceKernel,
-        // Derived from the first catalog entry: the substitution happens at
-        // position 0, so the identifier must stay that one for a single
-        // defect at a time to be under test.
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let mut producer = CATALOG;
@@ -244,9 +213,6 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
 
     static HOSTILE_DEFINITION: RuleDefinition = RuleDefinition {
         id: "/private/secret\u{1b}[31m",
-        // Derived from the first catalog entry: the substitution happens at
-        // position 0, so the identifier must stay that one for a single
-        // defect at a time to be under test.
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     let error = validate_catalog(&[&HOSTILE_DEFINITION]).unwrap_err();
@@ -256,12 +222,6 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
     assert!(!rendered.contains('\u{1b}'));
 }
 
-/// The tier is a closed value on the published surface.
-///
-/// In the code, the enumeration makes a missing tier or one outside the
-/// four values impossible to build. In the report, the tier is a string:
-/// that is the only surface where the invalid state exists, so that is the
-/// one the validation closes.
 #[test]
 fn an_absent_or_unknown_published_tier_fails_with_a_closed_error() {
     for definition in CATALOG {
@@ -291,11 +251,6 @@ fn an_absent_or_unknown_published_tier_fails_with_a_closed_error() {
     assert!(RuleTier::ALL.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
-/// The tier neither copies the default level nor replaces it.
-///
-/// Every rule but the two opt-in ones defaults to `RuleLevel::Warn` across
-/// four tiers, so no score function can deduce one from the other. The two
-/// are the rules the corpus adjudicated wrong on all forty reviewed sites each.
 #[test]
 fn the_tier_is_independent_from_the_default_level() {
     let opt_in: Vec<_> = CATALOG
@@ -351,10 +306,6 @@ fn a_synthetic_clippy_rule_crosses_catalog_lookup_policy_and_arguments() {
     assert_eq!(synthetic.source, RuleLevelSource::RequestRule);
     assert!(synthetic.restamped());
 
-    // The command is a fixed head, then one `-W` per active Clippy rule in
-    // catalog order. Freezing the whole list would be one more counter to edit
-    // on every admitted lint, and it would prove less than the three things
-    // that are actually the contract: the head, the pairing and the order.
     const HEAD: [&str; 8] = [
         "clippy",
         "--workspace",
@@ -388,8 +339,6 @@ fn a_synthetic_clippy_rule_crosses_catalog_lookup_policy_and_arguments() {
     );
 }
 
-/// US-072: a category override bears on every rule of the opened category,
-/// `performance` like the others.
 #[test]
 fn a_category_override_reaches_every_rule_of_an_opened_category() {
     for category in ["performance", "dependencies"] {
@@ -418,11 +367,6 @@ fn a_category_override_reaches_every_rule_of_an_opened_category() {
     }
 }
 
-/// The policy passes the rule the catalog publishes. `oversized_unit` reports a
-/// file at a thousand lines and a module block at five hundred, and every file
-/// of this module holds both bounds: the tests and the admissibility check have
-/// files of their own for that reason, and a file that grows back past the
-/// bound fails here rather than on a self-scan nobody reads.
 #[test]
 fn the_policy_holds_the_size_bound_the_catalog_publishes_for() {
     for own in [

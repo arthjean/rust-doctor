@@ -1,7 +1,3 @@
-// What the signal and deadline files share: the sleeping build script's pid
-// file as the moment to signal, process groups read from /proc and probed
-// with `kill -0 -<pgid>`, and a spawn whose stderr is read while it runs, for
-// a scan with no build script to synchronize on.
 import { existsSync, readFileSync } from "node:fs";
 import {
   BIN,
@@ -27,13 +23,11 @@ export async function waitForFile(path: string, timeoutMs = 30_000): Promise<str
   throw new Error(`${path} did not appear within ${timeoutMs} ms`);
 }
 
-// The process group of `pid`, field 5 of /proc/<pid>/stat.
 export function groupOf(pid: number): number {
   const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
   return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]);
 }
 
-// `kill -0 -<pgid>`: whether any process of the group still exists.
 export function groupAlive(pgid: number): boolean {
   try {
     process.kill(-pgid, 0);
@@ -43,8 +37,6 @@ export function groupAlive(pgid: number): boolean {
   }
 }
 
-// Polls until the group is empty, for children a signal reaches a moment
-// after their parent exits; true when it emptied in time.
 export async function groupGone(pgid: number, timeoutMs = 5_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -69,8 +61,6 @@ export type Streaming = {
   exited: Promise<{ exitCode: number | null; signal: string | null; stdout: string; stderr: string }>;
 };
 
-// The binary with the defaults of `spawnDoctor`, its stderr readable while it
-// runs. The preload kills it if a test leaves it running.
 export function spawnStreaming(args: string[], options: DoctorOptions = {}): Streaming {
   const box = options.sandbox ?? sandbox("streaming");
   const cwd = options.cwd ?? box.dir;

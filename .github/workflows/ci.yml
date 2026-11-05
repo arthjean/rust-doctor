@@ -1,19 +1,11 @@
 name: CI
 
-# The gate AGENTS.md documents: clippy clean, tests green, the Node launcher
-# proven. React Doctor splits this across ci.yml and code-quality.yml because a
-# JavaScript workspace has lint and typecheck as separate passes; a Rust crate
-# has one linter, so the two collapse into this file.
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
-# Keyed by PR number rather than head_ref: two fork PRs can share a branch name
-# (most often `main`), and a name-keyed group would let one contributor's push
-# cancel another's unrelated run. Pushes to main are never canceled in flight.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -29,10 +21,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The toolchain is pinned, not `stable`. Clippy's diagnostics ARE the product
-  # here: most catalogued rules are Clippy lints, and tests/corpus.json
-  # records the exact clippy version its measurement was taken under. A floating
-  # `stable` would silently move the catalog's meaning every six weeks.
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -55,11 +43,6 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --no-deps --locked -- -D warnings
 
-  # AGENTS.md is loaded into every agent session before the first tool call, so
-  # its size is a per-session cost rather than a documentation preference. The
-  # ceilings in docs/doc-budgets.json ratchet down, and this job is what makes
-  # moving one a visible edit instead of a drift. The references gate runs
-  # beside it; the third gate, tests/docs_contract.rs, runs under `cargo test`.
   docs:
     name: Documentation gates
     runs-on: ubuntu-latest
@@ -79,11 +62,6 @@ jobs:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    # The structural benchmark asserts a wall clock, and its bounds were
-    # measured on a development machine. A hosted runner has two cores and
-    # shares them, so it declares itself slower here rather than having the
-    # constants raised for everyone. Only the two clocks move: the counter
-    # assertions that prove the scoring stays nominated are untouched.
     env:
       RUST_DOCTOR_BENCHMARK_ALLOWANCE: "3"
     strategy:
@@ -94,22 +72,8 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
-          # tests/git_scope_oracle.rs and tests/baseline_oracle.rs build their
-          # own repositories in scratch directories and set their own git
-          # identity, so no global git config is needed. Full history is still
-          # required: the baseline scope materializes a comparison ref in a
-          # temporary snapshot.
           fetch-depth: 0
 
-      # Several integration tests spawn `cargo clippy` against fixture
-      # workspaces, so the component is required on every leg that runs tests,
-      # not only on the clippy job above.
-      #
-      # The Windows target comes with it: `rule_scaling_precision` checks a
-      # fixture under `--target x86_64-pc-windows-msvc` to observe
-      # `clippy::permissions_set_readonly_false` where Unix permissions do not
-      # exist. Only that target's standard library is needed, never a linker,
-      # since the test type-checks and never builds an executable.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99.1"
@@ -124,11 +88,6 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-  # The crate advertises rust-version = "1.95". This leg is what keeps that
-  # promise honest: a dependency bump that raises the real floor fails here
-  # instead of failing a user's `cargo install` months later. Check only, not
-  # test: the claim is that the crate compiles on 1.95, not that its test
-  # harness does.
   msrv:
     name: MSRV 1.95
     runs-on: ubuntu-latest
@@ -150,27 +109,12 @@ jobs:
       - name: Check
         run: cargo check --locked --all-targets
 
-  # Windows compiles, and that is the whole claim this job makes.
-  #
-  # npm/rust-doctor/lib/launcher.js declares a @rustdoctor/win32-x64 package,
-  # so Windows is a shipping target and the code must at least keep building
-  # for it: a `use std::os::unix` outside a `#[cfg]` stopped this leg at
-  # compilation once already, and this job is what catches the next one.
-  #
-  # It stops short of `cargo test` deliberately. As measured on 2026-08-12,
-  # 258 of the 273 unit tests pass on windows-latest and 14 fail, on path
-  # separators, edition resolution and the hotspot self-scan. That is a port to
-  # do, not a flake to retry, and a job that stays red forever teaches everyone
-  # to ignore a red job. Turn this into `cargo test` in the commit that closes
-  # those fourteen, or drop win32-x64 from the launcher and delete the job.
   windows:
     name: Build (windows)
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
       run:
-        # Not bash: Git Bash prepends its coreutils `link.exe`, which shadows
-        # the MSVC linker and breaks every build-script link.
         shell: pwsh
     steps:
       - uses: actions/checkout@v5
@@ -206,13 +150,6 @@ jobs:
         working-directory: npm/rust-doctor
         run: bun test tests
 
-  # The packed proof assembles the wrapper and the linux-x64 native package
-  # around the release binary of `build-release`, installs the pair into a
-  # scratch prefix and drives the resulting `rust-doctor` end to end. It is the
-  # only check that exercises what an `npx rust-doctor` user actually receives,
-  # which is why it runs on every push rather than only at release time.
-  # pack-local.mjs refuses any platform other than linux-x64, so this job is
-  # deliberately single-platform.
   packed:
     name: Packed launcher smoke
     needs: build-release
@@ -223,8 +160,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # Outside the checkout, so the proof's before-and-after state of the
-      # repository never sees it.
       - uses: actions/download-artifact@v4
         with:
           name: rust-doctor-release
@@ -233,10 +168,6 @@ jobs:
       - name: Make the binary executable
         run: chmod +x "$RUNNER_TEMP/rust-doctor-release/rust-doctor"
 
-      # Clippy is required, not optional: the smoke drives a full scan of this
-      # repository, and without the component the scan fails, the report loses
-      # its categories and its score, and the proof reads a shape no user would
-      # ever see.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99.1"
@@ -247,9 +178,6 @@ jobs:
           prefix-key: "v1-rust"
           key: packed
 
-      # The smoke scans this repository with CARGO_NET_OFFLINE=true, and with
-      # the binary taken from build-release no build of its own fetches the
-      # locked crates first, so the runner fetches them here.
       - name: Fetch this repository's dependencies
         run: cargo fetch --locked
 
@@ -257,8 +185,6 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      # The smoke's npm leg installs the packed tarballs the way `npm install
-      # -g` and the Action do. Node 22.13.0 ships npm 10.9.2, the npm it runs.
       - uses: actions/setup-node@v4
         with:
           node-version: "22.13.0"
@@ -269,9 +195,6 @@ jobs:
           RUST_DOCTOR_BINARY: ${{ runner.temp }}/rust-doctor-release/rust-doctor
         run: bun run smoke:packed
 
-  # The end-to-end suite of tests/e2e drives the release binary the way a user
-  # does. One job builds it, so the five shards below judge the same bytes
-  # and none of them pays for a second release build.
   build-release:
     name: Release build
     runs-on: ubuntu-26.04
@@ -300,10 +223,6 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # tests/e2e/ci-shards.ts splits the files by the weights in
-  # ci-shard-weights.json, refusing a file that has none, and ci-run-files.sh
-  # runs each file in its own bun process and tmux server, retrying a failure
-  # once and annotating a pass on retry so a flaky file stays visible.
   e2e-shard:
     name: E2E (shard ${{ matrix.shard }})
     needs: build-release
@@ -313,17 +232,12 @@ jobs:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4]
-    # The namespace scenarios fail rather than skip here, and the timing
-    # budgets of tui-performance.test.ts take the allowance the Rust benchmark
-    # takes on a shared two-core runner.
     env:
       RUST_DOCTOR_E2E_BIN: ${{ github.workspace }}/target/release/rust-doctor
       E2E_REQUIRE_TMUX: "1"
       E2E_REQUIRE_NETNS: "1"
       RUST_DOCTOR_BENCHMARK_ALLOWANCE: "3"
     steps:
-      # Full history: the self-scan files compare a clone of HEAD against the
-      # v0.7.0 tag.
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
@@ -337,25 +251,17 @@ jobs:
       - name: Make the binary executable
         run: chmod +x target/release/rust-doctor
 
-      # strace is the socket-level proof of offline-and-side-effects.test.ts.
       - name: Install tmux and strace
         run: sudo apt-get update && sudo apt-get install -y tmux strace
 
-      # Hosted Ubuntu has refused unprivileged user namespaces since 24.04, and
-      # the network-namespace scenarios use them to prove the scan offline
-      # (actions/runner-images#10443).
       - name: Allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      # Clippy is required: every scan in the suite runs it.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99.1"
           components: clippy
 
-      # Every scan in the suite runs with CARGO_NET_OFFLINE=true, so the
-      # crates of this repository, which the self-scan files compile, are
-      # fetched here, before the suite, by the runner and not by a test.
       - name: Fetch this repository's dependencies
         run: cargo fetch --locked
 
@@ -363,8 +269,6 @@ jobs:
         with:
           bun-version-file: tests/e2e/package.json
 
-      # The launcher files install the packed tarballs with npm, offline, and
-      # run the launcher under node, as `npm install -g` users do.
       - uses: actions/setup-node@v4
         with:
           node-version: "22.13.0"
@@ -385,8 +289,6 @@ jobs:
             echo "key=$(printf '%s\n' "$files" | sha256sum | cut -c1-16)"
           } >> "$GITHUB_OUTPUT"
 
-      # Each file keeps its named scan targets under its own directory, so the
-      # key holds the shard's file names beside the lockfile and the toolchain.
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/rust-doctor-e2e/targets
@@ -405,7 +307,6 @@ jobs:
           mapfile -t files <<< "$FILES"
           bash ci-run-files.sh "${files[@]}"
 
-  # The one check branch protection names: it passes only when every shard did.
   e2e:
     name: e2e
     needs: e2e-shard

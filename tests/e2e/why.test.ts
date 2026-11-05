@@ -1,7 +1,3 @@
-// WY-01 to WY-35 of `tasks/e2e-catalog/subcommands.md` section 3: `why`, live
-// and from a saved report. Two committed workspaces are scanned once each:
-// `twoMember`, and `mixed`, which holds an ignored, a generated, a suppressed
-// and a manifest site. A row that needs its own history builds it.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -57,7 +53,6 @@ beforeAll(async () => {
   ]);
 });
 
-// `why` in the workspace, asserting it wrote nothing there.
 async function why(on: Scanned, args: string[], options: DoctorOptions = {}): Promise<DoctorRun> {
   const before = treeFingerprint(on.repo.path);
   const run = await runDoctor(["why", ...args], { sandbox: on.repo.sandbox, cwd: on.repo.path, target: on.target, ...options });
@@ -162,8 +157,6 @@ describe("why on a saved report", () => {
     expect(run.stdout).toStartWith("clippy::todo (error)\nLevel source: config-rule\n");
   });
 
-  // US-008 fixed subcommands/F6: `why --report` checks the schema as `report
-  // markdown` does.
   test("WY-12 a document without schema_version is refused as report markdown refuses it", async () => {
     const path = savedDoc("notareport.json", '{"a":1}');
     const message = `rust-doctor: ${path}: the report carries no schema_version, and this binary reads ${twoMember.json.schema_version}.\n`;
