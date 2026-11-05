@@ -144,7 +144,13 @@ immediate exit with nothing on stdout. A second signal after that exits at
 once. A terminal's Ctrl-C no longer reaches a child in its own group, which is
 why the handler kills them. While the interactive report holds the terminal,
 a signal restores the mode it found and shows the cursor before the process
-exits. SIGKILL runs nothing, so the first snapshot a baseline or staged scan
+exits. It also ends the read the report blocks in, which `console` hands back
+as a Ctrl-C, so the report leaves as if its reader quit: `main.rs` reads the
+handler's flag rather than how the report ended, and the run ends with 130
+whether the main thread or the watcher thread exits first. The main thread
+won that race about one macOS run in six and published the scan's exit code;
+`RUST_DOCTOR_INJECT_EXIT_DELAY_MS`, which only a debug build reads, holds the
+watcher back so a test sees the main thread win. SIGKILL runs nothing, so the first snapshot a baseline or staged scan
 creates sweeps the `rust-doctor-baseline-<pid>-<n>` directories this user owns
 whose process is gone, never a live one's, and one it cannot remove stays.
 

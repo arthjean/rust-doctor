@@ -195,7 +195,7 @@ mod tty {
     use std::io::{self, Read, Write};
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::fs::PermissionsExt;
-    use std::os::unix::process::{CommandExt, ExitStatusExt};
+    use std::os::unix::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, ExitStatus, Stdio};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -538,6 +538,34 @@ mod tty {
         assert_ne!(mode.c_lflag & libc::ECHO, 0, "the terminal was left without echo");
     }
 
+    /// A signal that lands while the report blocks on a key ends that read, and
+    /// the key reader hands the interrupted read back as a Ctrl-C, so the
+    /// report leaves as if its reader quit. The run still ends with 130. The
+    /// watcher thread that exits with 130 is held back here, so the main thread
+    /// reaches its own exit first: the race macOS runners lost about one run in
+    /// six, and the main thread used to answer it with the scan's exit code.
+    #[test]
+    fn a_signal_the_main_thread_outruns_still_ends_the_run_with_130() {
+        let mut command = binary();
+        command
+            .arg(kernel("todo"))
+            .args(["--scope", "full"])
+            .env("RUST_DOCTOR_INJECT_EXIT_DELAY_MS", "5000");
+        let mut process = PtyProcess::spawn(command);
+        process.wait_for("Hand off to an agent");
+        process.settle(Duration::from_millis(200));
+        let pid = i32::try_from(process.child.id()).unwrap();
+        // SAFETY: `kill` takes plain integers and the pid is this test's child.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let signaled = Instant::now();
+        let (status, output) = process.wait();
+        assert!(
+            signaled.elapsed() < Duration::from_secs(5),
+            "the held-back watcher ended the run, not the main thread"
+        );
+        assert_eq!(status.code(), Some(130), "{output}");
+    }
+
     /// The review is one `esc` deep: leaving it comes back to the landing with
     /// the menu moved on to what to do next, rather than quitting.
     #[test]
@@ -714,14 +742,15 @@ mod tty {
             let (status, output) = process.wait();
             // Ctrl-C reaches the report as the byte 0x03 once the CLI has put
             // the terminal in raw mode, and as a SIGINT from the line
-            // discipline before that. Which one happens is a race between this
-            // write and the child's tcsetattr, and macOS loses it where Linux
-            // wins. Either way the report is gone and nothing else ran.
-            if name == "ctrl-c" && status.signal() == Some(libc::SIGINT) {
-                assert_eq!(status.code(), None, "{name}: {output}");
-            } else {
-                assert_eq!(status.code(), Some(0), "{name}: {output}");
-            }
+            // discipline before that, which ends the run with 130 like any
+            // signal during the report. Which one happens is a race between
+            // this write and the child's tcsetattr, and macOS loses it where
+            // Linux wins. Either way the report is gone and nothing else ran.
+            let accepted: &[i32] = if name == "ctrl-c" { &[0, 130] } else { &[0] };
+            assert!(
+                status.code().is_some_and(|code| accepted.contains(&code)),
+                "{name} ended with {status}: {output}"
+            );
             assert!(!output.contains("Choose how to continue"), "{name}: {output}");
         }
     }

@@ -277,6 +277,22 @@ mod unix {
         INSTALLED.store(true, Ordering::SeqCst);
     }
 
+    /// Holds the watcher's exit back for the milliseconds a debug build was
+    /// given, so a test can watch the main thread reach its own exit first. A
+    /// release build never reads the variable.
+    #[cfg(debug_assertions)]
+    fn injected_exit_delay() {
+        let delay = std::env::var("RUST_DOCTOR_INJECT_EXIT_DELAY_MS")
+            .ok()
+            .and_then(|milliseconds| milliseconds.parse().ok());
+        if let Some(milliseconds) = delay {
+            thread::sleep(std::time::Duration::from_millis(milliseconds));
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    const fn injected_exit_delay() {}
+
     /// Kills every registered group each time the handler writes, and exits
     /// when no scan is left to end on its own.
     fn watch(read: libc::c_int) {
@@ -293,6 +309,7 @@ mod unix {
             }
             kill_registered();
             if ACTIVE.load(Ordering::SeqCst) == 0 {
+                injected_exit_delay();
                 give_terminal_back();
                 #[allow(
                     clippy::exit,

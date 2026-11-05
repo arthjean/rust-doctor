@@ -494,7 +494,7 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
     {
         bounded_stderr(&error.to_string());
         if scan_exit == 0 {
-            return ExitCode::from(2);
+            return closing_status(2);
         }
     }
     // The staged tree the frames were drawn from goes once nothing draws from
@@ -503,7 +503,22 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
         bounded_stderr(&error);
         return ExitCode::from(2);
     }
-    ExitCode::from(scan_exit)
+    closing_status(scan_exit)
+}
+
+/// The status a run that got past its report ends with: `status`, unless a
+/// signal stopped it on the way.
+///
+/// A signal that lands while the interactive report blocks on a key ends that
+/// read, and the key reader hands it back as a Ctrl-C, so the report leaves as
+/// if its reader quit. The flag the handler set, not the way the report ended,
+/// says the run was stopped: the watcher thread exits with the same status, so
+/// whichever thread gets there first, the run ends with it.
+fn closing_status(status: u8) -> ExitCode {
+    if rust_doctor::interrupted() {
+        return ExitCode::from(rust_doctor::INTERRUPTED_EXIT_STATUS);
+    }
+    ExitCode::from(status)
 }
 
 /// The exit status of a run whose report could not be written. A closed
@@ -547,6 +562,10 @@ fn run_interactive_report(
     };
     if let Some(path) = &completed.installed_workflow {
         eprintln!("Added {}.", path.display());
+    }
+    // A run a signal stopped carries out nothing its reader chose.
+    if rust_doctor::interrupted() {
+        return Ok(());
     }
     match completed.outcome {
         tui::Outcome::Quit => Ok(()),
