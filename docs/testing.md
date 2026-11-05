@@ -104,6 +104,10 @@
   with `#[path]` rather than copied into each, because it had been written six
   times and the copies had already drifted on whether a failed `create_dir_all`
   refuses.
+- A shell stand-in for a toolchain program never counts or orders its own
+  calls: the probes run it concurrently, and the uutils `mkdir` of Ubuntu
+  26.04 lets two concurrent calls on one path both succeed. Change what the
+  run is handed between two calls in Rust instead.
 - Shared helpers live in `tests/support/` and are pulled in with `mod support;`.
   Fixtures live under `tests/fixtures/<domain>/`, where frozen JSON oracles are
   compared field by field.

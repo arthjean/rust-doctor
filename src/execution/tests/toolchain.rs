@@ -333,36 +333,53 @@ fn a_deadline_spent_waiting_on_the_build_lock_names_the_lock() {
 /// Clippy failing to start ends the run where it always did, whatever the
 /// native passes running beside it found: one `execution` error, the
 /// toolchain kept, nothing scanned.
+///
+/// The probes ask the installed toolchain, and the run that follows them is
+/// handed a `cargo` without its execute bit, so the Clippy spawn cannot start.
+/// A wrapper that took its own execute bit away on the second version probe
+/// used to stand in for both, counting probes with `mkdir`: the uutils
+/// `mkdir` Ubuntu 26.04 ships lets two concurrent calls on one path both
+/// succeed, so neither probe took the bit away and Clippy started.
 #[cfg(unix)]
 #[test]
 fn a_clippy_that_cannot_start_returns_early_with_its_stage_error() {
     use std::os::unix::fs::PermissionsExt;
-    let root = crate::test_scratch::scratch("execution", "unstartable-clippy");
-    let cargo = root.join("cargo");
-    // The second version probe takes the execute bit away, so the probes
-    // answer and the Clippy spawn that follows them cannot start.
-    fs::write(
-        &cargo,
-        format!(
-            "#!/bin/sh\ncase \"$*\" in *--version) mkdir '{}/once' 2>/dev/null || chmod -x \"$0\";; esac\n\
-             exec cargo \"$@\"\n",
-            root.display()
-        ),
+    let path = fixture("clean");
+    let prepared = prepare_with(&path, &Programs::default(), None, true, false).unwrap();
+    let environment = CommandEnvironment::default();
+    let options = RunOptions::default();
+    let plan = PolicyPlan::default();
+    let (toolchain, lints) = resolve_toolchain(
+        &Programs::default(),
+        prepared.workspace_root(),
+        &environment,
+        &options,
+        true,
     )
     .unwrap();
-    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
+    let root = crate::test_scratch::scratch("execution", "unstartable-clippy");
+    let cargo = root.join("cargo");
+    fs::write(&cargo, "#!/bin/sh\nexec cargo \"$@\"\n").unwrap();
+    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o644)).unwrap();
     let programs = Programs {
         cargo,
         ..Programs::default()
     };
-    let path = fixture("clean");
-    let prepared = prepare_with(&path, &Programs::default(), None, true, false).unwrap();
-    let result = execute_into(
-        prepared,
-        &programs,
-        &PolicyPlan::default(),
+    let declared = generated::declared(prepared.workspace_root(), options.deadline);
+    let context = ExecutionContext {
+        programs: &programs,
+        plan: &plan,
+        settings: &prepared.configuration.structure,
+        environment: &environment,
+        options: &options,
+        declared: &declared,
+    };
+    let result = context.run(
+        prepared.target,
+        toolchain,
+        lints,
         Some(&scan_target_dir(&path)),
-        &RunOptions::default(),
+        None,
     );
     assert_eq!(
         result.error.as_ref().map(|error| (error.stage, error.code)),
