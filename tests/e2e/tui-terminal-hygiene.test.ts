@@ -174,9 +174,9 @@ describe.skipIf(!requireTmux())("interactive report terminal hygiene", () => {
       await session.waitForStable(300);
       expect(session.byteLog()).toContain(HIDE);
       process.kill(session.panePid(), "SIGTERM");
-      // 130, or the scan's code when the report's own exit wins the race
-      // with the signal watcher: tui/BUG-14, held by tui-exit-codes.test.ts.
-      expect([0, 130]).toContain((await session.waitForExit()) ?? -1);
+      // 130 even when the report's own exit wins the race with the signal
+      // watcher (tui/BUG-14).
+      expect(await session.waitForExit()).toBe(130);
       // pipe-pane writes the log asynchronously: wait for its last bytes.
       const log = await settledLog(session);
       // The cursor's final state is shown. The log need not end on the show:
