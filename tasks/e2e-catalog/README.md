@@ -62,4 +62,4 @@ row tagged with this identifier, and `tests/e2e/known-bugs.json` mirrors this ta
 | real/B7 | low | A SIGTERM through the npm launcher ends with status 143, not the 130 the binary documents | `test.failing` |
 | real/B8 | low | A comment list that is not JSON fails the Action's comment step (exit 5) instead of downgrading to a warning | `test.failing` |
 | real/B9 | low | An empty report leaves the Action's `authoritative` output empty instead of `false` | `test.failing` |
-| tui/BUG-14 | low to medium | An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher | `test.failing` |
+| tui/BUG-14 | low to medium | An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher | PR #45 |

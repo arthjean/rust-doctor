@@ -332,7 +332,7 @@ Each scenario diffs `git status --porcelain --untracked-files=all` of the copy b
 | EXIT-08 | denied | agent launch (agent exits 9) | 1 | - | Y |
 | EXIT-09 | sleeping | `C-c` during scan | 130 | - | Y |
 | EXIT-10 | denied | `C-c` during count-up | 130 (BUG-05) Corrected 2026-10-20: run on broken-member (scored, exit 1), since denied has no score and no count-up since US-009; still 130, the open BUG-05. | - | Y |
-| EXIT-11 | denied | `kill -TERM` / `-HUP` in report | 130 / 129 Corrected 2026-10-20: 130 for both since US-010 (FR-08), and the terminal is given back (`stty -a` after the exit shows `icanon echo`, the byte log shows the cursor last); a run can still exit with the scan code instead, one in twelve here and two in five pinned to one CPU (tui/BUG-14). | - | Y |
+| EXIT-11 | denied | `kill -TERM` / `-HUP` in report | 130 / 129 Corrected 2026-10-20: 130 for both since US-010 (FR-08), and the terminal is given back (`stty -a` after the exit shows `icanon echo`, the byte log shows the cursor last); a run could still exit with the scan code instead, one in twelve here and two in five pinned to one CPU (tui/BUG-14), until PR #45 read the handler's flag on the way out. | - | Y |
 | EXIT-12 | any | `Interactive report unavailable` (tui::run I/O error) | scan code; a handoff error after a 0 scan gives 2 Corrected 2026-10-20: provoked by a stdin terminal lent by a second pane and hung up under the read: `Interactive report unavailable: Input/output error (os error 5)`, exit = scan code (1 on denied). The handoff-error half is HO-17 (prompt over 12 KiB). | - | N |
 
 ### 3.13 `tui-performance.test.ts`

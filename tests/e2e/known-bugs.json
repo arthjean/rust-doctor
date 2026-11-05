@@ -442,7 +442,8 @@
   {
     "id": "tui/BUG-14",
     "severity": "low to medium",
-    "status": "open",
+    "status": "fixed",
+    "fixed_by": "PR #45",
     "defect": "An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher"
   }
 ]

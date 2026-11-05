@@ -54,10 +54,9 @@ async function restoresCursor(signal: NodeJS.Signals): Promise<void> {
   try {
     await session.waitForPane(MENU_HINT, 15_000);
     process.kill(session.panePid(), signal);
-    // 130, or the scan's own 1 when the report's quit path wins the race
-    // against the signal watcher: tui/BUG-14, held by its row in
-    // tui-exit-codes.test.ts. The terminal is restored either way.
-    expect([130, 1]).toContain((await session.waitForExit()) ?? -1);
+    // 130 even when the report's quit path wins the race against the signal
+    // watcher (tui/BUG-14), and the terminal is restored.
+    expect(await session.waitForExit()).toBe(130);
     const log = await settledLog(session);
     expect(log.lastIndexOf(HIDE)).toBeGreaterThanOrEqual(0);
     // The main loop can repaint the frame it was drawing once more after the

@@ -153,7 +153,7 @@ describe.skipIf(!requireTmux())("interactive report exit codes", () => {
 
   // The binary under a shell that records its exit status and the terminal
   // modes it left, then signaled while the report waits for a key.
-  // `pinned` runs it on one CPU, where the race of tui/BUG-14 is lost about
+  // `pinned` runs it on one CPU, where the race of tui/BUG-14 was lost about
   // two runs in five whatever the machine.
   async function signalWaiting(signal: NodeJS.Signals, pinned = false): Promise<{ code: string; modes: string; log: string }> {
     const workspace = await tuiWorkspace("denied");
@@ -184,10 +184,11 @@ describe.skipIf(!requireTmux())("interactive report exit codes", () => {
     }
   }
 
-  // The report's own quit path can win the race with the signal's exit, and
-  // the process then exits with the scan's code: twelve pinned runs make a
-  // pass by chance unlikely (0.6^12).
-  test.failing("EXIT-11 tui/BUG-14 SIGTERM, SIGHUP and SIGINT while the report waits always exit 130", async () => {
+  // The report's own quit path can win the race with the signal watcher's
+  // exit, and the run used to end with the scan's code then: twelve pinned
+  // runs made a pass by chance unlikely (0.6^12). It now ends with 130 either
+  // way.
+  test("EXIT-11 tui/BUG-14 SIGTERM, SIGHUP and SIGINT while the report waits always exit 130", async () => {
     const codes: string[] = [];
     for (let round = 0; round < 4; round += 1) {
       for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) codes.push((await signalWaiting(signal, true)).code);
