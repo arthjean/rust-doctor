@@ -92,7 +92,7 @@ env:
 jobs:
   clones:
     name: Hold every pinned revision with its history
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     outputs:
       key: ${{ steps.clones.outputs.cache-primary-key }}
@@ -162,7 +162,7 @@ jobs:
   measure:
     name: Reproduce the pinned measurement
     needs: clones
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
@@ -233,7 +233,7 @@ jobs:
   replay:
     name: Replay the corpus end to end
     needs: clones
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5

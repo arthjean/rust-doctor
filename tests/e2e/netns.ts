@@ -1,7 +1,7 @@
 // The binary inside a network namespace of its own (`unshare -rn`), the
-// strongest proof that a scan needs no network. Hosted Ubuntu 24.04 refuses
-// unprivileged user namespaces until the job lifts the AppArmor restriction,
-// so a machine without them skips these scenarios with one stated reason,
+// strongest proof that a scan needs no network. Hosted Ubuntu has refused
+// unprivileged user namespaces since 24.04 until the job lifts the AppArmor
+// restriction, so a machine without them skips these scenarios with one stated reason,
 // unless E2E_REQUIRE_NETNS=1 (CI), where their absence fails the file.
 import {
   BIN,
