@@ -120,7 +120,7 @@ and writes `target/delta-pairing/results.json`.
 ## Replay under core-v6 (2026-10-29)
 
 US-028 of the self-scan remediation replayed the same pairs with the release
-binary of the 0.11.0 candidate (score model core-v6, schema 24, toolchain
+binary of the 0.10.0 candidate (score model core-v6, schema 24, toolchain
 1.99.1), with the baseline pairing the crate ships today and duplicate
 families fingerprinted on their macro arguments, into a fresh reports
 directory so no report of the 0.7.0 run was reused:
