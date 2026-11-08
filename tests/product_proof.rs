@@ -376,7 +376,12 @@ fn correcting_a_copied_finding_removes_its_id_on_rescan() {
 #[test]
 fn repository_json_has_exact_top_level_contract_without_absolute_private_paths() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = inspect_json(root);
+    let output = scanning(root)
+        .env("RUST_DOCTOR_STRUCTURE_TIME_BUDGET_SECS", "600")
+        .args(["inspect", "--json"])
+        .arg(root)
+        .output()
+        .expect("rust-doctor should start");
     let report = parse_report(&output);
     let keys: Vec<_> = report
         .as_object()
