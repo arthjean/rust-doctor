@@ -17,10 +17,10 @@
     {
       "id": "EP-002",
       "title": "Windows is a gate",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 3,
-      "stories_done": 0
+      "stories_done": 3
     },
     {
       "id": "EP-003",
@@ -138,41 +138,71 @@
       "id": "US-007",
       "title": "Run the test suite on Windows against a ledger of known failures",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "L",
       "blocked_by": [
         "US-002"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15",
+      "notes": {
+        "review": "Gate hardened: a test line split by a child process or a `- should panic` line no longer passes unseen; per-binary failure counts from the libtest summary must match the named failures. Proven on Windows (CRLF replay and CI run 43728132924 on main at 457277d, Build (windows) green), Linux (WSL and Tests (ubuntu-latest)) and macOS (Tests (macos-latest), windows_test_gate 12 passed)."
+      }
     },
     {
       "id": "US-008",
       "title": "Seed the ledger and remove what the path fix repaired",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-007"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15",
+      "notes": {
+        "measured": "2026-11-15, toolchain 1.99.1, isolated CARGO_HOME and RUSTUP_HOME, worktrees at C:\\dev (a path under %TEMP% overflows MAX_PATH and fails build-script links)",
+        "lf_checkout_failures": 23,
+        "crlf_checkout_failures": 34,
+        "crlf_only_separator_entries": {
+          "checkout_setting": "core.autocrlf=true",
+          "tests": [
+            "agent_skill_notice an_agent_hears_once_that_its_skill_is_missing_stale_or_nothing_when_current",
+            "git_scope_kernel full_v8_preserves_the_frozen_v7_bytes_and_v6_projection",
+            "lib cargo_health::tests::target_protocol_is_offline_complete_and_classifiable",
+            "main ci::tests::a_clean_pull_request_stays_quiet_when_asked",
+            "main ci::tests::no_job_that_writes_to_the_pull_request_runs_its_code",
+            "main ci::tests::the_action_declares_its_inputs_and_defaults_to_this_release",
+            "main ci::tests::this_repository_runs_the_action_it_ships",
+            "main skill::tests::every_confirmed_agent_gets_its_own_directory",
+            "main skill::tests::the_skill_installs_once_and_refreshes_only_on_update",
+            "protocol_corpus project_fixtures_share_the_required_lint_policy",
+            "source_kernel_cli offline_cli_is_deterministic_private_and_correction_preserves_other_ids"
+          ]
+        },
+        "repaired_instead_of_listed": [
+          "score_model_v6 (6 tests): support::resolve_program now appends EXE_SUFFIX",
+          "ci::tests (6 tests): Command::new(\"bash\") resolved System32 WSL bash; the tests now run Git for Windows bash"
+        ],
+        "path_form_entries": 0,
+        "review": "Gate green on both attempts of the GitHub Windows runner, CI run 43728132924 on main at 457277d (attempt 1 job 132854442440, attempt 2 job 132858735705), 34 failures each, all listed; every class checked against its failure message, none path-form."
+      }
     },
     {
       "id": "US-009",
       "title": "Make the Clippy gate clean on Windows",
       "epic": "EP-002",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-010",
