@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use serde_json::Value;

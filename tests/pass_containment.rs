@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::atomic::AtomicUsize;
+#[cfg(unix)]
 use std::time::Duration;
 
 use serde_json::Value;

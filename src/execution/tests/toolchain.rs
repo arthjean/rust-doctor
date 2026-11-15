@@ -2,9 +2,12 @@ use std::fs;
 use std::process::Command;
 
 use super::*;
+#[cfg(unix)]
 use crate::audit::ScoreReason;
 use crate::git_scope::ScopeReport;
-use crate::report::{NotEvaluated, from_execution_scoped};
+#[cfg(unix)]
+use crate::report::NotEvaluated;
+use crate::report::from_execution_scoped;
 
 #[cfg(unix)]
 fn driver_without_todo() -> PathBuf {

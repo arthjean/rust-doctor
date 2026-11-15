@@ -64,11 +64,13 @@ pub fn run(session: &Session<'_>) -> io::Result<Completed> {
             installed_workflow: None,
         });
     }
-    let held = rust_doctor::hold_terminal();
-    let mut app = App::new(session);
-    let outcome = app.run(&mut canvas);
-    canvas.restore();
-    drop(held);
+    let (app, outcome) = {
+        let _held = rust_doctor::hold_terminal();
+        let mut app = App::new(session);
+        let outcome = app.run(&mut canvas);
+        canvas.restore();
+        (app, outcome)
+    };
     outcome.map(|outcome| Completed {
         outcome,
         installed_workflow: app.installed_workflow,

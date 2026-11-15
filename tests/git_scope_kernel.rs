@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::AtomicUsize;
 
-use rust_doctor::{
-    BlockingLevel, ExecutionScope, GateStatus, InspectRequest, ScopeMode, Status, inspect,
-};
+#[cfg(unix)]
+use rust_doctor::BlockingLevel;
+use rust_doctor::{ExecutionScope, GateStatus, InspectRequest, ScopeMode, Status, inspect};
 use serde_json::Value;
 use support::rule_scaling::{oracle, project_legacy_report};
 

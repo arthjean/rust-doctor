@@ -14,6 +14,7 @@ const STDOUT_LIMIT: usize = 4_096;
 
 const SCOPE_FAILURE: GitFailure =
     GitFailure::new("base-unavailable", "Git base commit is unavailable.");
+#[cfg(unix)]
 const BASELINE_OVERFLOW: GitFailure = GitFailure::new(
     "baseline-limit-exceeded",
     "Git baseline snapshot exceeds a supported limit.",
