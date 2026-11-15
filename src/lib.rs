@@ -17,6 +17,7 @@ mod git;
 pub mod git_hook;
 mod git_scope;
 mod internal_error;
+pub mod path_form;
 mod path_glob;
 #[cfg(test)]
 mod permutations;

@@ -96,11 +96,7 @@ pub(crate) fn inspect(
 fn inspect_declarations(metadata: &Metadata, active: &ActiveRules, scan: &mut CargoHealthScan) {
     let workspace_root = metadata.workspace_root.as_std_path();
     for package in workspace_packages(metadata) {
-        let manifest_path = package
-            .manifest_path
-            .strip_prefix(&metadata.workspace_root)
-            .ok()
-            .map(|path| path.as_str().to_owned());
+        let manifest_path = workspace_manifest(package, metadata);
         let declared = DeclaredKeys::read(package);
         for dependency in &package.dependencies {
             scan.counters.dependencies_evaluated += 1;
@@ -211,11 +207,7 @@ impl<'a> Judged<'a> {
     fn of(package: &'a Package, metadata: &Metadata) -> Self {
         Self {
             id: &package.id.repr,
-            manifest_path: package
-                .manifest_path
-                .strip_prefix(&metadata.workspace_root)
-                .ok()
-                .map(|path| path.as_str().to_owned()),
+            manifest_path: workspace_manifest(package, metadata),
             development: package
                 .dependencies
                 .iter()
@@ -333,11 +325,7 @@ fn inspect_lint_tables(
             inheriting.push(package.name.to_string());
             continue;
         }
-        let manifest_path = package
-            .manifest_path
-            .strip_prefix(&metadata.workspace_root)
-            .ok()
-            .map(|path| path.as_str().to_owned());
+        let manifest_path = workspace_manifest(package, metadata);
         let finding = reported.then(|| Finding {
             package: Some(package.name.as_ref()),
             manifest_path,
@@ -702,7 +690,16 @@ fn leaves_workspace(dependency: &Dependency, workspace_root: &Path) -> bool {
     dependency
         .path
         .as_ref()
-        .is_some_and(|path| !path.as_std_path().starts_with(workspace_root))
+        .is_some_and(|path| !crate::path_form::within(path.as_std_path(), workspace_root))
+}
+
+fn workspace_manifest(package: &Package, metadata: &Metadata) -> Option<String> {
+    crate::path_form::relative_to(
+        package.manifest_path.as_std_path(),
+        metadata.workspace_root.as_std_path(),
+    )?
+    .to_str()
+    .map(str::to_owned)
 }
 
 

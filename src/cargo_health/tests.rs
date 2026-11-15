@@ -11,6 +11,8 @@ use super::*;
 
 use crate::policy::{PolicyInput, RuleLevel};
 
+mod paths;
+
 #[test]
 fn the_pack_holds_the_size_bound_it_judges_for() {
     for own in [

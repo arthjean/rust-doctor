@@ -137,7 +137,7 @@ struct EvidenceLoader {
 impl EvidenceLoader {
     fn new(root: &Path) -> Self {
         Self {
-            root: root.canonicalize().ok(),
+            root: crate::path_form::canonical(root).ok(),
             source_bytes_read: 0,
             proof_bytes: 0,
         }
@@ -183,8 +183,8 @@ impl EvidenceLoader {
 
     fn read_source(&mut self, root: &Path, logical_path: &str) -> Option<String> {
         let relative = workspace_path::decode_normalized_relative(logical_path)?;
-        let path = root.join(relative).canonicalize().ok()?;
-        if !path.starts_with(root) {
+        let path = crate::path_form::canonical(root.join(relative)).ok()?;
+        if !crate::path_form::within(&path, root) {
             return None;
         }
         let metadata = fs::symlink_metadata(&path).ok()?;
@@ -199,9 +199,9 @@ impl EvidenceLoader {
 
         let file = File::open(&path).ok()?;
         let opened = file.metadata().ok()?;
-        let revalidated = path.canonicalize().ok()?;
+        let revalidated = crate::path_form::canonical(&path).ok()?;
         if !opened.is_file()
-            || !revalidated.starts_with(root)
+            || !crate::path_form::within(&revalidated, root)
             || !workspace_path::same_file(&opened, &fs::metadata(&revalidated).ok()?)
         {
             return None;

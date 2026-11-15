@@ -46,7 +46,7 @@ pub(super) fn choose(
     repository: &Path,
     candidates: impl IntoIterator<Item = Candidate>,
 ) -> Result<PathBuf, InternalError> {
-    let repository = repository.canonicalize().map_err(|_| temp_unavailable())?;
+    let repository = crate::path_form::canonical(repository).map_err(|_| temp_unavailable())?;
     let mut first_refusal = None;
     for candidate in candidates {
         match accept(&repository, &candidate) {
@@ -68,7 +68,7 @@ pub(super) fn choose(
 
 fn accept(repository: &Path, candidate: &Candidate) -> Result<PathBuf, String> {
     let unavailable = || format!("{} is unavailable", candidate.path.display());
-    let canonical = |path: &Path| path.canonicalize().map_err(|_| unavailable());
+    let canonical = |path: &Path| crate::path_form::canonical(path).map_err(|_| unavailable());
     if let Some(base) = &candidate.create_under {
         let base = canonical(base)?;
         if !base.is_dir() {
@@ -86,7 +86,7 @@ fn accept(repository: &Path, candidate: &Candidate) -> Result<PathBuf, String> {
 }
 
 fn vet(repository: &Path, canonical: &Path) -> Result<(), String> {
-    if canonical.starts_with(repository) {
+    if crate::path_form::within(canonical, repository) {
         return Err(format!("{} is inside the repository", canonical.display()));
     }
     refusal(canonical).map_or(Ok(()), Err)
@@ -143,7 +143,7 @@ mod tests {
             .join(format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(base.join("repository")).unwrap();
-        let base = base.canonicalize().unwrap();
+        let base = crate::path_form::canonical(base).unwrap();
         fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
         (base.clone(), base.join("repository"))
     }

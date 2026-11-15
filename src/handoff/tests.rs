@@ -309,7 +309,7 @@ fn agent_launch_passes_one_argument_and_uses_the_workspace_cwd() {
     );
     assert_eq!(
         PathBuf::from(fs::read_to_string(root.join("cwd")).unwrap().trim()),
-        root.canonicalize().unwrap()
+        rust_doctor::path_form::canonical(&root).unwrap()
     );
     fs::remove_dir_all(root).unwrap();
 }

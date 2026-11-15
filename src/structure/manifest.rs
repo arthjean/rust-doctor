@@ -152,7 +152,7 @@ pub(super) fn findings(
     uses: &Uses,
     deadline: &Deadline,
 ) -> Findings {
-    let Ok(workspace_root) = metadata.workspace_root.as_std_path().canonicalize() else {
+    let Ok(workspace_root) = crate::path_form::canonical(metadata.workspace_root.as_std_path()) else {
         return Findings {
             observations: Vec::new(),
             stopped: false,

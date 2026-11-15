@@ -88,14 +88,13 @@ fn read_code_frame(
     let safe_location = format_location(location);
     let fail = |reason| unavailable(Some(safe_location.clone()), reason);
 
-    let canonical_root = workspace_root
-        .canonicalize()
+    let canonical_root = crate::path_form::canonical(workspace_root)
         .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
-    let canonical_source = canonical_root
-        .join(relative_source)
-        .canonicalize()
+    let canonical_source = crate::path_form::canonical(canonical_root.join(relative_source))
         .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
-    if canonical_source == canonical_root || !canonical_source.starts_with(&canonical_root) {
+    if canonical_source == canonical_root
+        || !crate::path_form::within(&canonical_source, &canonical_root)
+    {
         return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));
     }
     if !fs::symlink_metadata(&canonical_source).is_ok_and(|metadata| metadata.is_file()) {
@@ -108,13 +107,12 @@ fn read_code_frame(
     let opened_metadata = file
         .metadata()
         .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
-    let revalidated = canonical_source
-        .canonicalize()
+    let revalidated = crate::path_form::canonical(&canonical_source)
         .map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
     let current_metadata =
         fs::metadata(&revalidated).map_err(|_| fail(CodeFrameUnavailableReason::Unavailable))?;
     if !opened_metadata.is_file()
-        || !revalidated.starts_with(&canonical_root)
+        || !crate::path_form::within(&revalidated, &canonical_root)
         || !workspace_path::same_file(&opened_metadata, &current_metadata)
     {
         return Err(fail(CodeFrameUnavailableReason::OutsideWorkspace));

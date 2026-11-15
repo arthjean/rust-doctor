@@ -73,7 +73,7 @@ pub(crate) fn enumerate(metadata: &Metadata) -> Enumeration {
 }
 
 pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enumeration {
-    let Ok(workspace_root) = metadata.workspace_root.as_std_path().canonicalize() else {
+    let Ok(workspace_root) = crate::path_form::canonical(metadata.workspace_root.as_std_path()) else {
         return Enumeration {
             errors: vec![SourceError {
                 code: "read-failed",
@@ -408,7 +408,7 @@ fn module_requests(
         }
 
         for path in alternatives {
-            let resolved = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let resolved = crate::path_form::canonical(&path).unwrap_or_else(|_| path.clone());
             let mut reachability = work.reachability.clone();
             reachability.test_gated |= is_test_gate(&module);
             requests.push(WorkItem {
@@ -551,7 +551,7 @@ fn confine(workspace_root: &Path, path: &Path) -> Result<PathBuf, SourceError> {
     if !lexically_within_workspace(workspace_root, path) {
         return Err(outside_workspace(workspace_root, path));
     }
-    let Ok(canonical) = path.canonicalize() else {
+    let Ok(canonical) = crate::path_form::canonical(path) else {
         return Err(SourceError {
             code: "read-failed",
             message: format!(
@@ -560,7 +560,7 @@ fn confine(workspace_root: &Path, path: &Path) -> Result<PathBuf, SourceError> {
             ),
         });
     };
-    if !canonical.starts_with(workspace_root) {
+    if !crate::path_form::within(&canonical, workspace_root) {
         return Err(outside_workspace(workspace_root, path));
     }
     Ok(canonical)
@@ -577,25 +577,25 @@ fn outside_workspace(workspace_root: &Path, path: &Path) -> SourceError {
 }
 
 pub(crate) fn workspace_relative(workspace_root: &Path, path: &Path) -> Option<String> {
-    let canonical = path.canonicalize().ok()?;
-    display_path(canonical.strip_prefix(workspace_root).ok()?)
+    let canonical = crate::path_form::canonical(path).ok()?;
+    display_path(&crate::path_form::relative_to(&canonical, workspace_root)?)
 }
 
 fn relative_path(workspace_root: &Path, path: &Path) -> String {
-    path.strip_prefix(workspace_root)
-        .ok()
+    crate::path_form::relative_to(path, workspace_root)
+        .as_deref()
         .and_then(display_path)
         .unwrap_or_else(|| ".".to_owned())
 }
 
 fn safe_lexical_path(workspace_root: &Path, path: &Path) -> String {
-    path.strip_prefix(workspace_root)
-        .ok()
+    crate::path_form::relative_to(path, workspace_root)
         .filter(|relative| {
             relative
                 .components()
                 .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
         })
+        .as_deref()
         .and_then(display_path)
         .or_else(|| {
             path.file_name()
@@ -610,7 +610,7 @@ fn display_path(relative: &Path) -> Option<String> {
 }
 
 fn lexically_within_workspace(workspace_root: &Path, path: &Path) -> bool {
-    let Ok(relative) = path.strip_prefix(workspace_root) else {
+    let Some(relative) = crate::path_form::relative_to(path, workspace_root) else {
         return false;
     };
     let mut depth = 0_usize;
@@ -650,6 +650,37 @@ mod tests {
             Path::new("/workspace/../outside.rs")
         ));
         assert!(!lexically_within_workspace(&root(), Path::new("/elsewhere")));
+    }
+
+    #[test]
+    fn a_unit_cargo_names_plainly_is_inside_a_verbatim_workspace_root() {
+        let verbatim = Path::new("\\\\?\\C:\\w");
+        for inside in [
+            "C:\\w\\src\\lib.rs",
+            "\\\\?\\C:\\w\\src\\lib.rs",
+            "c:\\w\\crates\\a\\src\\main.rs",
+            "C:\\w\\src\\..\\src\\lib.rs",
+        ] {
+            assert!(lexically_within_workspace(verbatim, Path::new(inside)), "{inside}");
+        }
+        for outside in [
+            "C:\\elsewhere\\src\\lib.rs",
+            "C:\\w\\..\\elsewhere\\lib.rs",
+            "D:\\w\\src\\lib.rs",
+            "C:\\w-sibling\\src\\lib.rs",
+        ] {
+            assert!(!lexically_within_workspace(verbatim, Path::new(outside)), "{outside}");
+            assert_eq!(
+                outside_workspace(verbatim, Path::new(outside)).code,
+                "path-outside-workspace"
+            );
+        }
+        assert_eq!(
+            safe_lexical_path(verbatim, Path::new("C:\\w\\src\\lib.rs")),
+            "src/lib.rs"
+        );
+        assert_eq!(relative_path(verbatim, Path::new("C:\\w\\src")), "src");
+        assert_eq!(relative_path(verbatim, Path::new("C:\\w")), ".");
     }
 
     #[test]

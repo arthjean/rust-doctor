@@ -36,6 +36,9 @@ been the tool's first network call. The report
 publishes where the database came from and its date, never its path, and a
 database older than thirty days is read and its age printed.
 
+Only `src/path_form.rs` calls `canonicalize`, stripping Windows' verbatim
+prefix; `tests/path_form.rs` fails on any other call.
+
 The result is assembled from what came back, never asked back for what it was
 given. `ExecutionContext::run` owns the metadata to the end, which retired
 three `Option` dances no input could make `None` and a workspace-root clone,

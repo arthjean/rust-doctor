@@ -448,7 +448,7 @@ fn dependency(
 }
 
 fn cargo_health_metadata(order: &[usize]) -> Metadata {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let package_id = format!("path+file://{}#example@0.1.0", workspace.display());
     let dependencies = [
         dependency(

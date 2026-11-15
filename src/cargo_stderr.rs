@@ -78,7 +78,7 @@ fn scrub(text: &str, prefixes: &[(Option<PathBuf>, &str)]) -> String {
     for (path, replacement) in prefixes {
         let Some(path) = path else { continue };
         let mut forms = vec![path.to_string_lossy().into_owned()];
-        if let Ok(canonical) = path.canonicalize() {
+        if let Ok(canonical) = crate::path_form::canonical(path) {
             forms.push(canonical.to_string_lossy().into_owned());
         }
         forms.sort_by_key(|form| std::cmp::Reverse(form.len()));

@@ -164,8 +164,7 @@ pub fn project_name(report: &InspectReport, workspace_root: &Path) -> String {
     {
         return package.name.clone();
     }
-    workspace_root
-        .canonicalize()
+    rust_doctor::path_form::canonical(workspace_root)
         .ok()
         .as_deref()
         .and_then(Path::file_name)

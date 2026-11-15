@@ -97,8 +97,7 @@ fn source(position: usize) -> String {
 }
 
 fn workspace() -> PathBuf {
-    let root = std::env::temp_dir()
-        .canonicalize()
+    let root = crate::path_form::canonical(std::env::temp_dir())
         .expect("a canonical temporary directory")
         .join("rust-doctor-structure-benchmark")
         .join(std::process::id().to_string());

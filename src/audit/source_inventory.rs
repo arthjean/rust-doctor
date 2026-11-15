@@ -41,7 +41,7 @@ pub(super) fn collect(
 }
 
 fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
-    let Ok(workspace_root) = metadata.workspace_root.as_std_path().canonicalize() else {
+    let Ok(workspace_root) = crate::path_form::canonical(metadata.workspace_root.as_std_path()) else {
         return SourceFileInventory::default();
     };
     let (_, roots, roots_are_complete) = workspace_targets(metadata, &workspace_root);
@@ -53,7 +53,7 @@ fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
 }
 
 fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> SourceFileInventory {
-    let Ok(workspace_root) = metadata.workspace_root.as_std_path().canonicalize() else {
+    let Ok(workspace_root) = crate::path_form::canonical(metadata.workspace_root.as_std_path()) else {
         return SourceFileInventory::default();
     };
     let (workspace_packages, target_roots, mut complete) =
@@ -115,8 +115,8 @@ fn workspace_targets(
             .manifest_path
             .as_std_path()
             .parent()
-            .and_then(|path| path.canonicalize().ok())
-            .is_some_and(|path| path.starts_with(workspace_root));
+            .and_then(|path| crate::path_form::canonical(path).ok())
+            .is_some_and(|path| crate::path_form::within(&path, workspace_root));
         if !is_internal {
             continue;
         }
@@ -256,10 +256,10 @@ fn confined_rust_file(workspace_root: &Path, path: &Path) -> Confined {
     if path.extension() != Some(OsStr::new("rs")) {
         return Confined::Excluded;
     }
-    let Ok(canonical) = path.canonicalize() else {
+    let Ok(canonical) = crate::path_form::canonical(path) else {
         return Confined::Unresolved;
     };
-    if !canonical.starts_with(workspace_root) || !canonical.is_file() {
+    if !crate::path_form::within(&canonical, workspace_root) || !canonical.is_file() {
         return Confined::Excluded;
     }
     Confined::Counted(canonical)

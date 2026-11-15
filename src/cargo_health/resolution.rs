@@ -8,7 +8,7 @@ use serde::Deserialize;
 use super::advisories::{self, AdvisoryDatabase};
 use super::{
     ADVISORY_RULES, CARGO_DUPLICATE_MAJOR_VERSIONS, CARGO_MISSING_LOCKFILE, Candidate,
-    CargoHealthError, CargoHealthScan, produces_a_binary, workspace_packages,
+    CargoHealthError, CargoHealthScan, produces_a_binary, workspace_manifest, workspace_packages,
 };
 use crate::policy::ActiveRules;
 
@@ -81,11 +81,7 @@ pub(super) fn inspect_resolution(
                         package.name
                     ),
                     package: Some(package.name.to_string()),
-                    manifest_path: package
-                        .manifest_path
-                        .strip_prefix(&metadata.workspace_root)
-                        .ok()
-                        .map(|path| path.as_str().to_owned()),
+                    manifest_path: workspace_manifest(package, metadata),
                     span: None,
                     key: None,
                     informational: false,

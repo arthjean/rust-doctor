@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 pub(crate) const REFUSED: u8 = 2;
 
 pub(crate) fn resolve(name: &str, given: &Path) -> Result<PathBuf, u8> {
-    fs::canonicalize(given).map_err(|error| refuse(name, given, &error))
+    rust_doctor::path_form::canonical(given).map_err(|error| refuse(name, given, &error))
 }
 
 pub(crate) fn readable(name: &str, given: &Path) -> Result<(), u8> {

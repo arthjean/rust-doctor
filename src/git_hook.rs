@@ -1,5 +1,4 @@
 use std::fmt;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::git::{GitCall, GitFailure, HOOKS_OFF, OUTPUT_TOO_LARGE, git_arguments, run_git};
@@ -96,10 +95,11 @@ impl fmt::Display for Unconfined {
 }
 
 pub fn confine(workspace: &Path, toplevel: &Path) -> Result<Confined, Unconfined> {
-    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical =
+        |path: &Path| crate::path_form::canonical(path).unwrap_or_else(|_| path.to_path_buf());
     let workspace = canonical(workspace);
     let toplevel = canonical(toplevel);
-    let Ok(relative) = workspace.strip_prefix(&toplevel) else {
+    let Some(relative) = crate::path_form::relative_to(&workspace, &toplevel) else {
         return Err(Unconfined::Outside {
             workspace,
             toplevel,
@@ -118,7 +118,7 @@ pub fn confine(workspace: &Path, toplevel: &Path) -> Result<Confined, Unconfined
         });
     }
     Ok(Confined {
-        workspace: relative.to_path_buf(),
+        workspace: relative,
         toplevel,
     })
 }

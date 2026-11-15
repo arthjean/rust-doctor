@@ -168,7 +168,9 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
         eprintln!("rust-doctor: not a git repository, so no pre-commit hook was installed.");
         return FAILED;
     };
-    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical = |path: &Path| {
+        rust_doctor::path_form::canonical(path).unwrap_or_else(|_| path.to_path_buf())
+    };
     let confined = match git_hook::confine(workspace, &location.toplevel) {
         Ok(confined) => confined,
         Err(refusal) => {
@@ -199,12 +201,12 @@ pub(crate) fn install_git(workspace: &Path, write: WriteArgs) -> u8 {
         | HookSetup::Default(directory) => canonical(&directory),
     };
     let target = directory.join("pre-commit");
-    let Ok(shown) = target.strip_prefix(&toplevel) else {
+    let Some(shown) = rust_doctor::path_form::relative_to(&target, &toplevel) else {
         println!("The hooks directory is outside this working tree, so nothing was written.");
         println!("Add this line to its pre-commit hook:\n\n{command}");
         return 1;
     };
-    if let Some(link) = symlinked_component(&toplevel, shown) {
+    if let Some(link) = symlinked_component(&toplevel, &shown) {
         eprintln!(
             "rust-doctor: {} is a symlink, and nothing is written through one.",
             sanitize(&link.display().to_string())

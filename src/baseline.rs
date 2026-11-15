@@ -179,9 +179,8 @@ pub(crate) fn materialize(
     )?;
     let inventory = parse_inventory(&inventory_entries)?;
     let repository_root = repository_root(workspace_root)?;
-    let workspace_relative = workspace_root
-        .strip_prefix(&repository_root)
-        .map_err(|_| materialization_failed())?;
+    let workspace_relative = crate::path_form::relative_to(workspace_root, &repository_root)
+        .ok_or_else(materialization_failed)?;
     let root = create_temp_root(&repository_root)?.into_path();
     let tree = root.join("tree");
     let target = root.join("target");
@@ -383,13 +382,11 @@ fn create_temp_root_in(
     repository_root: &Path,
     temporary_root: &Path,
 ) -> Result<TempRoot, InternalError> {
-    let temporary = temporary_root
-        .canonicalize()
-        .map_err(|_| temp_unavailable())?;
-    let repository = repository_root
-        .canonicalize()
-        .map_err(|_| temp_unavailable())?;
-    if temporary.starts_with(&repository) {
+    let temporary =
+        crate::path_form::canonical(temporary_root).map_err(|_| temp_unavailable())?;
+    let repository =
+        crate::path_form::canonical(repository_root).map_err(|_| temp_unavailable())?;
+    if crate::path_form::within(&temporary, &repository) {
         return Err(temp_unavailable());
     }
     for _ in 0..TEMP_ATTEMPTS {
@@ -645,9 +642,7 @@ mod tests {
     fn temporary_root_is_created_atomically_private_and_outside_the_repository() {
         use std::os::unix::fs::PermissionsExt;
 
-        let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .canonicalize()
-            .unwrap();
+        let repository = crate::path_form::canonical(env!("CARGO_MANIFEST_DIR")).unwrap();
         let root = create_temp_root(&repository).unwrap();
         assert!(!root.path().starts_with(&repository));
         assert_eq!(
@@ -687,8 +682,7 @@ mod tests {
 
     #[test]
     fn temporary_root_inside_the_repository_is_rejected() {
-        let scratch = env::temp_dir()
-            .canonicalize()
+        let scratch = crate::path_form::canonical(env::temp_dir())
             .unwrap()
             .join(format!("rust-doctor-temp-boundary-{}", std::process::id()));
         let repository = scratch.join("repository");

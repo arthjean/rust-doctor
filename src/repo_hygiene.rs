@@ -459,8 +459,7 @@ mod tests {
     fn a_symlinked_build_directory_is_probed_rather_than_abstained_on() {
         use std::os::unix::fs::symlink;
 
-        let scratch = std::env::temp_dir()
-            .canonicalize()
+        let scratch = crate::path_form::canonical(std::env::temp_dir())
             .expect("a canonical temporary directory")
             .join(format!("rust-doctor-ignore-probe-{}", std::process::id()));
         let workspace = scratch.join("workspace");

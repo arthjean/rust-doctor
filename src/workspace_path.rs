@@ -10,14 +10,14 @@ pub(crate) fn normalize(workspace_root: &Path, path: &Path) -> Option<String> {
         workspace_root.join(path)
     };
     let candidate = lexical_normalize(&physical_candidate)?;
-    let relative = candidate.strip_prefix(&workspace_root).ok()?;
-    let canonical_workspace = workspace_root.canonicalize().ok()?;
+    let relative = crate::path_form::relative_to(&candidate, &workspace_root)?;
+    let canonical_workspace = crate::path_form::canonical(&workspace_root).ok()?;
     let existing_ancestor = existing_ancestor(&physical_candidate)?;
-    let canonical_ancestor = existing_ancestor.canonicalize().ok()?;
-    if !canonical_ancestor.starts_with(&canonical_workspace) {
+    let canonical_ancestor = crate::path_form::canonical(existing_ancestor).ok()?;
+    if !crate::path_form::within(&canonical_ancestor, &canonical_workspace) {
         return None;
     }
-    normalize_relative(relative)
+    normalize_relative(&relative)
 }
 
 pub(crate) fn normalize_relative(relative: &Path) -> Option<String> {

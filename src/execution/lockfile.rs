@@ -51,7 +51,7 @@ fn open(workspace_root: &Path) -> Option<fs::File> {
 
 #[cfg(not(unix))]
 fn lock_path(workspace_root: &Path) -> Option<PathBuf> {
-    let canonical = workspace_root.canonicalize().ok()?;
+    let canonical = crate::path_form::canonical(workspace_root).ok()?;
     let digest = blake3::hash(canonical.as_os_str().as_encoded_bytes());
     Some(std::env::temp_dir().join(format!("rust-doctor-lockfile-{}.lock", digest.to_hex())))
 }

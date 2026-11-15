@@ -215,11 +215,12 @@ fn placement(path: &Path) -> Result<(PathBuf, String), CiError> {
     let toplevel = rust_doctor::git_hook::confine(path, &toplevel)
         .map_err(CiError::Unconfined)?
         .toplevel;
-    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical = |path: &Path| {
+        rust_doctor::path_form::canonical(path).unwrap_or_else(|_| path.to_path_buf())
+    };
     let workspace = rust_doctor::manifest_workspace_root(path).unwrap_or_else(|| path.to_path_buf());
-    let relative = canonical(&workspace)
-        .strip_prefix(canonical(&toplevel))
-        .map_err(|_| CiError::InvalidWorkspace)?
+    let relative = rust_doctor::path_form::relative_to(&canonical(&workspace), &canonical(&toplevel))
+        .ok_or(CiError::InvalidWorkspace)?
         .to_string_lossy()
         .into_owned();
     let relative = if relative.is_empty() { ".".to_owned() } else { relative };

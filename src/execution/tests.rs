@@ -161,7 +161,7 @@ fn missing_manifest_returns_structured_failure_without_scan() {
 
 #[test]
 fn version_command_uses_the_requested_working_directory() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let command = version_command(
         Path::new("cargo"),
         &["--version"],

@@ -10,6 +10,8 @@ mod helpers;
 mod measurement;
 mod registry;
 mod variants;
+#[cfg(windows)]
+mod verbatim;
 
 #[path = "../../tests/support/fixture_inputs.rs"]
 mod fixture_inputs;
@@ -475,8 +477,7 @@ fn symlinks_outside_the_workspace_are_rejected_before_reading() {
     use std::fs;
     use std::os::unix::fs::symlink;
 
-    let root = std::env::temp_dir()
-        .canonicalize()
+    let root = crate::path_form::canonical(std::env::temp_dir())
         .unwrap()
         .join(format!(
             "rust-doctor-source-kernel-symlink-{}",

@@ -143,9 +143,8 @@ pub(crate) fn materialize_index(
         )
     };
     let repository_root = repository_root(workspace_root).map_err(|_| failed())?;
-    let workspace_relative = workspace_root
-        .strip_prefix(&repository_root)
-        .map_err(|_| failed())?;
+    let workspace_relative =
+        crate::path_form::relative_to(workspace_root, &repository_root).ok_or_else(failed)?;
     let materialization_failed = GitFailure::new(
         "staged-materialization-failed",
         "The staged tree could not be written.",

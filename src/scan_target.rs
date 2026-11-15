@@ -104,8 +104,7 @@ fn discover_manifest(
         return Err(no_manifest_error("path is not a directory"));
     }
 
-    let directory = path
-        .canonicalize()
+    let directory = crate::path_form::canonical(path)
         .map_err(|error| no_manifest_error(format!("could not resolve directory: {error}")))?;
     for ancestor in directory.ancestors() {
         let candidate = ancestor.join("Cargo.toml");
@@ -127,8 +126,7 @@ fn discover_manifest(
         [] => Err(no_manifest_error(NO_MANIFEST)),
         [only] => resolve_manifest_boundary(&directory.join(only).join("Cargo.toml"))
             .and_then(|manifest| {
-                manifest
-                    .starts_with(&directory)
+                crate::path_form::within(&manifest, &directory)
                     .then(|| (manifest, Some(only.clone())))
                     .ok_or_else(|| no_manifest_error(NO_MANIFEST))
             }),
@@ -165,7 +163,7 @@ fn declares_workspace(manifest: &Path) -> bool {
 }
 
 fn resolve_manifest_boundary(path: &Path) -> Result<PathBuf, InternalError> {
-    let resolved = path.canonicalize().map_err(|error| {
+    let resolved = crate::path_form::canonical(path).map_err(|error| {
         invalid_manifest_error(format!("could not resolve manifest path: {error}"))
     })?;
     let metadata = resolved.metadata().map_err(|error| {
@@ -295,7 +293,7 @@ mod tests {
 
     #[test]
     fn root_member_manifest_and_subdirectory_share_one_metadata_workspace() {
-        let workspace = fixture().canonicalize().unwrap();
+        let workspace = crate::path_form::canonical(fixture()).unwrap();
         let workspace_manifest = workspace.join("Cargo.toml");
         let member_manifest = workspace.join("member/Cargo.toml");
         let cases = [
@@ -339,10 +337,10 @@ mod tests {
         fs::write(root.join("tree/Cargo.toml"), "[package]\nname = \"tree\"\nversion = \"0.1.0\"\n")
             .unwrap();
         let (manifest, _) = discover_manifest(&start, None).unwrap();
-        assert_eq!(manifest, root.join("tree/Cargo.toml").canonicalize().unwrap());
+        assert_eq!(manifest, crate::path_form::canonical(root.join("tree/Cargo.toml")).unwrap());
         assert_eq!(
             manifest_workspace_root(&start),
-            Some(root.join("tree").canonicalize().unwrap())
+            Some(crate::path_form::canonical(root.join("tree")).unwrap())
         );
         fs::remove_dir_all(&base).unwrap();
     }

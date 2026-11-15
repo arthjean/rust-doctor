@@ -13,7 +13,7 @@ impl HomePaths {
     pub(super) fn from_path(path: Option<PathBuf>) -> Self {
         let canonical = path
             .as_ref()
-            .and_then(|path| path.canonicalize().ok())
+            .and_then(|path| crate::path_form::canonical(path).ok())
             .map(|path| path.to_string_lossy().into_owned());
         Self {
             lexical: path.map(|path| path.to_string_lossy().into_owned()),
@@ -130,7 +130,7 @@ pub(super) fn home_paths() -> HomePaths {
             .or_else(|| home.as_ref().map(|home| home.join(default)));
         for form in resolved
             .iter()
-            .flat_map(|path| [Some(path.clone()), path.canonicalize().ok()])
+            .flat_map(|path| [Some(path.clone()), crate::path_form::canonical(path).ok()])
             .flatten()
         {
             paths.toolchain.push((name, form.to_string_lossy().into_owned()));

@@ -11,7 +11,7 @@ use crate::internal_error::InternalError;
 
 #[test]
 fn normalizes_text_paths_severity_and_deduplicates() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let source = workspace.join("src/lib.rs");
     let raw_message = format!(
         "\u{1b}[31mmessage {} /home/person  \r\nnext\t\r",
@@ -71,7 +71,7 @@ fn external_paths_are_null_and_future_severity_is_unknown() {
         "/outside/project/lib.rs",
         1,
     )];
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let diagnostics =
         normalize_diagnostics(&messages, Some(&workspace), None, &HomePaths::default());
 
@@ -84,7 +84,7 @@ fn external_paths_are_null_and_future_severity_is_unknown() {
 
 #[test]
 fn exact_curated_codes_gain_metadata_without_restamping_severity() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let messages = [
         compiler_message(
             Some("clippy::todo"),
@@ -118,7 +118,7 @@ fn exact_curated_codes_gain_metadata_without_restamping_severity() {
 
 #[test]
 fn code_normalization_cannot_turn_a_non_exact_code_into_a_curated_match() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let diagnostics = normalize_diagnostics(
         &[compiler_message(
             Some("\u{1b}[31mclippy::todo\u{1b}[0m"),
@@ -139,7 +139,7 @@ fn code_normalization_cannot_turn_a_non_exact_code_into_a_curated_match() {
 
 #[test]
 fn missing_code_or_primary_span_does_not_invent_structured_fields() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let mut without_span =
         compiler_message(Some("clippy::todo"), "warning", "todo", "src/lib.rs", 2);
     if let CapturedMessage::Compiler(message) = &mut without_span {
@@ -221,7 +221,7 @@ fn multiple_primary_spans_use_the_documented_canonical_order() {
         suggestion_applicability: None,
         text: Vec::new(),
     });
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let diagnostics = normalize_diagnostics(
         &[CapturedMessage::Compiler(message)],
         Some(&workspace),
@@ -238,7 +238,7 @@ fn multiple_primary_spans_use_the_documented_canonical_order() {
 
 #[test]
 fn duplicate_context_conflicts_are_arrival_order_independent() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let home = HomePaths::default();
     let first = normalize_diagnostics(
         &[
@@ -466,7 +466,7 @@ fn twenty_message_permutations_render_identically() {
         compiler_message(None, "future", "delta", "/external/d.rs", 1),
         compiler_message(None, "note", "epsilon", "src/a.rs", 2),
     ];
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let mut expected = None;
     let mut order = [0, 1, 2, 3, 4];
     let mut seen = BTreeSet::new();
@@ -687,7 +687,7 @@ fn ecma_48_can_and_sub_cancel_sequences_without_consuming_following_text() {
 
 #[test]
 fn control_characters_in_internal_paths_are_encoded_before_rendering() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let diagnostics = normalize_diagnostics(
         &[compiler_message(
             Some("clippy::todo"),
@@ -743,7 +743,7 @@ fn child(path: &str, replacement: &str, applicability: &str) -> CapturedDiagnost
 
 #[test]
 fn the_best_rated_replacement_on_the_site_travels_with_the_finding() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let CapturedMessage::Compiler(mut message) = compiler_message(
         Some("clippy::useless_vec"),
         "warning",
@@ -797,7 +797,7 @@ fn the_best_rated_replacement_on_the_site_travels_with_the_finding() {
 
 #[test]
 fn a_print_in_a_binary_target_is_published_at_info() {
-    let workspace = fixture("clean").canonicalize().unwrap();
+    let workspace = crate::path_form::canonical(fixture("clean")).unwrap();
     let mut messages = Vec::new();
     for (kind, path, code) in [
         ("bin", "src/main.rs", "clippy::print_stderr"),

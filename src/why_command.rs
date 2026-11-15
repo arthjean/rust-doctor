@@ -71,8 +71,7 @@ pub fn run(arguments: &WhyArgs) -> ExitCode {
 }
 
 fn scan_owner(file: &Path) -> Result<(Value, PathBuf), String> {
-    let absolute = file
-        .canonicalize()
+    let absolute = rust_doctor::path_form::canonical(file)
         .map_err(|_| "the file cannot be read.".to_owned())?;
     let (manifest_dir, name) = absolute
         .ancestors()
@@ -103,7 +102,7 @@ fn package_name(directory: &Path) -> Option<String> {
 }
 
 fn saved_root(file: &Path) -> PathBuf {
-    let Ok(absolute) = file.canonicalize() else {
+    let Ok(absolute) = rust_doctor::path_form::canonical(file) else {
         return PathBuf::from(".");
     };
     let manifests = || {
@@ -119,12 +118,10 @@ fn saved_root(file: &Path) -> PathBuf {
 }
 
 fn relative_to(file: &Path, root: &Path) -> Option<String> {
-    let relative = file
-        .canonicalize()
-        .ok()?
-        .strip_prefix(root.canonicalize().ok()?)
-        .ok()?
-        .to_path_buf();
+    let relative = rust_doctor::path_form::relative_to(
+        &rust_doctor::path_form::canonical(file).ok()?,
+        &rust_doctor::path_form::canonical(root).ok()?,
+    )?;
     let parts: Vec<String> = relative
         .components()
         .map(|part| part.as_os_str().to_string_lossy().into_owned())
