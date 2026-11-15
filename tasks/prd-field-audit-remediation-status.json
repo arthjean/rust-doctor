@@ -25,10 +25,10 @@
     {
       "id": "EP-003",
       "title": "The report reads without the source",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "stories_total": 7,
-      "stories_done": 0
+      "stories_done": 7
     },
     {
       "id": "EP-004",
@@ -208,85 +208,85 @@
       "id": "US-010",
       "title": "Order the rule list by a key the report prints",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-011",
       "title": "Name categories and dimensions with one vocabulary",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-012",
       "title": "Rewrite the score footer",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-013",
       "title": "Reword the gate, configuration, progress and closing lines",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-014",
       "title": "Describe every option in --help and fail the build on a missing one",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-015",
       "title": "Disclose the platform the scan judged",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-016",
       "title": "Print a suggestion only under the text it replaces",
       "epic": "EP-003",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P2",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-15",
+      "completed_at": "2026-11-15",
+      "reviewed_at": "2026-11-15"
     },
     {
       "id": "US-017",
