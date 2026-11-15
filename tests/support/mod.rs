@@ -8,6 +8,7 @@ pub(crate) use fixture_inputs::fixture_dir;
 
 use std::collections::BTreeMap;
 use std::env;
+#[cfg(unix)]
 use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
@@ -270,7 +271,7 @@ pub(crate) fn copy_tree(source: &Path, destination: &Path) {
 
 pub(crate) fn resolve_program(name: &str) -> PathBuf {
     env::split_paths(&env::var_os("PATH").unwrap_or_default())
-        .map(|directory| directory.join(name))
+        .map(|directory| directory.join(format!("{name}{}", env::consts::EXE_SUFFIX)))
         .find(|path| path.is_file())
         .unwrap()
 }

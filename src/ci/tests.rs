@@ -3,6 +3,19 @@ use crate::test_scratch::scratch;
 use clap::Parser as _;
 use std::process::Command;
 
+fn bash() -> PathBuf {
+    if !cfg!(windows) {
+        return PathBuf::from("bash");
+    }
+    let output = Command::new("git").arg("--exec-path").output().unwrap();
+    let exec_path = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+    exec_path
+        .ancestors()
+        .map(|directory| directory.join("bin").join("bash.exe"))
+        .find(|candidate| candidate.is_file())
+        .unwrap()
+}
+
 pub(crate) fn run_blocks(yaml: &str) -> Vec<String> {
     let lines: Vec<&str> = yaml.lines().collect();
     let mut blocks = Vec::new();
@@ -110,7 +123,7 @@ jq() {
   if [ "$(wc -l < "$GH_LOG.jq")" -eq 1 ]; then echo "${JQ_1-7}"; else echo "${JQ_2-9}"; fi
 }
 "#;
-    let syntax = Command::new("bash")
+    let syntax = Command::new(bash())
         .args(["-n", "-c", block])
         .output()
         .unwrap();
@@ -119,7 +132,7 @@ jq() {
         "bash -n refused a run block: {}\n{block}",
         String::from_utf8_lossy(&syntax.stderr)
     );
-    let output = Command::new("bash")
+    let output = Command::new(bash())
         .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", "eval \"$STUBS\"\neval \"$BLOCK\""])
         .env("STUBS", prelude)
         .env("BLOCK", block)
