@@ -22,7 +22,7 @@ pub struct WhyArgs {
         help = "A report `rust-doctor --json` saved, read instead of scanning"
     )]
     report: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, help = "Print the explanation as JSON")]
     json: bool,
 }
 

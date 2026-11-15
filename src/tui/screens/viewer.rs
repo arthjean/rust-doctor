@@ -162,10 +162,16 @@ fn diagnostic_item(row: &Row, is_selected: bool, is_read: bool) -> Line {
                 ..severity_style
             },
         ));
-    if row.site_count > 1 {
-        line.push(Span::dim(format!(" ×{}", row.site_count)));
+    if let Some(count) = count_label(row) {
+        line.push(Span::dim(count));
     }
     line
+}
+
+fn count_label(row: &Row) -> Option<String> {
+    let suffix = row.count.suffix();
+    (row.count.weighing != 1 || !suffix.is_empty())
+        .then(|| format!(" ×{}{suffix}", row.count.weighing))
 }
 
 fn detail_pane(state: &ViewerState<'_>, row: Option<&Row>, width: usize) -> Vec<Line> {
@@ -179,13 +185,13 @@ fn detail_pane(state: &ViewerState<'_>, row: Option<&Row>, width: usize) -> Vec<
             Style::color(variant.color),
         ))
         .with(Span::new(&row.title, Style::color(variant.color).bold()));
-    if row.site_count > 1 {
-        title.push(Span::dim(format!(" ×{}", row.site_count)));
+    if let Some(count) = count_label(row) {
+        title.push(Span::dim(count));
     }
     let mut lines = vec![title.truncate_end(width)];
 
     let body_width = width.saturating_sub(DETAIL_INDENT_COLUMNS);
-    let mut meta = format!("{} · {} · {}", row.category.as_str(), variant.label, row.location);
+    let mut meta = format!("{} · {} · {}", row.category.label(), variant.label, row.location);
     if let Some(context) = row.context {
         meta = format!("{meta} · {context}");
     }
@@ -421,6 +427,30 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_row_counts_what_weighs_and_names_every_other_count() {
+        let mut mixed = sample_row("clippy::a", Severity::Warning, 54);
+        mixed.count = rust_doctor::presentation::GroupCount {
+            weighing: 3,
+            info: 51,
+            ..Default::default()
+        };
+        let mut in_tests = sample_row("clippy::b", Severity::Warning, 68);
+        in_tests.count = rust_doctor::presentation::GroupCount {
+            in_tests: 68,
+            ..Default::default()
+        };
+        let single = sample_row("clippy::c", Severity::Warning, 1);
+        let rendered = visible(&[
+            diagnostic_item(&mixed, false, true),
+            diagnostic_item(&in_tests, false, true),
+            diagnostic_item(&single, false, true),
+        ]);
+        assert!(rendered[0].ends_with("clippy::a ×3 (+51 info)"), "{rendered:?}");
+        assert!(rendered[1].ends_with("clippy::b ×0 (+68 in tests)"), "{rendered:?}");
+        assert!(rendered[2].ends_with("clippy::c"), "{rendered:?}");
+    }
+
+    #[test]
     fn a_compact_status_bar_is_one_row_and_a_copy_result_replaces_the_hints() {
         let rows = [sample_row("clippy::a", Severity::Warning, 1)];
         let entries = build_entries(&rows);
@@ -571,6 +601,10 @@ mod tests {
             category: AuditCategoryName::Bugs,
             severity,
             site_count,
+            count: rust_doctor::presentation::GroupCount {
+                weighing: site_count,
+                ..Default::default()
+            },
             location: "src/lib.rs:1".to_owned(),
             message: "message".to_owned(),
             help: None,

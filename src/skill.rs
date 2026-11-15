@@ -171,27 +171,48 @@ pub fn running_agent(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> O
         .map(|(_, agent)| agent)
 }
 
+pub const LAUNCHER_VARIABLE: &str = "RUST_DOCTOR_LAUNCHER";
+
+pub fn invocation(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    match variable(LAUNCHER_VARIABLE).as_deref().and_then(std::ffi::OsStr::to_str) {
+        Some(runner @ ("bunx" | "npx")) => format!("{runner} rust-doctor@{version}"),
+        _ => "rust-doctor".to_owned(),
+    }
+}
+
+fn install_command(agent: Agent) -> String {
+    format!(
+        "{} skill install --agent {}",
+        invocation(|name| std::env::var_os(name)),
+        agent.name()
+    )
+}
+
 pub fn stale_or_missing(workspace_root: &Path, agent: Agent) -> Option<String> {
     let name = agent.name();
+    let command = install_command(agent);
     let current = env!("CARGO_PKG_VERSION");
     let Ok(skill) = fs::read_to_string(workspace_root.join(directory(agent)).join("SKILL.md")) else {
         return Some(format!(
-            "rust-doctor: no rust-doctor skill is installed for {name}; run `rust-doctor skill install --agent {name}`."
+            "rust-doctor: no rust-doctor skill is installed for {name}; run `{command}`."
         ));
     };
     let recorded = recorded_version(&skill);
     (is_this_skill(&skill) && recorded.as_deref() != Some(current)).then(|| {
         format!(
-            "rust-doctor: the {name} skill was written by rust-doctor {}, and this is {current}; run `rust-doctor skill install --agent {name} --update`.",
+            "rust-doctor: the {name} skill was written by rust-doctor {}, and this is {current}; run `{command} --update`.",
             recorded.as_deref().unwrap_or("an unrecorded version")
         )
     })
 }
 
 pub fn install_line(workspace_root: &Path, agent: Agent) -> Option<String> {
-    let name = agent.name();
     (!workspace_root.join(directory(agent)).exists()).then(|| {
-        format!("The rust-doctor skill is not installed for this agent: run `rust-doctor skill install --agent {name}` first.")
+        format!(
+            "The rust-doctor skill is not installed for this agent: run `{}` first.",
+            install_command(agent)
+        )
     })
 }
 
@@ -319,6 +340,20 @@ fn install_one(
 mod tests {
     use super::*;
     use crate::test_scratch::scratch;
+
+    #[test]
+    fn the_install_command_resolves_from_where_the_launcher_started_the_binary() {
+        let version = env!("CARGO_PKG_VERSION");
+        let launched = |runner: &'static str| {
+            move |name: &str| (name == LAUNCHER_VARIABLE).then(|| runner.into())
+        };
+        assert_eq!(invocation(launched("bunx")), format!("bunx rust-doctor@{version}"));
+        assert_eq!(invocation(launched("npx")), format!("npx rust-doctor@{version}"));
+        assert_eq!(invocation(|_| None), "rust-doctor");
+        for refused in ["", "pnpm dlx", "bunx; rm -rf /", "BUNX"] {
+            assert_eq!(invocation(launched(refused)), "rust-doctor", "{refused:?}");
+        }
+    }
 
     const WRITE: InstallOptions = InstallOptions {
         update: false,

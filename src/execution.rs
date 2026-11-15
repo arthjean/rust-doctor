@@ -173,6 +173,7 @@ impl<'a> ProducerError<'a> {
 pub(crate) struct Toolchain {
     pub(crate) cargo: String,
     pub(crate) rustc: String,
+    pub(crate) host: Option<String>,
     pub(crate) clippy: String,
 }
 
@@ -639,7 +640,7 @@ fn resolve_toolchain(
                 tool_version(program, arguments, workspace_root, probe, environment, deadline)
                     .map_err(Some)
             };
-            let rustc = scope.spawn(move || probe(&programs.rustc, &["--version"], RUSTC_PROBE));
+            let rustc = scope.spawn(move || probe(&programs.rustc, &["-vV"], RUSTC_PROBE));
             let clippy = scope
                 .spawn(move || probe(&programs.cargo, &["clippy", "--version"], CLIPPY_PROBE));
             let cargo = probe(&programs.cargo, &["--version"], CARGO_PROBE);
@@ -651,9 +652,11 @@ fn resolve_toolchain(
                     error.unwrap_or_else(|| probe.failure(format!("{} probe ended without an answer", probe.label)))
                 }
             };
+            let (rustc, host) = probes::verbose_version(&rustc.map_err(failed(RUSTC_PROBE))?);
             let toolchain = Toolchain {
                 cargo: cargo.map_err(failed(CARGO_PROBE))?,
-                rustc: rustc.map_err(failed(RUSTC_PROBE))?,
+                rustc,
+                host,
                 clippy: clippy.map_err(failed(CLIPPY_PROBE))?,
             };
             Ok((Some(toolchain), Some(lints)))

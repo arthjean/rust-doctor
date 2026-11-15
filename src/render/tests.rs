@@ -93,6 +93,7 @@ fn report_of(
         toolchain: ToolchainReport {
             rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
+            host: None,
             cargo: None,
             clippy: None,
             removed_lint_flags: Vec::new(),
@@ -177,11 +178,13 @@ fn terminal_sections_follow_the_normative_order() {
     let labels = [
         "Scope:",
         "Scored ",
-        "Top warning:",
-        "All 1 occurrences across 1 findings",
-        "Bugs:",
+        "P2 warning  Todo  x1",
+        "All 1 occurrences across 1 findings; 1 scored warning, 0 info",
+        "Reliability:",
+        "Exit gate (--blocking error):",
         "Run with --verbose",
         "┌─────┐",
+        "P0 to P3 rank a rule's severity.",
         "Share:",
         "Docs:",
         "GitHub:",
@@ -290,15 +293,12 @@ fn projection_is_rendered_only_when_it_raises_the_score() {
     let output = rendered(&raising, 80, false, false);
     assert!(output.contains("to reach a projected 100/100"));
     assert!(
-        output.contains(
-            "Capped at 40/100 by a P0 finding: rust_doctor::source::dynamic_shell_command"
-        )
+        output.replace('\n', " ").contains(
+            "The score is capped at 40 by a P0 finding: rust_doctor::source::dynamic_shell_command"
+        ),
+        "{output}"
     );
-
-    assert_eq!(
-        score::ceiling_sentence(54, 65, "P1", "rust_doctor::repo::hardcoded_credential"),
-        "A P1 finding caps the score at 65/100, and the dimensions already hold it lower: rust_doctor::repo::hardcoded_credential"
-    );
+    assert!(!output.contains("already hold it lower"), "{output}");
 }
 
 #[test]
@@ -340,8 +340,7 @@ fn a_failed_scan_publishes_its_failure_and_nothing_it_did_not_measure() {
 #[test]
 fn verbose_lists_all_groups_without_the_cta() {
     let output = rendered(&report(), 100, false, true);
-    assert!(output.contains("Warning: Todo (1 occurrence)"));
-    assert!(output.contains("Rule ID: clippy::todo"));
+    assert!(output.contains("P2 warning  Todo  x1\nRule ID: clippy::todo"), "{output}");
     assert!(!output.contains("Run with --verbose"));
 }
 
@@ -396,8 +395,9 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
     let one = score::withheld_sentence(&["clippy::indexing_slicing".to_owned()])
         .expect("one withheld rule is a sentence");
     assert!(
-        one.contains("clippy::indexing_slicing (98% noise on 40 sites) reports here but is left \
-                      out"),
+        one.starts_with(
+            "Left out of what to fix first: clippy::indexing_slicing (98% noise on 40 sites)."
+        ),
         "{one}"
     );
 
@@ -409,7 +409,7 @@ fn the_withheld_sentence_names_two_rules_and_counts_the_rest() {
     assert!(
         two.contains(
             "clippy::indexing_slicing (98% noise on 40 sites) and clippy::string_slice (98% \
-             noise on 40 sites) report here"
+             noise on 40 sites). The corpus"
         ),
         "{two}"
     );
@@ -445,10 +445,10 @@ fn the_withheld_sentence_states_the_criterion_in_every_form() {
     };
     for (count, found) in [(1, "it"), (2, "each"), (3, "each")] {
         let sentence = score::withheld_sentence(&ids(count)).unwrap();
+        assert!(sentence.starts_with("Left out of what to fix first: "), "{sentence}");
         assert!(
             sentence.ends_with(&format!(
-                "left out of what to fix first: the corpus found {found} wrong on most of the \
-                 sites it reviewed."
+                ". The corpus found {found} wrong on most of the sites it reviewed."
             )),
             "{sentence}"
         );
@@ -694,6 +694,7 @@ fn a_replacement_is_printed_under_its_site() {
     report.diagnostics[0].suggestion = Some(crate::Suggestion {
         replacement: "let value = compute();\n    value".to_owned(),
         applicability: crate::Applicability::MachineApplicable,
+        span: None,
     });
     let output = rendered(&report, 100, false, true);
     assert!(output.contains("Replace with: let value = compute(); value"), "{output}");
@@ -701,6 +702,7 @@ fn a_replacement_is_printed_under_its_site() {
     report.diagnostics[0].suggestion = Some(crate::Suggestion {
         replacement: "todo!()".to_owned(),
         applicability: crate::Applicability::MaybeIncorrect,
+        span: None,
     });
     let output = rendered(&report, 100, false, true);
     assert!(output.contains("Replace with: todo!() (maybe-incorrect)"), "{output}");
@@ -715,7 +717,7 @@ fn an_unscored_group_is_folded_onto_one_line() {
 
     let output = rendered(&report, 100, false, true);
     assert!(
-        output.contains("Unscored: Todo (1 occurrences outside production code, clippy::todo)"),
+        output.contains("P2 warning  Todo  x0 (+1 in tests)  clippy::todo\n"),
         "{output}"
     );
     assert!(!output.contains("Rule ID: clippy::todo"), "{output}");

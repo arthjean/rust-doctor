@@ -37,11 +37,11 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
     const session = openReport(copyWorkspace("kernel-contract/todo"), { width: 100, height: 40 });
     try {
       const pane = await openViewer(session);
-      expect(rows(pane)).toContain("Bugs");
+      expect(rows(pane)).toContain("Reliability");
       expect(pane).toContain("› ⚠ Todo ×3");
       expect(rows(pane).some((line) => /^─{90,}$/.test(line))).toBe(true);
       expect(rows(pane)).toContain("⚠ Todo ×3");
-      expect(pane).toContain("Bugs · warning · src/lib.rs:4");
+      expect(pane).toContain("Reliability · warning · src/lib.rs:4");
       expect(pane).toContain("Impact Real users hit panics");
       expect(pane).toContain("Why `todo` should not be present in production code");
       expect(pane).toMatch(/> 4 │ {5}todo!\(\)/);
@@ -139,12 +139,15 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
     }
   });
 
-  test("VIEW-07 categories follow the audit's order, compiler notes apart, one row per rule", async () => {
+  test("VIEW-07 categories follow the dimension order under their dimension names, compiler notes apart, one row per rule", async () => {
     const repo = await warm("repo");
     type Category = { name: string; distinct: { total: number } };
+    const dimensions = ["Security", "Bugs", "Maintainability", "Performance", "Dependencies"];
     const categories = (repo.report.audit.categories as Category[])
       .filter((category) => category.name !== "Other" && category.distinct.total > 0)
-      .map((category) => category.name);
+      .map((category) => category.name)
+      .sort((left, right) => dimensions.indexOf(left) - dimensions.indexOf(right))
+      .map((name) => (name === "Bugs" ? "Reliability" : name));
     const codes = new Set(repo.report.diagnostics.map((d) => d.code));
     const info = [...codes].filter((code) => repo.report.diagnostics.every((d) => d.code !== code || d.severity === "info"));
     const session = open(repo, { width: 120, height: 40 });
@@ -164,7 +167,7 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
     try {
       const list = rows(await openViewer(session)).map((line) => line.split("│")[0]!.trimEnd());
       const notes = list.indexOf("Compiler notes (not scored)");
-      expect(notes).toBeGreaterThan(list.indexOf("Bugs"));
+      expect(notes).toBeGreaterThan(list.indexOf("Reliability"));
       expect(list.slice(notes + 1).filter((line) => /^[›• ] [⚠✖ℹ] /.test(line))).toEqual(["• ⚠ Must use candidate", "• ⚠ Unused imports"]);
     } finally {
       session.kill();
@@ -205,13 +208,13 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
       await session.waitForPane(MENU_HINT, 15_000);
       session.sendKeys("Enter");
       await session.waitForPane(VIEWER_HINT);
-      expect(await session.waitForStable(300)).toMatch(/^Bugs$/m);
+      expect(await session.waitForStable(300)).toMatch(/^Reliability$/m);
       session.sendKeys("G");
       await session.waitForPane("issue 4/4");
-      expect(await session.waitForStable(300)).not.toMatch(/^Bugs$/m);
+      expect(await session.waitForStable(300)).not.toMatch(/^Reliability$/m);
       session.sendKeys("g", "g");
       await session.waitForPane("issue 1/4");
-      expect(await session.waitForStable(300)).toMatch(/^Bugs$/m);
+      expect(await session.waitForStable(300)).toMatch(/^Reliability$/m);
     } finally {
       session.kill();
     }
@@ -242,7 +245,7 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
       const meta = rows(pane).map((line) => line.split("│ ").at(-1)!.trim()).find((line) => line.startsWith("Security · "));
       expect(meta).toMatch(/^Security · warning · tests\/it\.rs:\d+ · tests$/);
       expect(position(await press(session, "j")).index).toBe(2);
-      expect(session.capturePane()).toMatch(/Bugs · warning · src\/lib\.rs:2$/m);
+      expect(session.capturePane()).toMatch(/Reliability · warning · src\/lib\.rs:2$/m);
     } finally {
       session.kill();
     }
@@ -266,7 +269,7 @@ describe.skipIf(!requireTmux())("interactive report issue viewer", () => {
       await session.waitForPane(MENU_HINT, 15_000);
       rmSync(join(workspace, "src/lib.rs"));
       const pane = await openViewer(session);
-      for (const section of ["Bugs · warning · src/lib.rs:4", "Impact ", "Why `todo`", "Fix Replace todo!", "Rule guide: "]) {
+      for (const section of ["Reliability · warning · src/lib.rs:4", "Impact ", "Why `todo`", "Fix Replace todo!", "Rule guide: "]) {
         expect(pane).toContain(section);
       }
       expect(pane).not.toMatch(/\d │ /);

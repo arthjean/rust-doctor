@@ -21,6 +21,7 @@ struct State {
     last_phase: Option<&'static str>,
     printed: BTreeSet<&'static str>,
     on_screen: bool,
+    linted: usize,
 }
 
 impl ProgressLine {
@@ -51,6 +52,10 @@ impl ProgressLine {
             return;
         }
         if !self.rewrite {
+            if let Progress::Linting { done, .. } = progress {
+                state.linted = state.linted.max(done);
+                return;
+            }
             if state.printed.insert(phase) {
                 let _ = writeln!(stderr, "{text}");
             }
@@ -72,12 +77,24 @@ impl ProgressLine {
 
     pub(crate) fn clear(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(summary) = linted_summary(state.linted) {
+            let _ = writeln!(io::stderr().lock(), "{summary}");
+            state.linted = 0;
+        }
         if state.on_screen {
             let mut stderr = io::stderr().lock();
             let _ = write!(stderr, "{ERASE_LINE}");
             let _ = stderr.flush();
             state.on_screen = false;
         }
+    }
+}
+
+fn linted_summary(members: usize) -> Option<String> {
+    match members {
+        0 => None,
+        1 => Some("Linted 1 member.".to_owned()),
+        count => Some(format!("Linted {count} members.")),
     }
 }
 
@@ -124,8 +141,12 @@ mod tests {
         line.show(Progress::NativePasses);
         line.show(Progress::Dependencies);
         let state = line.state.lock().unwrap();
-        assert_eq!(state.printed.len(), 3);
+        assert_eq!(state.printed.len(), 2, "no per-member line is printed off a terminal");
+        assert_eq!(state.linted, 40);
         assert!(!state.on_screen);
+        assert_eq!(linted_summary(state.linted).as_deref(), Some("Linted 40 members."));
+        assert_eq!(linted_summary(1).as_deref(), Some("Linted 1 member."));
+        assert_eq!(linted_summary(0), None);
     }
 
     #[test]

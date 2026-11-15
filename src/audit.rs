@@ -525,6 +525,22 @@ impl fmt::Display for ScoreLabel {
 }
 
 impl AuditCategoryName {
+    pub const IN_DIMENSION_ORDER: [Self; 6] = [
+        Self::Security,
+        Self::Bugs,
+        Self::Maintainability,
+        Self::Performance,
+        Self::Dependencies,
+        Self::Other,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Bugs => "Reliability",
+            other => other.as_str(),
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Security => "Security",

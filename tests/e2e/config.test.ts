@@ -76,7 +76,7 @@ type Applied = {
 const applied: Array<[string, string, Applied]> = [
   ["CF-01", "no file loads the defaults and passes the default gate", {
     exit: 0,
-    terminal: "Configuration: none loaded; blocking error (default)",
+    terminal: "Configuration: no rust-doctor.toml; defaults apply.",
     check: (report) => {
       expect(report.policy?.config_file).toBeNull();
       expect(report.policy?.blocking).toEqual({ level: "error", source: "default" });

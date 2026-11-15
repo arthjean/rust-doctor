@@ -144,7 +144,7 @@ pub fn render_terminal_with_presentation<W: Write>(
     render_scope(writer, report, options)?;
     render_scanned(writer, report, options)?;
     render_findings(writer, report, presentation, options)?;
-    render_totals(writer, presentation, options)?;
+    render_totals(writer, report, presentation, options)?;
     render_categories(writer, report, options)?;
     render_configuration(writer, report, options)?;
     render_advisory_database(writer, report, options)?;
@@ -154,7 +154,7 @@ pub fn render_terminal_with_presentation<W: Write>(
     render_gate(writer, report, options)?;
     render_scan_errors(writer, report, options)?;
     render_advisories(writer, presentation, options)?;
-    render_score(writer, report, options)?;
+    render_score(writer, report, presentation, options)?;
     render_links(writer, report, options)
 }
 
@@ -186,7 +186,9 @@ fn render_findings<W: Write>(
     if !options.verbose {
         return render_summary(writer, &scored, options);
     }
+    let mut headings = summary::WithheldHeadings::default();
     for group in scored {
+        headings.before(writer, group, options)?;
         if group.is_unscored() {
             render_unscored_group(writer, group, options)?;
         } else {
@@ -212,6 +214,7 @@ fn render_findings<W: Write>(
 
 fn render_totals<W: Write>(
     writer: &mut W,
+    report: &InspectReport,
     presentation: &ReportPresentation,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
@@ -225,11 +228,22 @@ fn render_totals<W: Write>(
         0 => String::new(),
         count => format!(", {count} of them compiler notes (not scored)"),
     };
+    let production = report.audit.production_totals();
+    let scored = |count: usize, noun: &str| {
+        format!("{count} scored {noun}{}", if count == 1 { "" } else { "s" })
+    };
+    let errors = match production.errors {
+        0 => String::new(),
+        count => format!("{}, ", scored(count, "error")),
+    };
     line(
         writer,
         &format!(
-            "All {} occurrences across {} findings{notes}",
-            presentation.issue_count, presentation.finding_count
+            "All {} occurrences across {} findings{notes}; {errors}{}, {} info",
+            presentation.issue_count,
+            presentation.finding_count,
+            scored(production.warnings, "warning"),
+            production.info
         ),
         options,
         Style::Heading,
@@ -253,8 +267,8 @@ fn render_advisories<W: Write>(
         line(
             writer,
             &format!(
-                "Migration advisory: {} appears {} times across {} files.",
-                advisory.rule_id, advisory.occurrences, advisory.files
+                "Spread across {} files: {} ({} findings). Plan it as one change, not {} fixes.",
+                advisory.files, advisory.rule_id, advisory.occurrences, advisory.occurrences
             ),
             options,
             Style::Warning,
@@ -301,16 +315,7 @@ fn render_group<W: Write>(
     options: TerminalOptions<'_>,
     view: GroupView,
 ) -> Result<(), RenderError> {
-    let heading = match view {
-        GroupView::Top => format!("Top {}: {}", group.severity, group.title),
-        GroupView::Full => format!(
-            "{}: {} ({})",
-            capitalize(group.severity.to_string()),
-            group.title,
-            tally::group_occurrences(group)
-        ),
-    };
-    line(writer, &heading, options, severity_style(group.severity))?;
+    line(writer, &group.header(), options, severity_style(group.severity))?;
     line(
         writer,
         &format!("Rule ID: {}", group.rule_id),
@@ -323,8 +328,9 @@ fn render_group<W: Write>(
 
     for diagnostic in group.diagnostics.iter().take(view.location_limit()) {
         line(writer, &diagnostic.message, options, Style::Plain)?;
-        if let Some(suggestion) = &diagnostic.suggestion {
-            line(writer, &replacement_line(suggestion), options, Style::Accent)?;
+        let (frame, suggestion) = framed_suggestion(diagnostic, options);
+        if let Some(suggestion) = suggestion {
+            line(writer, &suggestion, options, Style::Accent)?;
         }
         if diagnostic.base_severity != diagnostic.severity {
             line(
@@ -338,8 +344,8 @@ fn render_group<W: Write>(
             )?;
         }
         render_related(writer, diagnostic, options, view)?;
-        if let Some(location) = diagnostic.location() {
-            render_code_frame(writer, &location, diagnostic.site_note(), options)?;
+        if let Some(frame) = frame {
+            render_code_frame(writer, frame, diagnostic.site_note(), options)?;
         }
     }
     link_line(
@@ -357,36 +363,85 @@ fn render_unscored_group<W: Write>(
 ) -> Result<(), RenderError> {
     line(
         writer,
-        &format!(
-            "Unscored: {} ({} occurrences outside production code, {})",
-            group.title, group.occurrences, group.rule_id
-        ),
+        &format!("{}  {}", group.header(), group.rule_id),
         options,
         Style::Muted,
     )
 }
 
-fn replacement_line(suggestion: &crate::Suggestion) -> String {
+type Frame = Result<crate::presentation::CodeFrame, crate::presentation::CodeFrameUnavailable>;
+
+fn framed_suggestion(
+    diagnostic: &GroupDiagnostic,
+    options: TerminalOptions<'_>,
+) -> (Option<Frame>, Option<String>) {
+    use crate::presentation::{SuggestionPlacement, replaced_text};
+
+    let location = diagnostic.location();
+    let finding_frame = || {
+        location
+            .as_ref()
+            .map(|location| code_frame(options.workspace_root, location))
+    };
+    let Some(suggestion) = &diagnostic.suggestion else {
+        return (finding_frame(), None);
+    };
+    match SuggestionPlacement::of(diagnostic.span.as_ref(), suggestion) {
+        SuggestionPlacement::Whole => (finding_frame(), Some(replacement_line(suggestion, None))),
+        SuggestionPlacement::Elsewhere => (finding_frame(), None),
+        SuggestionPlacement::Part(replaced) => {
+            let Some(location) = location.as_ref() else {
+                return (None, None);
+            };
+            let part = crate::presentation::GroupLocation {
+                path: location.path.clone(),
+                span: replaced.clone(),
+            };
+            match code_frame(options.workspace_root, &part) {
+                Ok(mut frame) => match replaced_text(&frame, &replaced) {
+                    Some(original) => {
+                        frame.location = format!(
+                            "{}:{}:{}",
+                            location.path,
+                            location.span.line_start.max(1),
+                            location.span.column_start.max(1)
+                        );
+                        let line = replacement_line(suggestion, Some(&original));
+                        (Some(Ok(frame)), Some(line))
+                    }
+                    None => (finding_frame(), None),
+                },
+                Err(_) => (finding_frame(), None),
+            }
+        }
+    }
+}
+
+fn replacement_line(suggestion: &crate::Suggestion, original: Option<&str>) -> String {
     let replacement: String = suggestion
         .replacement
         .lines()
         .map(str::trim)
         .collect::<Vec<_>>()
         .join(" ");
+    let subject = original.map_or_else(
+        || "Replace with".to_owned(),
+        |original| format!("Replace `{original}` with"),
+    );
     match suggestion.applicability {
-        crate::Applicability::MachineApplicable => format!("Replace with: {replacement}"),
-        other => format!("Replace with: {replacement} ({})", other.as_str()),
+        crate::Applicability::MachineApplicable => format!("{subject}: {replacement}"),
+        other => format!("{subject}: {replacement} ({})", other.as_str()),
     }
 }
 
 fn render_code_frame<W: Write>(
     writer: &mut W,
-    location: &crate::presentation::GroupLocation,
+    frame: Frame,
     note: Option<String>,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
     let note = note.map(|note| format!(" ({note})")).unwrap_or_default();
-    let frame = match code_frame(options.workspace_root, location) {
+    let frame = match frame {
         Ok(frame) => frame,
         Err(unavailable) => {
             if let Some(location) = unavailable.location {
@@ -466,19 +521,14 @@ fn render_configuration<W: Write>(
         crate::BlockingLevelSource::Config => "config",
         crate::BlockingLevelSource::Request => "request",
     };
-    let configuration = policy
-        .config_file
-        .as_deref()
-        .map_or_else(|| "none loaded".to_owned(), |file| format!("{file} loaded"));
-    line(
-        writer,
-        &format!(
-            "Configuration: {configuration}; blocking {} ({source})",
+    let configuration = match policy.config_file.as_deref() {
+        Some(file) => format!(
+            "Configuration: {file} loaded; blocking {} ({source})",
             policy.blocking.level
         ),
-        options,
-        Style::Muted,
-    )
+        None => "Configuration: no rust-doctor.toml; defaults apply.".to_owned(),
+    };
+    line(writer, &configuration, options, Style::Muted)
 }
 
 const ADVISORY_DB_MISSING: &str = "Known-vulnerability check skipped: no RustSec database under ~/.cargo. Run `cargo deny fetch` or `cargo audit` once, or pass --advisory-db <path>.";
@@ -582,14 +632,32 @@ fn render_gate<W: Write>(
     report: &InspectReport,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
-    let description = match (report.gate.status, report.gate.blocking_diagnostics) {
-        (GateStatus::Passed | GateStatus::Failed, Some(count)) => format!(
-            "Gate {}: blocking {}, {count} blocking diagnostic(s)",
-            report.gate.status, report.gate.blocking
+    line(writer, &gate_sentence(&report.gate), options, Style::Muted)
+}
+
+fn gate_sentence(gate: &crate::GateReport) -> String {
+    use crate::BlockingLevel;
+    let level = gate.blocking;
+    let which = |count: usize| match level {
+        BlockingLevel::Warning => format!(
+            "{count} finding{} at warning level or above",
+            if count == 1 { "" } else { "s" }
         ),
-        _ => format!("Gate not evaluated: blocking {}", report.gate.blocking),
+        _ => format!(
+            "{count} {level}-level finding{}",
+            if count == 1 { "" } else { "s" }
+        ),
     };
-    line(writer, &description, options, Style::Muted)
+    let outcome = match (gate.status, gate.blocking_diagnostics, level) {
+        (GateStatus::Passed, _, BlockingLevel::None) => "passed, nothing blocks.".to_owned(),
+        (GateStatus::Passed, Some(_), BlockingLevel::Warning) => {
+            "passed, no finding at warning level or above.".to_owned()
+        }
+        (GateStatus::Passed, Some(_), _) => format!("passed, no {level}-level finding."),
+        (GateStatus::Failed, Some(count), _) => format!("failed, {}.", which(count)),
+        _ => "not evaluated.".to_owned(),
+    };
+    format!("Exit gate (--blocking {level}): {outcome}")
 }
 
 fn render_scan_errors<W: Write>(
@@ -701,13 +769,6 @@ fn write_styled<W: Write>(
 
 fn short_revision(revision: &str) -> &str {
     revision.get(..12).unwrap_or(revision)
-}
-
-fn capitalize(mut value: String) -> String {
-    if let Some(first) = value.get_mut(..1) {
-        first.make_ascii_uppercase();
-    }
-    value
 }
 
 #[cfg(test)]

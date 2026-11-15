@@ -63,6 +63,7 @@ fn report() -> InspectReport {
         toolchain: ToolchainReport {
             rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
+            host: None,
             cargo: None,
             clippy: None,
             removed_lint_flags: Vec::new(),

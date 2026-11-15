@@ -96,9 +96,9 @@ pub(super) fn render_scanned<W: Write>(
     line(
         writer,
         &format!(
-            "{scored} in {:.1}s; {}",
+            "{scored} in {:.1}s. {}",
             options.elapsed.as_secs_f64(),
-            read_clause(report.scan.command.is_some())
+            read_clause(report.scan.command.is_some(), report.toolchain.host.as_deref())
         ),
         options,
         Style::Accent,
@@ -139,12 +139,15 @@ pub(super) fn scored_clause(files: usize, lines: usize, members: Option<&[&str]>
     format!("Scored {files} production files ({lines} lines){members}")
 }
 
-pub(super) const fn read_clause(clippy_ran: bool) -> &'static str {
-    if clippy_ran {
-        "Clippy linted library and binary targets, native rules also read tests"
-    } else {
-        "Clippy did not run, native rules also read tests"
+pub(super) fn read_clause(clippy_ran: bool, host: Option<&str>) -> String {
+    if !clippy_ran {
+        return "Clippy did not run. Native rules also read tests.".to_owned();
     }
+    let host = host.map(|host| format!(" for {host}")).unwrap_or_default();
+    format!(
+        "Clippy linted library and binary targets{host}; code gated to other platforms and test \
+         code were not linted. Native rules also read tests."
+    )
 }
 
 pub(super) const VERSION_UNSUPPORTED: &str =

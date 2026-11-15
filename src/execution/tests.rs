@@ -281,6 +281,12 @@ fn valid_scan_collects_provenance_and_clippy_diagnostics() {
     let toolchain = result.toolchain.as_ref().unwrap();
     assert!(toolchain.cargo.starts_with("cargo "));
     assert!(toolchain.rustc.starts_with("rustc "));
+    assert!(!toolchain.rustc.contains('\n'), "{}", toolchain.rustc);
+    assert!(
+        toolchain.host.as_deref().is_some_and(|host| host.contains('-')),
+        "{:?}",
+        toolchain.host
+    );
     assert!(toolchain.clippy.starts_with("clippy "));
     let scan = result.scan.into_finished().unwrap();
     assert_eq!(

@@ -1,45 +1,105 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
-use crate::presentation::{DiagnosticGroup, GroupDiagnostic};
-use crate::{AuditCategoryName, Diagnostic, InspectReport, Severity};
+use crate::presentation::context_label;
+use crate::{AuditCategoryName, Diagnostic, DiagnosticContext, InspectReport};
 
 use super::{RenderError, Style, TerminalOptions, line};
 
 #[derive(Default)]
-struct Split {
-    weighing: crate::SeverityCounts,
-    outside_production: usize,
+struct Tally {
+    production: crate::SeverityCounts,
+    outside: [usize; 4],
     not_scored: usize,
+    by_rule: BTreeMap<String, usize>,
 }
 
-impl Split {
-    fn add(&mut self, severity: Severity, context: bool, unscored: bool, occurrences: usize) {
-        if context {
-            self.outside_production = self.outside_production.saturating_add(occurrences);
-        } else if unscored {
+impl Tally {
+    fn add(&mut self, diagnostic: &Diagnostic) {
+        let occurrences = diagnostic.occurrences;
+        if let Some(context) = diagnostic.context {
+            if let Some(slot) = CONTEXTS
+                .iter()
+                .position(|known| *known == context)
+                .and_then(|index| self.outside.get_mut(index))
+            {
+                *slot = slot.saturating_add(occurrences);
+            }
+        } else if diagnostic.unscored.is_some() {
             self.not_scored = self.not_scored.saturating_add(occurrences);
         } else {
-            self.weighing.add(severity, occurrences);
+            self.production.add(diagnostic.severity, occurrences);
+            if let Some(code) = diagnostic.code.as_deref() {
+                let slot = self.by_rule.entry(code.to_owned()).or_default();
+                *slot = slot.saturating_add(occurrences);
+            }
         }
     }
 
-    fn apart(&self) -> String {
+    fn total(&self) -> usize {
+        let counts = self.production;
+        counts
+            .errors
+            .saturating_add(counts.warnings)
+            .saturating_add(counts.info)
+            .saturating_add(counts.unknown)
+    }
+
+    fn counts(&self) -> String {
+        let counts = self.production;
         let parts: Vec<String> = [
-            (self.outside_production, "outside production code"),
-            (self.not_scored, "not scored"),
+            (counts.errors, "error", "errors"),
+            (counts.warnings, "warning", "warnings"),
+            (counts.info, "info", "info"),
+            (counts.unknown, "unknown", "unknown"),
         ]
         .into_iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, what)| format!("+{count} {what}"))
+        .filter(|(count, _, _)| *count > 0)
+        .map(|(count, one, many)| format!("{count} {}", if count == 1 { one } else { many }))
         .collect();
         if parts.is_empty() {
-            String::new()
+            "0 findings".to_owned()
         } else {
-            format!(" ({})", parts.join(", "))
+            parts.join(", ")
+        }
+    }
+
+    fn largest(&self) -> Option<String> {
+        let total = self.total();
+        self.by_rule
+            .iter()
+            .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
+            .filter(|(_, count)| count.saturating_mul(2) > total)
+            .map(|(rule, count)| format!("{count} from {}", crate::presentation::rule_title(rule)))
+    }
+
+    fn apart(&self) -> Option<String> {
+        let parts: Vec<String> = CONTEXTS
+            .iter()
+            .zip(self.outside)
+            .map(|(context, count)| (count, context_label(*context)))
+            .chain(std::iter::once((self.not_scored, "not scored")))
+            .filter(|(count, _)| *count > 0)
+            .map(|(count, kind)| format!("+{count} {kind}"))
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(", "))
+    }
+
+    fn notes(&self) -> String {
+        match (self.largest(), self.apart()) {
+            (None, None) => String::new(),
+            (Some(note), None) | (None, Some(note)) => format!(" ({note})"),
+            (Some(largest), Some(apart)) => format!(" ({largest}; {apart})"),
         }
     }
 }
+
+const CONTEXTS: [DiagnosticContext; 4] = [
+    DiagnosticContext::Tests,
+    DiagnosticContext::Benchmark,
+    DiagnosticContext::Example,
+    DiagnosticContext::BuildScript,
+];
 
 fn scoped(report: &InspectReport) -> Vec<&Diagnostic> {
     let introduced: Option<BTreeSet<&str>> = report
@@ -68,116 +128,29 @@ pub(super) fn render_categories<W: Write>(
     report: &InspectReport,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
-    let mut splits = BTreeMap::<AuditCategoryName, Split>::new();
+    let mut tallies = BTreeMap::<AuditCategoryName, Tally>::new();
     for diagnostic in scoped(report) {
-        splits
+        tallies
             .entry(bucket(diagnostic.category.as_deref()))
             .or_default()
-            .add(
-                diagnostic.severity,
-                diagnostic.context.is_some(),
-                diagnostic.unscored.is_some(),
-                diagnostic.occurrences,
-            );
+            .add(diagnostic);
     }
-    for category in &report.audit.categories {
-        let split = splits.remove(&category.name).unwrap_or_default();
-        let counts = split.weighing;
+    let published: BTreeSet<AuditCategoryName> =
+        report.audit.categories.iter().map(|category| category.name).collect();
+    for name in AuditCategoryName::IN_DIMENSION_ORDER {
+        if !published.contains(&name) {
+            continue;
+        }
+        let tally = tallies.remove(&name).unwrap_or_default();
         line(
             writer,
-            &format!(
-                "{}: {} errors, {} warnings, {} info, {} unknown (occurrences){}",
-                category.name,
-                counts.errors,
-                counts.warnings,
-                counts.info,
-                counts.unknown,
-                split.apart()
-            ),
+            &format!("{}: {}{}", name.label(), tally.counts(), tally.notes()),
             options,
             Style::Plain,
         )?;
     }
-    if report.audit.categories.is_empty() {
+    if published.is_empty() {
         line(writer, "Categories: none", options, Style::Plain)?;
     }
     Ok(())
-}
-
-pub(super) fn group_occurrences(group: &DiagnosticGroup) -> String {
-    let mut split = Split::default();
-    for diagnostic in &group.diagnostics {
-        split.add(
-            diagnostic.severity,
-            diagnostic.context.is_some(),
-            diagnostic.unscored.is_some(),
-            diagnostic.occurrences,
-        );
-    }
-    let own = severity_count(split.weighing, group.severity);
-    let unit = if own == 1 { "occurrence" } else { "occurrences" };
-    let others: Vec<String> = [
-        Severity::Error,
-        Severity::Warning,
-        Severity::Info,
-        Severity::Unknown,
-    ]
-    .into_iter()
-    .filter(|severity| *severity != group.severity)
-    .filter_map(|severity| {
-        let count = severity_count(split.weighing, severity);
-        (count > 0).then(|| format!("{count} {severity}{}", where_published(group, severity)))
-    })
-    .chain(
-        [
-            (split.outside_production, "outside production code"),
-            (split.not_scored, "not scored"),
-        ]
-        .into_iter()
-        .filter(|(count, _)| *count > 0)
-        .map(|(count, what)| format!("{count} {what}")),
-    )
-    .collect();
-    if others.is_empty() {
-        format!("{own} {unit}")
-    } else {
-        format!("{own} {unit}, {}", others.join(", "))
-    }
-}
-
-fn where_published(group: &DiagnosticGroup, severity: Severity) -> &'static str {
-    let binary_channel = crate::report::BINARY_CHANNEL_RULES.contains(&group.rule_id.as_str());
-    if binary_channel && severity == Severity::Info {
-        " in binary targets"
-    } else {
-        ""
-    }
-}
-
-const fn severity_count(counts: crate::SeverityCounts, severity: Severity) -> usize {
-    match severity {
-        Severity::Error => counts.errors,
-        Severity::Warning => counts.warnings,
-        Severity::Info => counts.info,
-        Severity::Unknown => counts.unknown,
-    }
-}
-
-pub(super) fn summary_occurrences(group: &DiagnosticGroup) -> String {
-    let weighing: usize = group
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| counts_at(diagnostic, group.severity))
-        .map(|diagnostic| diagnostic.occurrences)
-        .sum();
-    let rest = group.occurrences.saturating_sub(weighing);
-    if rest == 0 {
-        format!("x{weighing}")
-    } else {
-        format!("x{weighing} (+{rest} more)")
-    }
-}
-
-fn counts_at(diagnostic: &GroupDiagnostic, severity: Severity) -> bool {
-    diagnostic.severity == severity && diagnostic.context.is_none() && diagnostic.unscored.is_none()
 }

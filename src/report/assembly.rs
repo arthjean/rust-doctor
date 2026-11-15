@@ -313,6 +313,7 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
             ToolchainReport {
                 rust_doctor: env!("CARGO_PKG_VERSION"),
                 rustc: toolchain.map(|toolchain| published(&toolchain.rustc)),
+                host: toolchain.and_then(|toolchain| toolchain.host.clone()),
                 cargo: toolchain.map(|toolchain| published(&toolchain.cargo)),
                 clippy: toolchain.map(|toolchain| published(&toolchain.clippy)),
                 removed_lint_flags: result
@@ -518,6 +519,7 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
         toolchain: ToolchainReport {
             rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
+            host: None,
             cargo: None,
             clippy: None,
             removed_lint_flags: Vec::new(),

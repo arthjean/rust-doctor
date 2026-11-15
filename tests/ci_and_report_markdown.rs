@@ -370,8 +370,8 @@ fn the_markdown_report_states_the_scope_and_the_rules_it_did_not_evaluate() {
     let markdown = text(&rendered.stdout);
     assert!(
         markdown.contains(
-            "\nScored 1 production files (18 lines) of member policy-gate-product-loop; Clippy \
-             did not run, native rules also read tests.\n"
+            "\nScored 1 production files (18 lines) of member policy-gate-product-loop. Clippy \
+             did not run. Native rules also read tests.\n"
         ),
         "{markdown}"
     );

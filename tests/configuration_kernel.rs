@@ -190,7 +190,7 @@ fn terminal_exposes_config_state_and_blocking_source_compactly() {
     let absent = terminal(&absent);
     assert!(absent.status.success());
     let absent = String::from_utf8(absent.stdout).unwrap();
-    assert!(absent.contains("Configuration: none loaded; blocking error (default)"));
+    assert!(absent.contains("Configuration: no rust-doctor.toml; defaults apply."));
     assert_eq!(absent.matches("Configuration:").count(), 1);
 
     let configured = temporary_workspace();

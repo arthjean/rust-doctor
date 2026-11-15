@@ -201,7 +201,10 @@ fn terminal_gate_exposes_effective_policy_threshold_and_count() {
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Policy: base severity warning, effective severity error"));
-    assert!(stdout.contains("Gate failed: blocking error, 3 blocking diagnostic(s)"));
+    assert!(
+        stdout.contains("Exit gate (--blocking error): failed, 3 error-level findings."),
+        "{stdout}"
+    );
 }
 
 #[test]

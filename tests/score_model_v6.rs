@@ -345,7 +345,10 @@ fn the_ceilings_and_the_production_counts_reach_the_text_and_the_share_link() {
             .join(", ")
     };
     assert!(
-        rendered.contains(&format!("Capped at 40/100 by a P0 finding: {}", named(overall))),
+        rendered.contains(&format!(
+            "The score is capped at 40 by a P0 finding: {}",
+            named(overall)
+        )),
         "{rendered}"
     );
     let dimensions: Vec<&Value> = ceilings
@@ -357,13 +360,19 @@ fn the_ceilings_and_the_production_counts_reach_the_text_and_the_share_link() {
         let dimension = ceiling["dimension"].as_str().unwrap();
         let mut name = dimension.to_owned();
         name.get_mut(..1).unwrap().make_ascii_uppercase();
-        let line = format!(
-            "{name} {} ({} ceiling: {})",
-            report["audit"]["score"]["dimensions"][dimension],
-            ceiling["tier"].as_str().unwrap(),
-            named(ceiling)
-        );
+        let value = &report["audit"]["score"]["dimensions"][dimension];
+        let line = if value == &ceiling["ceiling"] {
+            format!(
+                "{name} is capped at {} by a {} finding: {}",
+                ceiling["ceiling"],
+                ceiling["tier"].as_str().unwrap(),
+                named(ceiling)
+            )
+        } else {
+            format!("{name} {value}: driven by ")
+        };
         assert!(rendered.contains(&line), "{line} missing from {rendered}");
+        assert!(!rendered.contains(&format!("{name} {value} (")), "{rendered}");
     }
 
     let root = workspace(&[
@@ -389,7 +398,10 @@ fn the_ceilings_and_the_production_counts_reach_the_text_and_the_share_link() {
         "the test-context finding is published and does not weigh: {report:#}"
     );
     let rendered = text(&root);
-    assert!(rendered.contains("Reliability 75 (P2 ceiling: clippy::todo)"), "{rendered}");
+    assert!(
+        rendered.contains("Reliability is capped at 75 by a P2 finding: clippy::todo"),
+        "{rendered}"
+    );
     let share = rendered
         .split_whitespace()
         .find(|word| word.starts_with("https://rust-doctor.com/share?"))

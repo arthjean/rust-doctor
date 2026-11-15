@@ -19,7 +19,11 @@ const PROJECT_DIRECTORIES: [(&str, Agent); 4] = [
 
 #[derive(Debug, Clone, Args)]
 pub struct SetupArgs {
-    #[arg(default_value = ".", value_name = "PATH")]
+    #[arg(
+        default_value = ".",
+        value_name = "PATH",
+        help = "The workspace to set up"
+    )]
     path: PathBuf,
     #[arg(long, help = "Print the plan, and write nothing")]
     dry_run: bool,

@@ -207,7 +207,7 @@ fn offline_cli_is_deterministic_private_and_correction_preserves_other_ids() {
         "{terminal}"
     );
     assert!(
-        terminal.contains("Capped at 40/100 by a P0 finding"),
+        terminal.contains("The score is capped at 40 by a P0 finding"),
         "{terminal}"
     );
     assert!(

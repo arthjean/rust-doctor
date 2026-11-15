@@ -99,6 +99,23 @@ pub(super) fn tool_version(
     Ok(version.to_owned())
 }
 
+pub(super) fn verbose_version(output: &str) -> (String, Option<String>) {
+    let mut lines = output.lines().map(str::trim);
+    let version = lines.next().unwrap_or_default().to_owned();
+    let host = lines
+        .find_map(|line| line.strip_prefix("host:"))
+        .map(str::trim)
+        .filter(|host| {
+            !host.is_empty()
+                && host.len() <= 128
+                && host
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        })
+        .map(str::to_owned);
+    (version, host)
+}
+
 struct ProbeOutput {
     status: ExitStatus,
     stdout: Vec<u8>,
@@ -153,4 +170,25 @@ pub(super) fn version_command(
     command.args(arguments).current_dir(working_directory);
     environment.apply(&mut command);
     command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verbose_version;
+
+    #[test]
+    fn the_verbose_probe_keeps_the_version_line_and_reads_the_host() {
+        let version = "rustc 1.99.1 (0f0a1b2c3 2026-10-01)";
+        let output = format!(
+            "{version}\nbinary: rustc\ncommit-hash: 0f0a1b2c3\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 20.1.8\n"
+        );
+        assert_eq!(
+            verbose_version(&output),
+            (version.to_owned(), Some("x86_64-unknown-linux-gnu".to_owned()))
+        );
+        assert_eq!(verbose_version(version), (version.to_owned(), None));
+        for refused in ["host:", "host: a b", "host: \u{1b}[2J"] {
+            assert_eq!(verbose_version(&format!("{version}\n{refused}")).1, None, "{refused:?}");
+        }
+    }
 }

@@ -128,7 +128,7 @@ describe.skipIf(!requireTmux())("interactive report gating", () => {
     expect(run.landing).toBe(true);
     expect(run.exitCode).toBe(0);
     expect(readFileSync(join(box.dir, "stderr.txt"), "utf8")).toBe(
-      "Running native passes...\nCompiling dependencies...\nLinting kernel-todo (1/1)\n",
+      "Running native passes...\nCompiling dependencies...\nLinted 1 member.\n",
     );
   });
 

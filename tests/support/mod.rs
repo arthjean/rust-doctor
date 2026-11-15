@@ -445,7 +445,7 @@ impl ProcessHarness {
                 "rustc",
                 concat!(
                     "#!/bin/sh\n",
-                    "if [ \"$1\" = \"--version\" ]; then\n",
+                    "if [ \"$1\" = \"-vV\" ]; then\n",
                     "  printf 'rustc-version\\n' >> \"$RUST_DOCTOR_PROCESS_LOG\"\n",
                     "fi\n",
                     "exec \"$RUST_DOCTOR_REAL_RUSTC\" \"$@\"\n",

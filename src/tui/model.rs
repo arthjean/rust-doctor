@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use rust_doctor::presentation::{
-    COMPILER_NOTES_HEADING, DiagnosticGroup, GroupLocation, ReportPresentation,
+    COMPILER_NOTES_HEADING, DiagnosticGroup, GroupDiagnostic, GroupLocation, ReportPresentation,
+    SuggestionPlacement,
 };
 use rust_doctor::score_block;
 use rust_doctor::{AuditCategoryName, InspectReport, ScoreLabel, Severity};
@@ -44,6 +45,7 @@ pub struct Row {
     pub category: AuditCategoryName,
     pub severity: Severity,
     pub site_count: usize,
+    pub count: rust_doctor::presentation::GroupCount,
     pub location: String,
     pub message: String,
     pub help: Option<String>,
@@ -82,7 +84,8 @@ pub fn build_rows(presentation: &ReportPresentation) -> Vec<Row> {
 
 fn row_from_group(group: &DiagnosticGroup) -> Row {
     let representative = group.representative();
-    let frame = representative.and_then(|diagnostic| diagnostic.location());
+    let finding = representative.and_then(|diagnostic| diagnostic.location());
+    let (frame, suggestion) = placed_suggestion(representative, finding.as_ref());
     let mut sites: Vec<String> = Vec::new();
     for diagnostic in &group.diagnostics {
         for location in diagnostic
@@ -105,12 +108,11 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
         category: group.category.unwrap_or(AuditCategoryName::Other),
         severity: group.severity,
         site_count: group.occurrences,
-        location: frame.as_ref().map_or_else(String::new, format_site),
+        count: group.count,
+        location: finding.as_ref().map_or_else(String::new, format_site),
         message: representative.map_or_else(String::new, |diagnostic| diagnostic.message.clone()),
         help: group.resolved_help().map(str::to_owned),
-        suggestion: representative
-            .and_then(|diagnostic| diagnostic.suggestion.as_ref())
-            .map(|suggestion| suggestion.replacement.clone()),
+        suggestion,
         rule_url: group.rule_url.clone(),
         frame,
         sites,
@@ -118,6 +120,28 @@ fn row_from_group(group: &DiagnosticGroup) -> Row {
             .and_then(|diagnostic| diagnostic.context)
             .map(|context| context.label()),
         note: group.is_compiler_note(),
+    }
+}
+
+fn placed_suggestion(
+    representative: Option<&GroupDiagnostic>,
+    finding: Option<&GroupLocation>,
+) -> (Option<GroupLocation>, Option<String>) {
+    let Some((diagnostic, suggestion)) = representative
+        .and_then(|diagnostic| diagnostic.suggestion.as_ref().map(|suggestion| (diagnostic, suggestion)))
+    else {
+        return (finding.cloned(), None);
+    };
+    match SuggestionPlacement::of(diagnostic.span.as_ref(), suggestion) {
+        SuggestionPlacement::Whole => (finding.cloned(), Some(suggestion.replacement.clone())),
+        SuggestionPlacement::Elsewhere => (finding.cloned(), None),
+        SuggestionPlacement::Part(span) => (
+            finding.map(|location| GroupLocation {
+                path: location.path.clone(),
+                span,
+            }),
+            Some(suggestion.replacement.clone()),
+        ),
     }
 }
 
@@ -130,14 +154,6 @@ pub fn format_site(location: &GroupLocation) -> String {
 }
 
 pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
-    const ORDER: [AuditCategoryName; 6] = [
-        AuditCategoryName::Security,
-        AuditCategoryName::Bugs,
-        AuditCategoryName::Performance,
-        AuditCategoryName::Dependencies,
-        AuditCategoryName::Maintainability,
-        AuditCategoryName::Other,
-    ];
     let mut entries = Vec::new();
     let mut section = |label: &'static str, belongs: &dyn Fn(&Row) -> bool| {
         let mut matching = rows
@@ -151,8 +167,8 @@ pub fn build_entries(rows: &[Row]) -> Vec<Entry> {
         entries.push(Entry::Header(label));
         entries.extend(matching.map(|(row_index, _)| Entry::Item { row_index }));
     };
-    for category in ORDER {
-        section(category.as_str(), &|row| !row.note && row.category == category);
+    for category in AuditCategoryName::IN_DIMENSION_ORDER {
+        section(category.label(), &|row| !row.note && row.category == category);
     }
     section(COMPILER_NOTES_HEADING, &|row| row.note);
     entries
@@ -357,6 +373,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_viewer_frames_a_suggestion_under_the_text_it_replaces() {
+        let span = |column_start: usize, column_end: usize| rust_doctor::DiagnosticSpan {
+            line_start: 4,
+            column_start,
+            line_end: 4,
+            column_end,
+        };
+        let site = |replaced: Option<rust_doctor::DiagnosticSpan>| GroupDiagnostic {
+            message: String::new(),
+            help: None,
+            suggestion: Some(rust_doctor::Suggestion {
+                replacement: "[u8]".to_owned(),
+                applicability: rust_doctor::Applicability::Unspecified,
+                span: replaced,
+            }),
+            base_severity: Severity::Warning,
+            severity: Severity::Warning,
+            context: None,
+            unscored: None,
+            path: Some("src/lib.rs".to_owned()),
+            span: Some(span(13, 24)),
+            related: Vec::new(),
+            occurrences: 1,
+        };
+        let placed = |diagnostic: &GroupDiagnostic| {
+            placed_suggestion(Some(diagnostic), diagnostic.location().as_ref())
+        };
+
+        let (frame, suggestion) = placed(&site(Some(span(16, 23))));
+        assert_eq!(frame.map(|frame| frame.span), Some(span(16, 23)));
+        assert_eq!(suggestion.as_deref(), Some("[u8]"));
+
+        let (frame, suggestion) = placed(&site(Some(span(13, 24))));
+        assert_eq!(frame.map(|frame| frame.span), Some(span(13, 24)));
+        assert_eq!(suggestion.as_deref(), Some("[u8]"));
+
+        let (frame, suggestion) = placed(&site(Some(span(30, 34))));
+        assert_eq!(frame.map(|frame| frame.span), Some(span(13, 24)));
+        assert_eq!(suggestion, None, "a replacement for text outside the caret is not offered");
+    }
+
+    #[test]
     fn a_wide_terminal_splits_the_list_and_the_detail() {
         let layout = resolve_layout(160, 48, 20);
         assert_eq!(layout.arrangement, Arrangement::Split);
@@ -392,8 +450,9 @@ mod tests {
     }
 
     #[test]
-    fn entries_open_each_category_in_audit_order() {
+    fn entries_open_each_category_in_the_order_of_the_dimensions_line() {
         let rows = vec![
+            row("clippy::d", AuditCategoryName::Performance),
             row("clippy::a", AuditCategoryName::Maintainability),
             row("clippy::b", AuditCategoryName::Security),
             row("clippy::c", AuditCategoryName::Maintainability),
@@ -413,7 +472,9 @@ mod tests {
                 "clippy::b",
                 "Maintainability",
                 "clippy::a",
-                "clippy::c"
+                "clippy::c",
+                "Performance",
+                "clippy::d"
             ]
         );
     }
@@ -437,7 +498,7 @@ mod tests {
         assert_eq!(
             shape,
             [
-                "Bugs",
+                "Reliability",
                 "clippy::eq_op",
                 "Other",
                 "E0308",
@@ -454,6 +515,10 @@ mod tests {
             category,
             severity: Severity::Warning,
             site_count: 1,
+            count: rust_doctor::presentation::GroupCount {
+                weighing: 1,
+                ..Default::default()
+            },
             location: String::new(),
             message: String::new(),
             help: None,

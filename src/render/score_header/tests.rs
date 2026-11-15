@@ -122,7 +122,7 @@ fn truecolors(output: &str) -> Vec<(u8, u8, u8)> {
                 .split_once('m')?
                 .0
                 .split(';')
-                .filter_map(|value| value.parse().ok())
+                .filter_map(|value| value.parse::<u8>().ok())
                 .collect();
             match channels[..] {
                 [red, green, blue] => Some((red, green, blue)),

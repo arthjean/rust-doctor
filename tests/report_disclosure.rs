@@ -59,12 +59,17 @@ fn a_workspace_scan_prints_the_workspace_dimensions_and_its_scope() {
     );
     let rest = text.split_once(&scope).map(|(_, rest)| rest);
     assert!(rest.is_some(), "{text}");
+    let after = rest.unwrap().split_once("s. ").map(|(_, after)| after);
+    let host = after
+        .and_then(|after| after.strip_prefix("Clippy linted library and binary targets for "))
+        .and_then(|after| after.split_once("; "));
     assert!(
-        rest.unwrap()
-            .split_once("s; ")
-            .is_some_and(|(_, after)| after
-                .starts_with("Clippy linted library and binary targets, native rules also read tests")),
-        "{text}"
+        host.is_some_and(|(triple, rest)| triple.split('-').count() >= 3
+            && rest.starts_with(
+                "code gated to other platforms and test code were not linted. Native rules also \
+                 read tests."
+            )),
+        "the scope sentence names the host triple rustc -vV reported: {text}"
     );
 }
 

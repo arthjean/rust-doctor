@@ -20,7 +20,11 @@ impl RuleAggregate {
         }
     }
 
-    pub(super) fn is_withheld(&self) -> bool {
+    pub(crate) const fn rule_tier(&self) -> Option<crate::policy::RuleTier> {
+        self.tier
+    }
+
+    pub(crate) fn is_withheld(&self) -> bool {
         self.noise
             .is_some_and(|noise| noise > WITHHOLD_NOISE_BASIS_POINTS)
     }

@@ -20,7 +20,7 @@ const SGR = /\x1b\[[0-9;]*m/g;
 const ERASE = /\r\x1b\[2K/g;
 const REWIND = /\x1b\[\d+A/g;
 const LINEAR = "Scope: full codebase";
-const PHASES = ["Running native passes...", "Compiling dependencies...", "Linting clippy-warning (1/1)"];
+const PHASES = ["Running native passes...", "Compiling dependencies...", "Linted 1 member."];
 
 let workspace = "";
 let target = "";
@@ -185,7 +185,7 @@ describe("terminal profile", () => {
         expect(notices).toEqual([
           `rust-doctor: no rust-doctor skill is installed for ${agent}; run \`rust-doctor skill install --agent ${agent}\`.`,
         ]);
-        expect(run.stderr.trimEnd().endsWith(notices[0]!)).toBe(true);
+        expect(run.stderr.startsWith(`${notices[0]!}\n`)).toBe(true);
       } else {
         expect(notices).toEqual([]);
       }
@@ -233,7 +233,7 @@ describe("terminal profile", () => {
     expect(run.stdout).not.toContain(MENU_HINT);
   });
 
-  test("EN-19 off a terminal, progress is one line per phase on stderr", async () => {
+  test("EN-19 off a terminal, progress is one line per phase on stderr and one closing line for the members", async () => {
     const run = await runDoctor([workspace, "--yes"], { target });
     expect(run.exitCode).toBe(0);
     expect(run.stderr.split("\n").filter(Boolean)).toEqual(PHASES);
@@ -267,6 +267,8 @@ describe("terminal profile", () => {
     });
     expect(run.interactive).toBe(true);
     expect(run.exitCode).toBe(0);
-    expect(await Bun.file(stderr).text()).toContain("Linting clippy-warning (1/1)");
+    const written = await Bun.file(stderr).text();
+    expect(written).toContain("Linted 1 member.\n");
+    expect(written).not.toContain("Linting ");
   });
 });

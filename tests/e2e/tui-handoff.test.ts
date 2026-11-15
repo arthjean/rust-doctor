@@ -44,7 +44,7 @@ async function toHandoff(session: TmuxSession): Promise<string> {
 }
 
 function said(stderr: string): string {
-  return stderr.split("\n").filter((line) => !/^(Running native passes|Compiling dependencies)\.\.\.$|^Linting \S+ \(\d+\/\d+\)$/.test(line)).join("\n");
+  return stderr.split("\n").filter((line) => !/^(Running native passes|Compiling dependencies)\.\.\.$|^Linting \S+ \(\d+\/\d+\)$|^Linted \d+ members?\.$/.test(line)).join("\n");
 }
 
 function printedPrompt(session: TmuxSession): string {

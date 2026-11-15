@@ -101,8 +101,8 @@ fn terminal_default_verbose_clean_partial_and_no_rust_modes_are_truthful() {
     let ordered = [
         "Scope: full codebase",
         "Scored 1 production files (",
-        "Top warning:",
-        "All 3 occurrences across 3 findings",
+        "P2 warning  Todo  x3",
+        "All 3 occurrences across 3 findings; 3 scored warnings, 0 info",
         "Run with --verbose",
         "┌─────┐",
         "Share:",

@@ -37,7 +37,7 @@ enum HookCommand {
         )
     )]
     Run {
-        #[arg(value_enum)]
+        #[arg(value_enum, help = "The agent whose turn ended")]
         agent: AgentHook,
         #[command(flatten)]
         clippy: ClippyArgs,
@@ -60,14 +60,22 @@ enum HookTarget {
         about = "Write a pre-commit hook running `rust-doctor . --yes --staged --scope lines --blocking warning`"
     )]
     Git {
-        #[arg(default_value = ".", value_name = "PATH")]
+        #[arg(
+            default_value = ".",
+            value_name = "PATH",
+            help = "The repository to write the hook into"
+        )]
         path: PathBuf,
         #[command(flatten)]
         write: WriteArgs,
     },
     #[command(about = "Add a Stop hook to .claude/settings.local.json")]
     Claude {
-        #[arg(default_value = ".", value_name = "PATH")]
+        #[arg(
+            default_value = ".",
+            value_name = "PATH",
+            help = "The repository to write the hook into"
+        )]
         path: PathBuf,
         #[arg(long, help = "Write .claude/settings.json, the file the repository shares")]
         shared: bool,
@@ -78,7 +86,11 @@ enum HookTarget {
     },
     #[command(about = "Add a stop hook to .cursor/hooks.json")]
     Cursor {
-        #[arg(default_value = ".", value_name = "PATH")]
+        #[arg(
+            default_value = ".",
+            value_name = "PATH",
+            help = "The repository to write the hook into"
+        )]
         path: PathBuf,
         #[command(flatten)]
         clippy: ClippyArgs,

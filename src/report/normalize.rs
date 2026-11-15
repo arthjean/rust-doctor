@@ -380,7 +380,7 @@ fn select_suggestion(
     workspace_root: &Path,
     home: &HomePaths,
 ) -> Option<Suggestion> {
-    let mut best: Option<(Applicability, &str)> = None;
+    let mut best: Option<(Applicability, &str, DiagnosticSpan)> = None;
     for child in &diagnostic.children {
         for span in &child.spans {
             let Some(replacement) = span.suggested_replacement.as_deref() else {
@@ -408,14 +408,21 @@ fn select_suggestion(
             {
                 continue;
             }
-            if best.is_none_or(|(kept, _)| applicability < kept) {
-                best = Some((applicability, replacement));
+            if best.as_ref().is_none_or(|(kept, _, _)| applicability < *kept) {
+                let replaced = DiagnosticSpan {
+                    line_start: span.line_start,
+                    column_start: span.column_start,
+                    line_end: span.line_end,
+                    column_end: span.column_end,
+                };
+                best = Some((applicability, replacement, replaced));
             }
         }
     }
-    best.map(|(applicability, replacement)| Suggestion {
+    best.map(|(applicability, replacement, span)| Suggestion {
         replacement: sanitize_replacement(replacement, Some(workspace_root), home),
         applicability,
+        span: Some(span),
     })
 }
 

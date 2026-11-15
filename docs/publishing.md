@@ -6,6 +6,11 @@ dependencies. Releasing is one version bump in `Cargo.toml`, mirrored into
 `npm/rust-doctor/package.json` and `bun.lock`, then a `v<version>` tag:
 `release.yml` refuses a tag that disagrees with the manifest.
 
+The wrapper sets `RUST_DOCTOR_LAUNCHER` to `bunx` or `npx` from the
+`npm_config_user_agent` its runner exports, so the skill hint names
+`bunx rust-doctor@<version>` or its `npx` form: a bare `rust-doctor` resolves
+only after a global install.
+
 The bump also moves the `version` default of `action.yml`, which the `ci` unit
 tests hold to `Cargo.toml`. `uses:
 arthjean/rust-doctor@v0` resolves the floating `v0` tag, which moves only once

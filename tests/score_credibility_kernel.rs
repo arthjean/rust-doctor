@@ -53,7 +53,7 @@ fn the_adversarial_fixture_cannot_reach_the_top_label() {
         .expect("rust-doctor should start");
     let terminal = String::from_utf8(terminal.stdout).expect("terminal output should be UTF-8");
     assert!(
-        terminal.contains("Capped at 40/100 by a P0 finding"),
+        terminal.replace('\n', " ").contains("The score is capped at 40 by a P0 finding"),
         "{terminal}"
     );
     assert!(

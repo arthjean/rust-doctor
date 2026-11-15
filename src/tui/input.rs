@@ -216,7 +216,7 @@ impl App<'_> {
             project_name: &self.project_name,
             rule_id: &row.rule_id,
             title: &row.title,
-            category: row.category.as_str(),
+            category: row.category.label(),
             is_error: row.is_error(),
             site_count: row.site_count,
             message: &row.message,

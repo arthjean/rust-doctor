@@ -215,13 +215,13 @@ fn render_scope(out: &mut String, report: &Value) {
         .is_some_and(|command| !command.is_null());
     let _ = writeln!(
         out,
-        "\n{}; {}.",
+        "\n{}. {}",
         super::scope::scored_clause(
             count("/audit/source_files"),
             count("/audit/production_lines"),
             selected.as_deref()
         ),
-        super::scope::read_clause(clippy_ran)
+        super::scope::read_clause(clippy_ran, None)
     );
     let unsupported: Vec<String> = report
         .pointer("/policy/rules")

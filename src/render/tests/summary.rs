@@ -40,18 +40,25 @@ fn every_scored_rule_gets_a_row_up_to_twenty_then_an_overflow_line() {
     assert_eq!(group_rows(&output).len(), 19, "{output}");
     assert!(output.contains("and 5 more rules: --verbose"), "{output}");
     let row = group_rows(&output)[0];
-    assert!(row.starts_with("warning  "), "{row}");
+    assert!(
+        row.starts_with("P0 warning  ") || row.starts_with("P1 warning  "),
+        "a row starts with its tier and severity: {row}"
+    );
     assert!(row.ends_with(":5"), "a row ends on its first site: {row}");
 }
 
 #[test]
-fn an_unscored_group_is_counted_in_the_totals_and_given_no_row() {
-    let mut report = groups(2);
-    report.diagnostics[1].context = Some(crate::DiagnosticContext::Tests);
-    report.audit = Audit::build(2, 1_000, Status::Complete, &report.diagnostics);
+fn a_rule_found_only_in_tests_is_listed_at_x0_after_every_rule_that_weighs() {
+    let mut report = groups(3);
+    report.diagnostics[0].context = Some(crate::DiagnosticContext::Tests);
+    report.audit = Audit::build(3, 1_000, Status::Complete, &report.diagnostics);
     let output = rendered(&report, 140, false, false);
-    assert!(group_rows(&output).is_empty(), "{output}");
-    assert!(output.contains("All 2 occurrences across 2 findings"), "{output}");
+    let rows: Vec<&str> = output.lines().collect();
+    let in_tests = rows.iter().position(|row| row.contains("  x0 (+1 in tests)  "));
+    let last_weighing = rows.iter().rposition(|row| row.contains("  x1"));
+    assert!(in_tests.is_some(), "the rule found in tests keeps a row: {output}");
+    assert!(last_weighing < in_tests, "{output}");
+    assert!(output.contains("All 3 occurrences across 3 findings"), "{output}");
 }
 
 #[test]

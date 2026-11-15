@@ -11,7 +11,11 @@ use crate::{
 };
 
 mod code_frame;
+mod group_count;
+mod suggestion;
 
+pub use group_count::{GroupCount, context_label};
+pub use suggestion::{SuggestionPlacement, replaced_text};
 pub use code_frame::{
     CodeFrame, CodeFrameLine, CodeFrameMarker, CodeFrameUnavailable, CodeFrameUnavailableReason,
     code_frame,
@@ -32,6 +36,7 @@ pub fn rule_url(rule_id: &str) -> String {
 }
 
 pub const COMPILER_NOTES_HEADING: &str = "Compiler notes (not scored)";
+pub const WITHHELD_HEADING: &str = "Reported, but found wrong on most reviewed sites";
 const MIGRATION_FILE_THRESHOLD: usize = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -49,6 +54,10 @@ pub struct DiagnosticGroup {
     pub title: String,
     pub rule_url: String,
     pub severity: Severity,
+    pub tier: Option<crate::policy::RuleTier>,
+    pub withheld: bool,
+    pub contribution: u64,
+    pub count: GroupCount,
     pub category: Option<AuditCategoryName>,
     pub occurrences: usize,
     pub diagnostics: Vec<GroupDiagnostic>,
@@ -89,6 +98,14 @@ impl DiagnosticGroup {
                 .diagnostics
                 .iter()
                 .all(|diagnostic| diagnostic.context.is_some())
+    }
+
+    pub fn header(&self) -> String {
+        let tier = self
+            .tier
+            .map(|tier| format!("{} ", tier.as_str()))
+            .unwrap_or_default();
+        format!("{tier}{}  {}  {}", self.severity, self.title, self.count)
     }
 
     pub fn is_compiler_note(&self) -> bool {
@@ -218,13 +235,6 @@ fn diagnostic_groups(
     diagnostics: &[&Diagnostic],
 ) -> Vec<DiagnosticGroup> {
     let aggregation = aggregate_rules(production_lines, members, diagnostics.iter().copied());
-    let projected: BTreeMap<String, usize> = aggregation
-        .projection()
-        .0
-        .into_iter()
-        .enumerate()
-        .map(|(position, rule)| (rule.id.clone(), position))
-        .collect();
     let mut aggregates: BTreeMap<_, _> = aggregation
         .rules
         .into_iter()
@@ -248,10 +258,9 @@ fn diagnostic_groups(
         };
         let severity = aggregate.effective_severity;
         let category = aggregate.category;
-        let repair_value = aggregate.expected_repair_value();
         let contribution = aggregate.contribution();
         let occurrences = aggregate.occurrences;
-        let projected_position = projected.get(&rule_id).copied().unwrap_or(usize::MAX);
+        let tier = aggregate.rule_tier();
         let is_note = diagnostics
             .first()
             .is_some_and(|diagnostic| diagnostic.unscored.is_some());
@@ -284,21 +293,28 @@ fn diagnostic_groups(
                     .collect(),
                 occurrences: diagnostic.occurrences,
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let count = GroupCount::of(&diagnostics);
+        let withheld = count.weighs() && aggregate.is_withheld();
         ranked.push((
             (
                 is_note,
+                !count.weighs(),
+                tier.is_none(),
+                tier,
+                withheld,
                 severity.rank(),
-                projected_position,
-                std::cmp::Reverse(repair_value),
                 std::cmp::Reverse(contribution),
-                std::cmp::Reverse(occurrences),
             ),
             DiagnosticGroup {
                 title: rule_title(&rule_id),
                 rule_url: rule_url(&rule_id),
                 rule_id,
                 severity,
+                tier,
+                withheld,
+                contribution,
+                count,
                 category,
                 occurrences,
                 diagnostics,
@@ -331,7 +347,7 @@ fn migration_advisories(groups: &[DiagnosticGroup]) -> Vec<MigrationAdvisory> {
         .collect()
 }
 
-fn rule_title(rule_id: &str) -> String {
+pub(crate) fn rule_title(rule_id: &str) -> String {
     let leaf = rule_id.rsplit("::").next().unwrap_or(rule_id);
     let words = leaf.replace(['_', '-'], " ");
     let mut characters = words.chars();
@@ -410,6 +426,7 @@ mod tests {
             toolchain: ToolchainReport {
                 rust_doctor: env!("CARGO_PKG_VERSION"),
                 rustc: None,
+                host: None,
                 cargo: None,
                 clippy: None,
                 removed_lint_flags: Vec::new(),
@@ -487,10 +504,11 @@ mod tests {
             ids,
             [
                 "clippy::same_warning",
-                "clippy::security_error",
                 "clippy::low_error",
+                "clippy::security_error",
                 "clippy::many_warnings"
-            ]
+            ],
+            "uncatalogued rules carry no tier and cost nothing, so severity then id order them"
         );
         let same_warning = presentation
             .groups
@@ -503,6 +521,31 @@ mod tests {
         assert_eq!(
             same_warning.rule_url,
             "https://rust-doctor.com/rules/clippy%3A%3Asame_warning"
+        );
+    }
+
+    #[test]
+    fn the_tier_orders_rules_before_their_severity() {
+        let presentation = ReportPresentation::derive(&report(vec![
+            diagnostic(
+                "clippy::todo",
+                Severity::Error,
+                "correctness",
+                Some("src/a.rs".to_owned()),
+                9,
+            ),
+            diagnostic(
+                "rust_doctor::source::dynamic_shell_command",
+                Severity::Warning,
+                "security",
+                Some("src/b.rs".to_owned()),
+                1,
+            ),
+        ]));
+        let headers: Vec<String> = presentation.groups.iter().map(DiagnosticGroup::header).collect();
+        assert_eq!(
+            headers,
+            ["P0 warning  Dynamic shell command  x1", "P2 error  Todo  x9"]
         );
     }
 

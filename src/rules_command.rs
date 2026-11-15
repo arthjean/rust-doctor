@@ -15,7 +15,7 @@ pub struct RulesArgs {
 enum RulesCommand {
     #[command(about = "List every catalogued rule")]
     List {
-        #[arg(long)]
+        #[arg(long, help = "Print the catalog as JSON")]
         json: bool,
     },
     #[command(
@@ -32,7 +32,7 @@ enum RulesCommand {
             help = "The workspace whose rust-doctor.toml sets the effective level"
         )]
         path: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, help = "Print the rule as JSON")]
         json: bool,
     },
 }

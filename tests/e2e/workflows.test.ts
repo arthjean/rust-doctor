@@ -136,7 +136,7 @@ describe("pre-commit hook written by setup", () => {
     const run = await commit(repo, "ignore logs");
     expect(run.exitCode).toBe(0);
     expect(run.stderr).toContain("No staged Rust change to judge.\n");
-    expect(run.stderr).toContain("Gate passed: blocking warning, 0 blocking diagnostic(s)");
+    expect(run.stderr).toContain("Exit gate (--blocking warning): passed, no finding at warning level or above.");
   });
 
   test("WF-02 with no configuration, a staged todo!() is refused", async () => {
@@ -146,8 +146,8 @@ describe("pre-commit hook written by setup", () => {
     const run = await commit(repo, "todo");
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("Rule ID: clippy::todo");
-    expect(run.stderr).toContain("Configuration: none loaded; blocking warning (request)");
-    expect(run.stderr).toContain("Gate failed: blocking warning, 1 blocking diagnostic(s)");
+    expect(run.stderr).toContain("Configuration: no rust-doctor.toml; defaults apply.");
+    expect(run.stderr).toContain("Exit gate (--blocking warning): failed, 1 finding at warning level or above.");
     expect(await head(repo)).toBe(before);
   });
 
@@ -158,7 +158,7 @@ describe("pre-commit hook written by setup", () => {
     const run = await commit(repo, "todo");
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("clippy::todo");
-    expect(run.stderr).toContain("Gate failed: blocking warning, 1 blocking diagnostic(s)");
+    expect(run.stderr).toContain("Exit gate (--blocking warning): failed, 1 finding at warning level or above.");
     expect(await head(repo)).toBe(before);
   });
 
@@ -200,7 +200,7 @@ describe("pre-commit hook written by setup", () => {
     await stage(repo, { "src/lib.rs": `${CLEAN["src/lib.rs"]}\n${TODO_LINE}\npub fn other() -> u8 {\n    2\n}\n` });
     const rust = await commit(repo, "other");
     expect(rust.exitCode).toBe(0);
-    expect(rust.stderr).toContain("Gate passed: blocking warning, 0 blocking diagnostic(s)");
+    expect(rust.stderr).toContain("Exit gate (--blocking warning): passed, no finding at warning level or above.");
   });
 
   test("WF-08 a P1 correctness finding is refused by default", async () => {
@@ -210,7 +210,7 @@ describe("pre-commit hook written by setup", () => {
     const run = await commit(repo, "absurd");
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("clippy::absurd_extreme_comparisons");
-    expect(run.stderr).toContain("Gate failed: blocking warning, 1 blocking diagnostic(s)");
+    expect(run.stderr).toContain("Exit gate (--blocking warning): failed, 1 finding at warning level or above.");
     expect(await head(repo)).toBe(before);
   });
 
@@ -243,13 +243,13 @@ describe("pre-commit hook written by setup", () => {
     writeFileSync(join(untracked.path, "rust-doctor.toml"), '[rules]\n"clippy::todo" = "off"\n');
     const refused = await commit(untracked, "todo");
     expect(refused.exitCode).toBe(1);
-    expect(refused.stderr).toContain("Configuration: none loaded; blocking warning (request)");
+    expect(refused.stderr).toContain("Configuration: no rust-doctor.toml; defaults apply.");
     const staged = await setUp("wf-11-staged");
     await stage(staged, { "rust-doctor.toml": '[rules]\n"clippy::todo" = "off"\n', "src/lib.rs": `${CLEAN["src/lib.rs"]}\n${TODO_LINE}` });
     writeFileSync(join(staged.path, "rust-doctor.toml"), '[rules]\n"clippy::todo" = "warn"\n');
     const passed = await commit(staged, "todo");
     expect(passed.exitCode).toBe(0);
-    expect(passed.stderr).toContain("Gate passed: blocking warning, 0 blocking diagnostic(s)");
+    expect(passed.stderr).toContain("Exit gate (--blocking warning): passed, no finding at warning level or above.");
   });
 
   test("WF-17 a hook installed for a nested workspace judges it, and its relative scan works from the top", async () => {

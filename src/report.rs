@@ -25,7 +25,6 @@ mod assembly;
 mod exclusion;
 pub(crate) use exclusion::edit_distance;
 mod normalize;
-pub(crate) use normalize::BINARY_CHANNEL_RULES;
 mod sanitize;
 pub(crate) use sanitize::{home_directory, replace_path};
 
@@ -428,6 +427,8 @@ pub struct PackageReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolchainReport {
     pub rustc: Option<String>,
+    #[serde(skip)]
+    pub host: Option<String>,
     pub cargo: Option<String>,
     pub clippy: Option<String>,
     pub rust_doctor: &'static str,
@@ -493,6 +494,8 @@ pub struct ComplexityFigures {
 pub struct Suggestion {
     pub replacement: String,
     pub applicability: Applicability,
+    #[serde(skip)]
+    pub span: Option<DiagnosticSpan>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

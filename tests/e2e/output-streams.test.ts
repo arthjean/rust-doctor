@@ -45,7 +45,7 @@ async function shell(script: string, workspace: string, args: string[]): Promise
 }
 
 const HEAD_10 = 'rust-doctor "$@" | head -c 10; exit "${PIPESTATUS[0]}"';
-const PROGRESS = /^(Running native passes\.\.\.|Compiling dependencies\.\.\.|Linting .+ \(\d+\/\d+\))$/;
+const PROGRESS = /^(Running native passes\.\.\.|Compiling dependencies\.\.\.|Linted \d+ members?\.)$/;
 
 function expectOneDocument(stdout: string): Report {
   expect(stdout.endsWith("}\n")).toBe(true);
@@ -251,9 +251,12 @@ describe("output contracts", () => {
   test("OC-10 the complete linear report keeps its section order", async () => {
     const run = await scan(copyWorkspace("projects/clippy-warning"), []);
     const sections = [
-      "Scope: full codebase\n", "Scored 1 production files", "Top warning: Unwrap used", "Rule ID: clippy::unwrap_used",
-      "All 1 occurrences across 1 findings", "Bugs: 0 errors, 1 warnings", "Configuration: none loaded",
-      "Known-vulnerability check skipped", "Gate passed: blocking error", " 100 / 100 Great", "is left out",
+      "Scope: full codebase\n", "Scored 1 production files", "Reported, but found wrong on most reviewed sites",
+      "P3 warning  Unwrap used  x1", "Rule ID: clippy::unwrap_used",
+      "All 1 occurrences across 1 findings; 1 scored warning, 0 info", "Reliability: 1 warning (1 from Unwrap used)",
+      "Configuration: no rust-doctor.toml; defaults apply.", "Known-vulnerability check skipped",
+      "Exit gate (--blocking error): passed, no error-level finding.", " 100 / 100 Great",
+      "\n\nLeft out of what to fix first: clippy::unwrap_used", "P0 to P3 rank a rule's severity.",
       "Share: https://rust-doctor.com/share?", "Docs: https://rust-doctor.com/docs", "GitHub: https://github.com/",
     ];
     const positions = sections.map((section) => run.stdout.indexOf(section));
@@ -262,7 +265,7 @@ describe("output contracts", () => {
     }
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
     const incomplete = await scan(copyWorkspace("scan-failures/sleeping-build"), ["--max-duration", "2"]);
-    const gate = incomplete.stdout.indexOf("Gate not evaluated");
+    const gate = incomplete.stdout.indexOf("Exit gate (--blocking error): not evaluated.");
     const error = incomplete.stdout.indexOf("Scan incomplete: The scan stopped at the 2 s limit");
     const score = incomplete.stdout.indexOf(" / 100 ");
     expect(gate).toBeGreaterThan(0);

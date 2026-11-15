@@ -104,7 +104,7 @@ function hangingRustc(box: Sandbox): { path: string; pidFile: string } {
   const pidFile = join(box.dir, "probe.pid");
   writeFileSync(
     join(dir, "rustc"),
-    `#!/bin/sh\nif [ "$1" = --version ]; then echo $$ > '${pidFile}'; exec sleep 30; fi\nexec '${toolchainBin()}/rustc' "$@"\n`,
+    `#!/bin/sh\nif [ "$1" = -vV ]; then echo $$ > '${pidFile}'; exec sleep 30; fi\nexec '${toolchainBin()}/rustc' "$@"\n`,
   );
   chmodSync(join(dir, "rustc"), 0o755);
   return { path: `${dir}:${toolchainBin()}`, pidFile };

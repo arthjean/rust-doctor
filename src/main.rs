@@ -1,6 +1,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::string_slice))]
 
 mod ci;
+#[cfg(test)]
+mod cli_help;
 mod handoff;
 mod hook;
 mod path_argument;
@@ -48,6 +50,8 @@ use rust_doctor::{
 };
 
 const TRUST_WARNING: &str = "Cargo may execute build.rs files and procedural macros. Inspect trusted local repositories only.";
+
+const SCORE_NOTE: &str = "The score is out of 100: 75 and above reads Great, 50 to 74 Needs work, below 50 Critical. P0 to P3 rank how severe a rule is, P0 the most, and a P0 or P1 finding caps the score.";
 
 const NETWORK_NOTE: &str = "rust-doctor opens no network connection. Cargo downloads missing dependencies as `cargo build` does; set CARGO_NET_OFFLINE=true to forbid it.";
 
@@ -102,9 +106,9 @@ where
 
 #[derive(Debug, Parser)]
 #[command(name = "rust-doctor", version, after_help = EXIT_STATUS)]
-#[command(about = "Inspect a trusted local Rust workspace with Cargo and Clippy")]
+#[command(about = format!("Inspect a trusted local Rust workspace with Cargo and Clippy. {SCORE_NOTE}"))]
 #[command(long_about = format!(
-    "Inspect a trusted local Rust workspace with Cargo and Clippy.\n\n{TRUST_WARNING}\n\n{NETWORK_NOTE}\n\nRun `rust-doctor ./inspect` to inspect a directory literally named `inspect`."
+    "Inspect a trusted local Rust workspace with Cargo and Clippy.\n\n{SCORE_NOTE}\n\n{TRUST_WARNING}\n\n{NETWORK_NOTE}\n\nRun `rust-doctor ./inspect` to inspect a directory literally named `inspect`."
 ))]
 struct Cli {
     #[command(flatten)]
@@ -173,7 +177,11 @@ struct SkillArgs {
 enum SkillCommand {
     #[command(about = "Write the skill where an agent reads it, never over another one")]
     Install {
-        #[arg(default_value = ".", value_name = "PATH")]
+        #[arg(
+            default_value = ".",
+            value_name = "PATH",
+            help = "The workspace to write the skill into"
+        )]
         path: PathBuf,
         #[arg(
             long,
@@ -194,27 +202,43 @@ enum SkillCommand {
 
 #[derive(Debug, Clone, Args)]
 struct InspectArgs {
-    #[arg(default_value = ".", value_name = "PATH")]
+    #[arg(
+        default_value = ".",
+        value_name = "PATH",
+        help = "The workspace to scan, or any directory inside it"
+    )]
     path: PathBuf,
-    #[arg(long)]
+    #[arg(long, help = "Print the report as one JSON document on stdout, and nothing else there")]
     json: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "List every finding with its code frame instead of the summary, and the time of each phase"
+    )]
     verbose: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Skip the interactive report and print the linear one; required for scripted and agent runs"
+    )]
     yes: bool,
     #[arg(
         long,
         value_name = "RULE_ID=LEVEL",
-        value_parser = RedactedOverrideParser::<RuleOverride>::new()
+        value_parser = RedactedOverrideParser::<RuleOverride>::new(),
+        help = "Set one rule's level: off, warn or error, for example `--rule clippy::unwrap_used=off`. Repeat it for several rules"
     )]
     rule: Vec<RuleOverride>,
     #[arg(
         long,
         value_name = "CATEGORY=LEVEL",
-        value_parser = RedactedOverrideParser::<CategoryOverride>::new()
+        value_parser = RedactedOverrideParser::<CategoryOverride>::new(),
+        help = "Set the level of every rule in a category: off, warn or error, for example `--category maintainability=off`. A --rule wins over it"
     )]
     category: Vec<CategoryOverride>,
-    #[arg(long, value_enum)]
+    #[arg(
+        long,
+        value_enum,
+        help = "The lowest severity that fails the exit gate: error by default, warning, or none to never fail on a finding"
+    )]
     blocking: Option<BlockingLevel>,
     #[arg(
         long,
@@ -251,7 +275,7 @@ struct InspectArgs {
     #[arg(
         long,
         value_name = "PATH",
-        help = "RustSec database to read, else the one cargo audit or cargo deny left; never fetched. A path that does not exist is refused; /dev/null turns the advisory check off"
+        help = "RustSec database to read. Without it, discovery follows the Cargo home (CARGO_HOME, else the user's home) to the database cargo audit or cargo deny left; never fetched. A path that does not exist is refused; /dev/null turns the advisory check off"
     )]
     advisory_db: Option<PathBuf>,
     #[arg(long, help = "Publish the milliseconds of each phase as `timings` in --json")]
@@ -400,6 +424,16 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
         .with_progress(progress.sink(!arguments.json));
     rust_doctor::handle_interrupts();
     let session = InspectionSession::prepare(request);
+    if !arguments.json {
+        let hint_root = session
+            .as_ref()
+            .map_or_else(|_| PathBuf::from("."), |session| session.workspace_root().to_path_buf());
+        if let Some(notice) = skill::running_agent(|name| env::var_os(name))
+            .and_then(|agent| skill::stale_or_missing(&hint_root, agent))
+        {
+            eprintln!("{notice}");
+        }
+    }
     let rescan_command = arguments.rescan_command(selection.as_ref());
 
     let started = Instant::now();
@@ -450,12 +484,6 @@ fn run_inspect(mut arguments: InspectArgs) -> ExitCode {
             },
         )
     };
-    if !arguments.json
-        && let Some(notice) = skill::running_agent(|name| env::var_os(name))
-            .and_then(|agent| skill::stale_or_missing(&workspace_root, agent))
-    {
-        eprintln!("{notice}");
-    }
     if let Err(error) = render_result {
         return unwritten_report(&error, scan_exit);
     }

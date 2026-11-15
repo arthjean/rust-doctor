@@ -116,7 +116,9 @@ Five rules hold it together, and each of them replaced something that had a
 cost.
 
 The help is the rule's, printed once under the rule; the replacement is the
-site's, printed under the site. A line carrying a URL is written whole and never
+site's, printed under the site, and only when its span is the finding's or part
+of it, which then takes the caret and names the text it replaces: `rc_buffer`
+offered `[T]` under a whole `Rc<Vec<T>>`. A line carrying a URL is written whole and never
 wrapped, since a link cut in two is two strings no terminal opens, and a group
 every site of which sits outside production code is one line of the verbose
 report: on this crate's own scan such groups were a thousand of the eleven
@@ -124,10 +126,12 @@ hundred lines printed, the help sentence repeated twenty-two times, and the
 rule link cut at column eighty. Compiler notes close the list under "Compiler
 notes (not scored)", one line each, and the summary line counts them.
 
-A cap names its cause from `audit.score.ceilings`, one line per capped
-dimension, never from the diagnostics: the text used to name every rule of the
-worst tier, test findings and withheld rules included, which cap nothing. The
-share link counts `production`, so its `w` stopped counting unscored warnings.
+A cap names its cause from `audit.score.ceilings`, only where it binds, never
+from the diagnostics: the text used to name every rule of the worst tier, test
+findings and withheld rules included, which cap nothing. The summary line prints
+the `production` counts the share link carries. The tallies and the interactive
+sections name a category by the dimension it feeds, in the dimensions line's
+order, so the wire's `Bugs` reads Reliability.
 
 The report is its sections, in order. `render_terminal_with_presentation` is
 thirteen calls and nothing else: a line written straight into the entry point is
@@ -139,9 +143,9 @@ reading `report.delta` at both ends with three other sections in between.
 One width, guaranteed rather than branched on. `MIN_WIDTH` is at least
 `score_block::MIN_BLOCK_COLUMNS`, asserted at compile time, and every entry
 point normalizes to it, so the score block always fits. That deleted a whole
-dimension the module used to pay for and never reach: an optional constructor,
-a `drawn` flag threaded back through two modules, and a second single-line
-renderer whose bar truncated where the shared `bar_fill` rounds up. The two
+dimension the module paid for and never reached: an optional constructor, a
+`drawn` flag threaded through two modules, and a second renderer whose bar
+truncated where `bar_fill` rounds up. The two
 questions the geometry answers are now separate: `right_column_width` is total,
 `bar_width` is the one that says whether the block fits. `MIN_WIDTH` is 40:
 the width is the live terminal size, then `COLUMNS`, then 80, and a narrower
@@ -157,14 +161,14 @@ frozen frame was computed once in each of the two paths that show it.
 
 One view, not two booleans. `GroupView` says whether the report is drawing the
 worst group with its first location or every group with every location.
-Without `--verbose`, `render/summary.rs` frames the worst scored group and
-gives every other one a row, severity, title, occurrences, rule id and first
-site, up to twenty and an overflow line: the default view used to show the
-worst group alone, so a commit blocked by three rules named one. It used
-to be `top: bool, all_locations: bool`, four combinations for the two that
-exist, and a call site read `(.., true, false)`; the limit that pair encoded was
-applied through a `Box<dyn Iterator>` allocated to choose between `iter()` and
-`iter().take(1)`.
+Without `--verbose`, `render/summary.rs` frames the first group that weighs
+and gives every other one a row, up to twenty and an overflow line: the default
+view used to show the worst group alone, so a commit blocked by three rules
+named one. It used to be two booleans, four combinations for the two that
+exist. A group's header is its tier, severity, title and the count that weighs,
+`x3 (+51 info, +68 in tests)`, sorted by those keys and then the points the
+rule costs; a withheld rule closes its tier under one sub-heading and an `x0`
+rule closes the list. The order used to follow a ranking nothing printed.
 
 One row, built from its pieces. A `Row` carries the segments it paints
 differently, so the score line is never formatted and split back apart on
@@ -179,8 +183,6 @@ ever produced. All twelve used to run on a failure too: a run that dies in the
 toolchain preflight still carries an inventory of the workspace it never
 scanned, so the score was built from that count against zero diagnostics, and a
 `Scan failed` line was followed by `No issues found.` and a `100 / 100` face.
-That retired the `allow_links` dimension of the score block with it, whose one
-job was to drop the branding URL from a block that is no longer drawn.
 
 `the_report_holds_the_size_bound_it_reports_for` keeps every file of the module
 under the 1000 lines `oversized_unit` reports, tests included. That is why the
@@ -246,8 +248,7 @@ not before. It never takes the alternate screen:
 frames are rewritten in place the way Ink does, so the last one survives in the
 scrollback. And it never renders on a run that asked for `--json`, `--yes` or
 `--verbose`, or on a scan that failed, because those readers are pipes, CI,
-agents, and someone who needs an error message the report has no room for. Every
-existing test asserts against the linear renderer, which is unchanged.
+agents, and someone who needs an error message the report has no room for.
 
 The CI menu entry writes `.github/workflows/rust-doctor.yml` through the same
 writer as `rust-doctor ci install` (`src/ci.rs`), with its defaults, and never

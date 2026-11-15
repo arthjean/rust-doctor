@@ -18,8 +18,11 @@ import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  LAUNCHER_VARIABLE,
   PLATFORM_PACKAGES,
   launchNative,
+  launcherRunner,
+  nativeEnvironment,
   resolveNativeBinary,
   signalExitCode,
 } from "../lib/launcher.js";
@@ -121,6 +124,30 @@ process.stdin.on("end", () => {
       marker: "inherited",
       input: "inherited stdin",
     });
+  });
+
+  test("tells the binary which runner started it, so its hints resolve without a global install", () => {
+    expect(launcherRunner({ npm_config_user_agent: "bun/1.4.4 npm/? node/v26.3.0 linux x64" })).toBe("bunx");
+    expect(launcherRunner({ npm_config_user_agent: "npm/11.13.0 node/v24.16.0 linux x64 workspaces/false" })).toBe("npx");
+    expect(launcherRunner({ npm_config_user_agent: "pnpm/10.0.0 npm/? node/v24.16.0 linux x64" })).toBe("npx");
+    expect(launcherRunner({ npm_config_user_agent: "" })).toBeUndefined();
+    expect(launcherRunner({})).toBeUndefined();
+    const inherited = { PATH: "/usr/bin" };
+    expect(nativeEnvironment(inherited)).toBe(inherited);
+    expect(nativeEnvironment({ ...inherited, npm_config_user_agent: "bun/1.4.4" })[LAUNCHER_VARIABLE]).toBe("bunx");
+
+    const fixture_ = fixture("runner");
+    installNative(
+      fixture_,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ runner: process.env.${"RUST_DOCTOR_LAUNCHER"} ?? null }));
+`,
+    );
+    const seen = (agent) =>
+      JSON.parse(run(fixture_, [], { env: { npm_config_user_agent: agent, [LAUNCHER_VARIABLE]: "" } }).stdout).runner;
+    expect(seen("bun/1.4.4 npm/? node/v26.3.0 linux x64")).toBe("bunx");
+    expect(seen("npm/11.13.0 node/v24.16.0 linux x64 workspaces/false")).toBe("npx");
+    expect(seen("")).toBe("");
   });
 
   test("preserves child exit codes", () => {

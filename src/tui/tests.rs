@@ -403,6 +403,13 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
                 title: (*rule_id).to_owned(),
                 rule_url: String::new(),
                 severity: Severity::Warning,
+                tier: None,
+                withheld: false,
+                contribution: 0,
+                count: rust_doctor::presentation::GroupCount {
+                    weighing: 1,
+                    ..Default::default()
+                },
                 category: Some(AuditCategoryName::Bugs),
                 occurrences: 1,
                 diagnostics: vec![GroupDiagnostic {
@@ -470,6 +477,7 @@ fn report(status: Status, stages: &[&str]) -> InspectReport {
         toolchain: ToolchainReport {
             rust_doctor: env!("CARGO_PKG_VERSION"),
             rustc: None,
+            host: None,
             cargo: None,
             clippy: None,
             removed_lint_flags: Vec::new(),

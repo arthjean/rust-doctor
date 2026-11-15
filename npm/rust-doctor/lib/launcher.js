@@ -95,6 +95,19 @@ export function resolveNativeBinary({
   return binaryPath;
 }
 
+export const LAUNCHER_VARIABLE = "RUST_DOCTOR_LAUNCHER";
+
+export function launcherRunner(env = process.env) {
+  const agent = env.npm_config_user_agent;
+  if (typeof agent !== "string" || agent === "") return undefined;
+  return agent.startsWith("bun/") ? "bunx" : "npx";
+}
+
+export function nativeEnvironment(env = process.env) {
+  const runner = launcherRunner(env);
+  return runner === undefined ? env : { ...env, [LAUNCHER_VARIABLE]: runner };
+}
+
 export function signalExitCode(signal) {
   const number = osConstants.signals[signal];
   return typeof number === "number" ? 128 + number : 1;
@@ -176,7 +189,10 @@ export async function runCli({
     return;
   }
 
-  const result = await launchNative(binaryPath, arguments_, { platform });
+  const result = await launchNative(binaryPath, arguments_, {
+    platform,
+    env: nativeEnvironment(process.env),
+  });
   if (result.error) {
     process.stderr.write(boundedMessage(result.error));
     process.exitCode = 1;

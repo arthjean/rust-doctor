@@ -186,10 +186,11 @@ pub fn build_prompt(
             break;
         };
         let line = format!(
-            "Migration advisory: {} has {} occurrences across {} files.",
+            "Spread across {} files: {} ({} findings). Plan it as one change, not {} fixes.",
+            advisory.files,
             rule_id.as_str(),
             advisory.occurrences,
-            advisory.files
+            advisory.occurrences
         );
         prompt.push_line(&line);
     }

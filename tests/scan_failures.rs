@@ -588,14 +588,21 @@ fn off_a_terminal_each_phase_prints_one_line() {
         .collect();
     assert!(!stderr.contains('\r'), "{stderr}");
     assert!(!stderr.contains("Scanning Rust files"), "{stderr}");
-    assert!(phases.len() <= 5, "{phases:?}");
+    assert!(phases.len() <= 2, "{phases:?}");
     assert!(phases.contains(&"Compiling dependencies..."), "{stderr}");
     assert!(phases.contains(&"Running native passes..."), "{stderr}");
     assert!(
-        phases
-            .iter()
-            .any(|line| line.starts_with("Linting healthy-b (")),
-        "{stderr}"
+        !phases.iter().any(|line| line.starts_with("Linting ")),
+        "no per-member line is written off a terminal: {stderr}"
+    );
+    let closing: Vec<_> = stderr
+        .lines()
+        .filter(|line| line.starts_with("Linted "))
+        .collect();
+    assert_eq!(
+        closing,
+        ["Linted 1 member."],
+        "one closing line counts the members Clippy linted: {stderr}"
     );
 }
 

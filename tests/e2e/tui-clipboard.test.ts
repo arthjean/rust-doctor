@@ -30,13 +30,17 @@ async function todoViewer(label: string, width: number, height: number, env: Rec
   return { box, session };
 }
 
+type WarmReport = { status: string; diagnostics: Array<{ code: string; span: unknown }> };
+
 let clone: SelfClone | undefined;
+let warmed: WarmReport | undefined;
 
 async function repo(): Promise<SelfClone> {
   if (!clone) {
     clone = await cloneThisRepository("clipboard");
     const warm = await runDoctor([clone.path, "--yes", "--json"], { sandbox: clone.sandbox, target: clone.target("tui"), timeoutMs: 300_000 });
-    expect((warm.json as { status: string }).status).toBe("complete");
+    warmed = warm.json as WarmReport;
+    expect(warmed.status).toBe("complete");
   }
   return clone;
 }
@@ -60,11 +64,14 @@ describe.skipIf(!requireTmux())("interactive report clipboard", () => {
       expect(calls[0]!.argv).toEqual([]);
       const payload = calls[0]!.stdin;
       expect(payload).toStartWith("Fix exactly one Rust Doctor rule in rust-doctor:\n");
-      const sites = payload.split("Affected sites:\n")[1]!.split("\n\n")[0]!.split("\n");
-      const listed = sites.filter((line) => /^- \S+:\d+$/.test(line));
-      expect(listed.length).toBeGreaterThan(0);
+      const rule = payload.match(/confirm (\S+) is gone/)![1]!;
+      const located = warmed!.diagnostics.filter((diagnostic) => diagnostic.code === rule && diagnostic.span !== null).length;
+      const after = payload.split("Affected sites:\n")[1]!.split("\n");
+      const sites = after.slice(0, after.indexOf(""));
+      const listed = sites.filter((line) => /^- \S+:\d+( \(.+\))?$/.test(line));
+      expect(listed.length > 0).toBe(located > 0);
       expect(listed.length).toBeLessThanOrEqual(8);
-      expect(sites.filter((line) => !/^- \S+:\d+$/.test(line)).every((line) => /^- \+\d+ more sites?$/.test(line))).toBe(true);
+      expect(sites.filter((line) => !listed.includes(line)).every((line) => /^- \+\d+ more sites?$/.test(line))).toBe(true);
       expect(payload).toMatch(/\nLearn more: https:\/\/rust-doctor\.com\/rules\/\S+\n/);
       expect(payload).toMatch(/\nVerify with `rust-doctor \. --yes --verbose` and confirm \S+ is gone before moving on\.\n$/);
     } finally {
@@ -185,7 +192,7 @@ describe.skipIf(!requireTmux())("interactive report clipboard", () => {
     try {
       session.sendKeys("Enter");
       await session.waitForPane(COPIED);
-      expect(fakeCalls(box, "wl-copy")[0]!.stdin).toContain("\nERROR Bugs: Todo (clippy::todo, ×1)\n");
+      expect(fakeCalls(box, "wl-copy")[0]!.stdin).toContain("\nERROR Reliability: Todo (clippy::todo, ×1)\n");
     } finally {
       session.kill();
     }

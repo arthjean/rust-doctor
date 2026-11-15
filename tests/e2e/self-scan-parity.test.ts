@@ -21,7 +21,7 @@ function lines(text: string): string[] {
 function bucket(category: string | null): string {
   switch (category) {
     case "security": return "Security";
-    case "correctness": case "reliability": return "Bugs";
+    case "correctness": case "reliability": return "Reliability";
     case "performance": return "Performance";
     case "cargo": case "dependencies": return "Dependencies";
     case "maintainability": return "Maintainability";
@@ -29,20 +29,46 @@ function bucket(category: string | null): string {
   }
 }
 
+const CONTEXTS: Array<[string, string]> = [
+  ["tests", "in tests"], ["benchmark", "in benches"], ["example", "in examples"], ["build-script", "in build scripts"],
+];
+
+function ruleTitle(id: string): string {
+  const words = id.split("::").pop()!.replace(/[_-]/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function label(name: string): string {
+  return name === "Bugs" ? "Reliability" : name;
+}
+
 function categoryLine(scan: Report, name: string): string {
   const counts = { error: 0, warning: 0, info: 0, unknown: 0 } as Record<string, number>;
-  let outside = 0;
+  const outside = new Map<string, number>();
+  const byRule = new Map<string, number>();
   let notScored = 0;
-  for (const diagnostic of scan.diagnostics.filter((diagnostic) => bucket(diagnostic.category) === name)) {
-    if (diagnostic.context) outside += diagnostic.occurrences;
+  for (const diagnostic of scan.diagnostics.filter((diagnostic) => bucket(diagnostic.category) === label(name))) {
+    if (diagnostic.context) outside.set(diagnostic.context, (outside.get(diagnostic.context) ?? 0) + diagnostic.occurrences);
     else if (diagnostic.unscored) notScored += diagnostic.occurrences;
-    else counts[diagnostic.severity] = (counts[diagnostic.severity] ?? 0) + diagnostic.occurrences;
+    else {
+      counts[diagnostic.severity] = (counts[diagnostic.severity] ?? 0) + diagnostic.occurrences;
+      if (diagnostic.code) byRule.set(diagnostic.code, (byRule.get(diagnostic.code) ?? 0) + diagnostic.occurrences);
+    }
   }
-  const apart = [[outside, "outside production code"], [notScored, "not scored"]]
-    .filter(([count]) => (count as number) > 0)
-    .map(([count, what]) => `+${count} ${what}`);
-  const suffix = apart.length > 0 ? ` (${apart.join(", ")})` : "";
-  return `${name}: ${counts.error} errors, ${counts.warning} warnings, ${counts.info} info, ${counts.unknown} unknown (occurrences)${suffix}`;
+  const named = ([["error", "error", "errors"], ["warning", "warning", "warnings"], ["info", "info", "info"], ["unknown", "unknown", "unknown"]] as const)
+    .filter(([key]) => counts[key]! > 0)
+    .map(([key, one, many]) => `${counts[key]} ${counts[key] === 1 ? one : many}`);
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const [largest] = [...byRule].sort(([left, a], [right, b]) => b - a || (left < right ? -1 : 1));
+  const notes = [
+    largest && largest[1] * 2 > total ? `${largest[1]} from ${ruleTitle(largest[0])}` : null,
+    [...CONTEXTS.map(([context, kind]) => [outside.get(context) ?? 0, kind] as const), [notScored, "not scored"] as const]
+      .filter(([count]) => count > 0)
+      .map(([count, kind]) => `+${count} ${kind}`)
+      .join(", ") || null,
+  ].filter((note) => note !== null);
+  const suffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
+  return `${label(name)}: ${named.length > 0 ? named.join(", ") : "0 findings"}${suffix}`;
 }
 
 describe("this repository: human, Markdown and JSON parity", () => {
@@ -53,7 +79,7 @@ describe("this repository: human, Markdown and JSON parity", () => {
     const out = human.stdout;
     const flat = out.replace(/\n/g, " ");
     expect(flat).toContain(`Scored ${scan.audit.source_files} production files (${scan.audit.production_lines} lines) in `);
-    expect(flat).toContain("Clippy linted library and binary targets, native rules also read tests");
+    expect(flat).toMatch(/Clippy linted library and binary targets for [\w.-]+; code gated to other platforms and test code were not linted\. Native rules also read tests\./);
     expect(out).toContain(`All ${scan.summary.occurrences.total} occurrences across ${scan.summary.total} findings`);
     for (const category of scan.audit.categories) {
       expect(flat).toContain(categoryLine(scan, category.name));
@@ -61,13 +87,16 @@ describe("this repository: human, Markdown and JSON parity", () => {
     const score = scan.audit.score!;
     expect(out).toContain(`${score.value} / 100 ${score.label}`);
     const ceiling = score.applied_ceiling;
-    expect(out.includes("Capped at")).toBe(ceiling !== null && score.value >= ceiling);
-    expect(out.includes("caps the score at")).toBe(ceiling !== null && score.value < ceiling);
+    expect(out.includes("The score is capped at")).toBe(ceiling !== null && score.value >= ceiling);
+    expect(out.includes("already hold it lower")).toBe(false);
     const share = out.match(/https:\/\/rust-doctor\.com\/share\?\S+/);
     expect(share).not.toBeNull();
     const params = new URL(share![0]).searchParams;
-    const production = (key: "warnings" | "info") =>
+    const production = (key: "errors" | "warnings" | "info") =>
       scan.audit.categories.reduce((sum, category) => sum + category.production[key], 0);
+    const scored = (count: number, noun: string) => `${count} scored ${noun}${count === 1 ? "" : "s"}`;
+    const errors = production("errors");
+    expect(flat).toContain(`${errors > 0 ? `${scored(errors, "error")}, ` : ""}${scored(production("warnings"), "warning")}, ${production("info")} info`);
     expect(Object.fromEntries(params)).toEqual({
       s: String(score.value),
       m: score.model,
@@ -79,7 +108,7 @@ describe("this repository: human, Markdown and JSON parity", () => {
 
     const text = (await scanSelf(clone, ["--verbose"], { target })).stdout;
     const verbose = lines(text);
-    const unscored = new Set([...text.matchAll(/Unscored: [^(]*\(\d+ occurrences? outside production code,\s+([\w:]+)\)/g)].map((match) => match[1]!));
+    const unscored = new Set([...text.matchAll(/ {2}x0 \(\+[^)]*\)\s+([\w:]+)$/gm)].map((match) => match[1]!));
     const missing = scan.diagnostics
       .filter((diagnostic) => diagnostic.span !== null && !unscored.has(diagnostic.code))
       .map((diagnostic) => `${diagnostic.path}:${diagnostic.span!.line_start}:${diagnostic.span!.column_start}`)
