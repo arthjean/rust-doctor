@@ -1,3 +1,4 @@
+mod advisory_check;
 mod normalization;
 
 use std::collections::BTreeSet;
@@ -183,6 +184,7 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
             ignored: 0,
             excluded_generated: 0,
             advisory_db: None,
+            advisory_check: crate::AdvisoryCheck::Published,
         },
         summary: Summary::from_diagnostics(&diagnostics),
         diagnostics,

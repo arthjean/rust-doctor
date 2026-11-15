@@ -374,7 +374,9 @@ fn run_skill(arguments: &SkillArgs) -> ExitCode {
 }
 
 fn resolve_inspect_paths(arguments: &mut InspectArgs) -> Result<(), ExitCode> {
-    if let Some(database) = &arguments.advisory_db {
+    if let Some(database) = &arguments.advisory_db
+        && !AdvisoryDatabase::explicit(database).turns_the_check_off()
+    {
         path_argument::readable("--advisory-db", database).map_err(ExitCode::from)?;
     }
     if let Ok(absolute) = std::path::absolute(&arguments.path) {

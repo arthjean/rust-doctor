@@ -70,6 +70,31 @@ fn sanitize_source_text(
     value
 }
 
+pub(super) fn shown_path(path: &Path, workspace_root: Option<&Path>, home: &HomePaths) -> String {
+    let absolute = crate::path_form::canonical(path)
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf());
+    let slashed = |relative: &Path| relative.to_string_lossy().replace('\\', "/");
+    if let Some(relative) =
+        workspace_root.and_then(|root| crate::path_form::relative_to(&absolute, root))
+    {
+        let relative = slashed(&relative);
+        return if relative.is_empty() { ".".to_owned() } else { relative };
+    }
+    let below_home = [home.lexical.as_deref(), home.canonical.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|home| !home.is_empty())
+        .find_map(|home| crate::path_form::relative_to(&absolute, Path::new(home)));
+    if let Some(relative) = below_home {
+        return format!("~/{}", slashed(&relative));
+    }
+    let text = slashed(&absolute);
+    let components: Vec<&str> = text.split('/').filter(|component| !component.is_empty()).collect();
+    let kept = components.get(components.len().saturating_sub(2)..).unwrap_or_default();
+    format!("<external>/{}", kept.join("/"))
+}
+
 pub(crate) fn replace_path(text: &str, path: &str, replacement: &str) -> String {
     if path.is_empty() {
         return text.to_owned();

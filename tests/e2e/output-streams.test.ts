@@ -253,7 +253,7 @@ describe("output contracts", () => {
     const sections = [
       "Scope: full codebase\n", "Scored 1 production files", "Top warning: Unwrap used", "Rule ID: clippy::unwrap_used",
       "All 1 occurrences across 1 findings", "Bugs: 0 errors, 1 warnings", "Configuration: none loaded",
-      "No local RustSec database", "Gate passed: blocking error", " 100 / 100 Great", "is left out",
+      "Known-vulnerability check skipped", "Gate passed: blocking error", " 100 / 100 Great", "is left out",
       "Share: https://rust-doctor.com/share?", "Docs: https://rust-doctor.com/docs", "GitHub: https://github.com/",
     ];
     const positions = sections.map((section) => run.stdout.indexOf(section));

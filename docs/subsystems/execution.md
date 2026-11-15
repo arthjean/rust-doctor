@@ -22,19 +22,19 @@ and never the payload, which can quote the tree, and a child nobody waited on is
 killed with its group on drop. `tests/pass_containment.rs` injects each panic
 through `RUST_DOCTOR_INJECT_PANIC`, which only a debug build reads.
 
-The advisory database is read, never fetched. `cargo_health/advisories.rs`
-judges each crates.io package `Cargo.lock` resolves against the RustSec
-database `--advisory-db` names, or the one `cargo audit` or `cargo deny` left
-under `$CARGO_HOME`, and only `main.rs` looks for one: a library caller of
-`inspect` names its database or reads none. Discovery accepts only a clone
-whose `.git/config`, read as text, names the RustSec remote: `cargo deny`
-clones any database a `deny.toml` names beside it, and that one deciding the
-verdicts in silence was the alternative. A machine without one publishes
-both advisory rules `advisory-db-missing` and keeps the score authoritative,
-since a check nobody could run is not a failed stage. Fetching it would have
-been the tool's first network call. The report
-publishes where the database came from and its date, never its path, and a
-database older than thirty days is read and its age printed.
+The advisory database is read, never fetched: fetching would be the tool's
+first network call. `cargo_health/advisories.rs` judges each crates.io package
+`Cargo.lock` resolves against the RustSec database `--advisory-db` names, or
+the one `cargo audit` or `cargo deny` left under Cargo's home, and only
+`main.rs` looks for one: a library caller names its database or reads none.
+Discovery accepts only a clone whose `.git/config` text names the RustSec
+remote, since `cargo deny` clones whatever a `deny.toml` names. A machine
+without one publishes both advisory rules `advisory-db-missing` and keeps the
+score authoritative, since a check nobody could run is not a failed stage. One
+that reads nothing, or skips over a twentieth of its files, fails the stage as
+`advisory-db-unreadable`: a CRLF checkout once read as clean. JSON publishes
+the database's source and date, never its path; one older than thirty days is
+read, its age printed.
 
 Only `src/path_form.rs` calls `canonicalize`, stripping Windows' verbatim
 prefix; `tests/path_form.rs` fails on any other call.

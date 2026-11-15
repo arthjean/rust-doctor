@@ -383,7 +383,7 @@ fn a_clippy_off_scan_probes_no_toolchain_version() {
         .args(clippy_off())
         .output()
         .unwrap();
-    let text = String::from_utf8_lossy(&linear.stdout);
+    let text = String::from_utf8_lossy(&linear.stdout).replace(support::NO_ADVISORY_DB[1], "");
     for absent in ["null", "rustc", "clippy 0."] {
         assert!(!text.contains(absent), "{absent:?} in {text}");
     }

@@ -9,6 +9,7 @@ use super::normalize::{
     normalize_source_candidate, normalize_structure_finding,
 };
 use super::exclusion::{self, Exclusion};
+use super::advisory_check::{self, AdvisoryCheck};
 use super::sanitize::{HomePaths, home_paths, sanitize_text};
 use super::{
     Diagnostic, DiagnosticContext, DiagnosticSpan, GateReport, GateStatus, InspectReport,
@@ -254,6 +255,8 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         result.scan.finished(),
         &exclusion,
         result.cargo_health.as_ref().map(|health| &health.advisory),
+        workspace_root,
+        &home,
     );
     let errors = report_errors(&result, workspace_root, &home);
     let source_inventory =
@@ -387,12 +390,14 @@ fn not_evaluated(
     let missing_database = result
         .cargo_health
         .as_ref()
-        .filter(|health| health.advisory == AdvisoryOutcome::Missing)
-        .and(plan)
+        .and_then(|health| advisory_check::not_evaluated(&health.advisory))
+        .zip(plan)
         .into_iter()
-        .flat_map(|plan| plan.active_rules(Producer::CargoHealth))
-        .filter(|(definition, _)| cargo_health::ADVISORY_RULES.contains(definition))
-        .map(|(definition, _)| (definition.id, NotEvaluated::AdvisoryDbMissing));
+        .flat_map(|(reason, plan)| {
+            plan.active_rules(Producer::CargoHealth)
+                .filter(|(definition, _)| cargo_health::ADVISORY_RULES.contains(definition))
+                .map(move |(definition, _)| (definition.id, reason))
+        });
     let ungated = result
         .source
         .iter()
@@ -517,7 +522,7 @@ fn immediate_failure(error: ReportError, blocking: BlockingLevel) -> InspectRepo
             clippy: None,
             removed_lint_flags: Vec::new(),
         },
-        scan: scan_report(None, &Exclusion::default(), None),
+        scan: scan_report(None, &Exclusion::default(), None, None, &HomePaths::default()),
         diagnostics: Vec::new(),
         suppressions: Vec::new(),
         delta: None,
@@ -649,6 +654,8 @@ fn scan_report(
     scan: Option<&ScanExecution>,
     exclusion: &Exclusion,
     advisory: Option<&AdvisoryOutcome>,
+    workspace_root: Option<&Path>,
+    home: &HomePaths,
 ) -> ScanReport {
     ScanReport {
         command: scan.map(|scan| scan.command.clone()),
@@ -661,6 +668,7 @@ fn scan_report(
             Some(AdvisoryOutcome::Consulted(report)) => Some(report.clone()),
             _ => None,
         },
+        advisory_check: AdvisoryCheck::of(advisory, workspace_root, home),
     }
 }
 

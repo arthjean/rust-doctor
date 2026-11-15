@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   copyWorkspace,
@@ -27,8 +27,13 @@ type Report = {
 
 const DATABASE = join(FIXTURES, "advisory-db");
 const ADVISORY_RULES = ["rust_doctor::cargo::unmaintained_dependency", "rust_doctor::cargo::vulnerable_dependency"];
-const MISSING = "No local RustSec database: run cargo audit once to create one.";
-const FIXTURE_DATABASE: Database = { source: "explicit", date: "2020-01-20", advisories: 7, skipped: 1 };
+const MISSING =
+  "Known-vulnerability check skipped: no RustSec database under ~/.cargo. Run `cargo deny fetch` or `cargo audit` once, or pass --advisory-db <path>.";
+const UNCHECKED = "Security and Dependencies were scored without the known-vulnerability check";
+const UNREADABLE =
+  "could not be read: 3 of 4 files were skipped. The known-vulnerability check did not run.";
+const FIXTURE_DATABASE: Database = { source: "explicit", date: "2020-01-20", advisories: 38, skipped: 1 };
+const CRLF_DATABASE = join(DATABASE, "crlf");
 
 let shared: string | undefined;
 
@@ -50,8 +55,25 @@ async function scan(args: string[], options: DoctorOptions = {}): Promise<Doctor
   return { ...run, report };
 }
 
+function flat(text: string): string {
+  return text.split(/\s+/).join(" ");
+}
+
+function unreadableDatabase(at: string): void {
+  const crates = join(at, "crates", "fixture-registry-dep");
+  mkdirSync(crates, { recursive: true });
+  cpSync(join(DATABASE, "crates", "fixture-registry-dep", "RUSTSEC-2020-9001.md"), join(crates, "RUSTSEC-2020-9001.md"));
+  for (const number of [1, 2, 3]) {
+    writeFileSync(join(crates, `RUSTSEC-2020-950${number}.md`), "```toml\n[advisory]\nid = = broken\n```\n");
+  }
+}
+
 function rustsecClone(at: string): void {
   cpSync(DATABASE, at, { recursive: true });
+  markRustsec(at);
+}
+
+function markRustsec(at: string): void {
   mkdirSync(join(at, ".git"));
   writeFileSync(join(at, ".git", "HEAD"), "ref: refs/heads/main\n");
   writeFileSync(join(at, ".git", "config"), '[remote "origin"]\n\turl = https://github.com/rustsec/advisory-db\n');
@@ -85,7 +107,7 @@ describe("advisory database", () => {
     expect(notEvaluated(report)).toEqual(["advisory-db-missing", "advisory-db-missing"]);
     expect(advisoryFindings(report)).toEqual([]);
     expect(report.audit.score?.authoritative).toBe(true);
-    expect((await scan([], { advisoryDb: false, env })).stdout).toContain(MISSING);
+    expect(flat((await scan([], { advisoryDb: false, env })).stdout)).toContain(MISSING);
   });
 
   test("AD-02 a named database reports its advisories, its date and its counts, never its path", async () => {
@@ -162,5 +184,67 @@ describe("advisory database", () => {
     const isolated = offline.json as Report;
     expect(isolated.scan.advisory_db).toEqual(report.scan.advisory_db);
     expect(normalizeReport(isolated)).toEqual(normalizeReport(report));
+  });
+
+  test("AD-11 a CRLF checkout of the database reads every advisory", async () => {
+    const sample = readFileSync(join(CRLF_DATABASE, "crates", "fixture-registry-dep", "RUSTSEC-2021-9201.md"), "utf8");
+    expect(sample).toContain("\r\n");
+    const { report } = await scan(["--json", "--advisory-db", CRLF_DATABASE], { env: { CARGO_HOME: cargoHome() } });
+    expect(report.scan.advisory_db).toEqual({ source: "explicit", date: "2021-03-06", advisories: 6, skipped: 0 });
+    expect(notEvaluated(report)).toEqual([undefined, undefined]);
+    expect(advisoryFindings(report)).toEqual([
+      "rust_doctor::cargo::unmaintained_dependency",
+      "rust_doctor::cargo::vulnerable_dependency",
+      "rust_doctor::cargo::vulnerable_dependency",
+    ]);
+  });
+
+  test("AD-12 a database that cannot be read fails the dependency stage and the score loses its authority", async () => {
+    const database = join(scratchDir("unreadable-db"), "db");
+    unreadableDatabase(database);
+    const before = treeFingerprint(workspace());
+    const run = await runDoctor([workspace(), "--yes", "--json", "--advisory-db", database], { env: { CARGO_HOME: cargoHome() } });
+    expect(treeFingerprint(workspace())).toBe(before);
+    expect(run.exitCode).toBe(1);
+    const report = run.json as Report & { complete: boolean };
+    expect(report.status).toBe("incomplete");
+    expect(report.complete).toBe(false);
+    expect(report.errors).toEqual([
+      { stage: "dependencies", code: "advisory-db-unreadable", message: `The RustSec database ${UNREADABLE}` },
+    ]);
+    expect(report.audit.score?.authoritative).toBe(false);
+    expect(notEvaluated(report)).toEqual(["advisory-db-missing", "advisory-db-missing"]);
+    expect(advisoryFindings(report)).toEqual([]);
+    expect(report.scan.advisory_db).toBeUndefined();
+    expect(run.stdout).not.toContain(database);
+  });
+
+  test("AD-13 the linear report names an unreadable database by its path from the home directory", async () => {
+    const box = sandbox("unreadable-home");
+    const clone = join(box.home, ".cargo", "advisory-db");
+    unreadableDatabase(clone);
+    markRustsec(clone);
+    const run = await runDoctor([workspace(), "--yes"], { advisoryDb: false, sandbox: box, env: { CARGO_HOME: "" } });
+    expect(run.exitCode).toBe(1);
+    const said = flat(run.stdout);
+    expect(said).toContain(
+      `Scan incomplete: The RustSec database at ~/.cargo/advisory-db ${UNREADABLE} (dependencies/advisory-db-unreadable)`,
+    );
+    expect(said).not.toContain("Known-vulnerability check skipped");
+    expect(said).not.toContain(UNCHECKED);
+    expect(run.stdout).not.toContain(box.home);
+  });
+
+  test("AD-14 the score block says when no advisory was checked, and names the flag when the flag is why", async () => {
+    const env = { CARGO_HOME: cargoHome() };
+    const missing = flat((await scan([], { advisoryDb: false, env })).stdout);
+    expect(missing).toMatch(/ · Dependencies \d+ Security and Dependencies were scored without the known-vulnerability check\. /);
+    const off = flat((await scan(["--advisory-db", "/dev/null"], { env })).stdout);
+    expect(off).toContain(`${UNCHECKED} (--advisory-db /dev/null).`);
+    expect(off).toContain("Known-vulnerability check skipped: --advisory-db /dev/null turns it off.");
+    expect(off).not.toContain("no RustSec database");
+    const consulted = flat((await scan(["--advisory-db", DATABASE], { env })).stdout);
+    expect(consulted).not.toContain("known-vulnerability");
+    expect(consulted).toContain("1 advisory file could not be read.");
   });
 });

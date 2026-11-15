@@ -167,7 +167,7 @@ Workspace: copy of `tests/fixtures/cargo-health/offline-registry`; database: `te
 
 | ID | Setup | Command | Expected observable | Rust coverage | Verified |
 |---|---|---|---|---|---|
-| AD-01 | empty CARGO_HOME | `--json` | exit 0, `scan.advisory_db` absent, both `cargo::vulnerable_dependency` / `unmaintained_dependency` `not_evaluated: "advisory-db-missing"`, score authoritative; linear "No local RustSec database: run cargo audit once to create one." | advisory_database::without_a_database_both_rules_are_not_evaluated_and_the_score_keeps_its_authority | yes |
+| AD-01 | empty CARGO_HOME | `--json` | exit 0, `scan.advisory_db` absent, both `cargo::vulnerable_dependency` / `unmaintained_dependency` `not_evaluated: "advisory-db-missing"`, score authoritative; linear "No local RustSec database: run cargo audit once to create one." Corrected 2026-11-15: changed by US-003, the linear line reads "Known-vulnerability check skipped: no RustSec database under ~/.cargo. Run `cargo deny fetch` or `cargo audit` once, or pass --advisory-db <path>." | advisory_database::without_a_database_both_rules_are_not_evaluated_and_the_score_keeps_its_authority | yes |
 | AD-02 | `--advisory-db <fixture>` | `--json` | `advisory_db: {source: explicit, date: 2020-01-20, advisories: 7, skipped: 1}`, 3 advisory findings; path never published | advisory_database::a_named_database_reports_the_affected_package_at_its_lockfile_entry | yes |
 | AD-03 | `--advisory-db /dev/null` | `--json` | exit 0, silently identical to AD-01 (BUG-07). Corrected 2026-10-20: `/dev/null` is the documented off switch (US-006); the report equals AD-01's | none | yes |
 | AD-04 | `--advisory-db <typo path>` | `--json` and linear | exit 0, identical to AD-01, linear tells the user to "run cargo audit once" although they named a database (BUG-07). Corrected 2026-10-20: fixed by US-006, exit 2 before any work, stdout empty, stderr `rust-doctor: --advisory-db: <path> does not exist.` | none | yes |
@@ -177,6 +177,10 @@ Workspace: copy of `tests/fixtures/cargo-health/offline-registry`; database: `te
 | AD-08 | stale database (2020) | linear | "The advisory database is 2465 days old." (value depends on today: assert the shape `is \d+ days old`) | advisory_database::a_stale_database_is_read_and_its_age_is_stated | yes |
 | AD-09 | malformed advisory file in `crates/x/` | `--json` | counted in `skipped`, no error | unit (advisories) | no |
 | AD-10 | database present, scan under `unshare -rn` | `--json` | identical to networked run (the db is never fetched) | none | no (implied by NW-01) |
+| AD-11 | `--advisory-db tests/fixtures/advisory-db/crlf`, a database checked out with CRLF line endings (kept by `.gitattributes` `-text`) | `--json` | exit 0, `advisory_db: {source: explicit, date: 2021-03-06, advisories: 6, skipped: 0}`, 3 advisory findings. Before US-004 of the field audit PRD (BUG-17): 0 advisories, 6 skipped, no finding, score authoritative | advisory_database::a_crlf_checkout_of_the_database_reads_every_advisory | yes |
+| AD-12 | `--advisory-db <db>` holding 1 readable and 3 malformed advisories | `--json` | exit 1, `status: incomplete`, one error `dependencies/advisory-db-unreadable` "The RustSec database could not be read: 3 of 4 files were skipped. The known-vulnerability check did not run.", both advisory rules `not_evaluated: "advisory-db-missing"`, `scan.advisory_db` absent, score not authoritative, path never published. Before US-005 (BUG-18): exit 0, complete, authoritative | advisory_database::a_database_that_cannot_be_read_fails_the_dependency_stage | yes |
+| AD-13 | the same unreadable database as the RustSec clone under `$HOME/.cargo/advisory-db`, `CARGO_HOME=` | linear | exit 1, "Scan incomplete: The RustSec database at ~/.cargo/advisory-db could not be read: 3 of 4 files were skipped. The known-vulnerability check did not run. (dependencies/advisory-db-unreadable)"; the home directory never printed | none | yes |
+| AD-14 | no database, then `--advisory-db /dev/null`, then the fixture database | linear | under the dimensions: "Security and Dependencies were scored without the known-vulnerability check." and, with the flag, the same sentence ending "(--advisory-db /dev/null)."; absent once a database is consulted, where "1 advisory file could not be read." is printed instead. The fixture database holds 38 advisories since 2026-11-15, so its one malformed file stays under a twentieth | advisory_database::without_a_database_both_rules_are_not_evaluated_and_the_score_keeps_its_authority | yes |
 
 ## EN: environment and terminal profile
 
@@ -310,6 +314,10 @@ BUG-10 (cosmetic). `--rule nonsense` and `--category x` print `error: expected K
 BUG-11 (cosmetic). `clippy-unavailable` doubles the period when rustup's first line ends with one: `... for the custom toolchain 'noclippy'.. Clippy is required`. Rustup's standard "is not installed for the toolchain '...'." ends with a period too.
 
 BUG-12 (cosmetic). With no cargo on PATH the failure comes from `cargo metadata` (`execution/cargo-unavailable` "Cargo could not be started: ...") without the "Install a Rust toolchain from https://rustup.rs" remedy the probe would add.
+
+BUG-17 (correctness, high). A RustSec database checked out with CRLF line endings reads as empty: the front matter is cut at a newline followed by the closing fence, which leaves a carriage return TOML rejects, so every file is skipped, no advisory finding is produced, and the score stays authoritative. Repro: AD-11 on a release before 0.10.1. Fixed by US-004 of `tasks/prd-field-audit-remediation.md`.
+
+BUG-18 (correctness, high). A database that was found but yields nothing readable (every file skipped, or more than a twentieth of them) publishes `scan.advisory_db` with `advisories: 0`, exit 0 and an authoritative score: "0 advisories" reads as "no vulnerability". Repro: AD-12 on a release before 0.10.1. Fixed by US-005 of the same PRD.
 
 OBS-1. `related[]` is unbounded: 120,000 identical function bodies yield one diagnostic with 119,999 related locations, 12.8 MB of JSON.
 

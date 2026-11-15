@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,12 @@ const RUSTSEC_REMOTE: &str = "https://github.com/rustsec/advisory-db";
 const MAX_GIT_CONFIG_BYTES: u64 = 64 * 1024;
 
 pub(crate) const STALE_AFTER_DAYS: i64 = 30;
+
+pub(crate) const UNREADABLE: &str = "advisory-db-unreadable";
+
+const OFF_SWITCH: &str = "/dev/null";
+
+const UNREADABLE_SHARE: usize = 20;
 
 const CRATES_IO: [&str; 2] = [
     "registry+https://github.com/rust-lang/crates.io-index",
@@ -50,14 +57,28 @@ impl AdvisoryDatabase {
     }
 
     pub fn locate(explicit: Option<PathBuf>) -> Option<Self> {
+        Self::locate_from(
+            explicit,
+            std::env::var_os("CARGO_HOME"),
+            std::env::var_os("HOME"),
+            std::env::var_os("USERPROFILE"),
+        )
+    }
+
+    fn locate_from(
+        explicit: Option<PathBuf>,
+        cargo: Option<OsString>,
+        home: Option<OsString>,
+        profile: Option<OsString>,
+    ) -> Option<Self> {
         if let Some(path) = explicit {
             return Some(Self::explicit(path));
         }
-        let cargo_home = std::env::var_os("CARGO_HOME")
-            .filter(|home| !home.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))?;
-        Self::discover(&cargo_home)
+        Self::discover(&cargo_home(cargo, home, profile)?)
+    }
+
+    pub fn turns_the_check_off(&self) -> bool {
+        self.source == AdvisorySource::Explicit && is_off_switch(&self.path)
     }
 
     pub fn discover(cargo_home: &Path) -> Option<Self> {
@@ -83,6 +104,23 @@ impl AdvisoryDatabase {
         };
         Some(Self { source, path })
     }
+}
+
+fn is_off_switch(path: &Path) -> bool {
+    path == Path::new(OFF_SWITCH)
+}
+
+pub(crate) fn cargo_home(
+    cargo_home: Option<OsString>,
+    home: Option<OsString>,
+    profile: Option<OsString>,
+) -> Option<PathBuf> {
+    let set = |value: Option<OsString>| value.filter(|value| !value.is_empty()).map(PathBuf::from);
+    set(cargo_home).or_else(|| {
+        set(home)
+            .or_else(|| set(profile).filter(|_| cfg!(windows)))
+            .map(|home| home.join(".cargo"))
+    })
 }
 
 fn fetched(path: &Path) -> Option<SystemTime> {
@@ -152,6 +190,25 @@ impl AdvisoryDbReport {
         let today = i64::try_from(now.duration_since(UNIX_EPOCH).ok()?.as_secs() / 86_400).ok()?;
         Some(today - days)
     }
+
+    fn unreadable(&self) -> bool {
+        self.skipped.saturating_mul(UNREADABLE_SHARE) > self.advisories.saturating_add(self.skipped)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnreadableDatabase {
+    pub(crate) path: PathBuf,
+    pub(crate) files: usize,
+    pub(crate) skipped: usize,
+    pub(crate) message: String,
+}
+
+pub(crate) fn unreadable_sentence(database: Option<&str>, skipped: usize, files: usize) -> String {
+    let at = database.map(|database| format!(" at {database}")).unwrap_or_default();
+    format!(
+        "The RustSec database{at} could not be read: {skipped} of {files} files were skipped. The known-vulnerability check did not run."
+    )
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -159,17 +216,19 @@ pub(crate) enum AdvisoryOutcome {
     #[default]
     NotRequested,
     Missing,
+    TurnedOff,
+    Unreadable(UnreadableDatabase),
     Consulted(AdvisoryDbReport),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 struct AdvisoryFile {
     advisory: Header,
     #[serde(default)]
     versions: Versions,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 struct Header {
     id: String,
     package: String,
@@ -178,7 +237,7 @@ struct Header {
     withdrawn: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 struct Versions {
     #[serde(default)]
     patched: Vec<String>,
@@ -279,8 +338,15 @@ fn parse(path: &Path) -> Option<AdvisoryFile> {
     if !metadata.is_file() || metadata.len() > MAX_ADVISORY_BYTES {
         return None;
     }
-    let text = fs::read_to_string(path).ok()?;
-    let front = if path.extension().is_some_and(|extension| extension == "toml") {
+    front_matter(
+        &fs::read_to_string(path).ok()?,
+        path.extension().is_some_and(|extension| extension == "toml"),
+    )
+}
+
+fn front_matter(text: &str, bare: bool) -> Option<AdvisoryFile> {
+    let text = text.replace("\r\n", "\n");
+    let front = if bare {
         text.as_str()
     } else {
         let body = text.trim_start().strip_prefix("```toml")?;
@@ -297,10 +363,26 @@ pub(super) fn inspect(
     active: &ActiveRules,
     scan: &mut CargoHealthScan,
 ) {
-    let Some((advisories, report)) = database.and_then(read) else {
+    if database.is_some_and(AdvisoryDatabase::turns_the_check_off) {
+        scan.advisory = AdvisoryOutcome::TurnedOff;
+        return;
+    }
+    let Some((database, (advisories, report))) =
+        database.and_then(|database| Some((database, read(database)?)))
+    else {
         scan.advisory = AdvisoryOutcome::Missing;
         return;
     };
+    if report.unreadable() {
+        let files = report.advisories.saturating_add(report.skipped);
+        scan.advisory = AdvisoryOutcome::Unreadable(UnreadableDatabase {
+            path: database.path.clone(),
+            files,
+            skipped: report.skipped,
+            message: unreadable_sentence(None, report.skipped, files),
+        });
+        return;
+    }
     for package in packages {
         if !package
             .source
@@ -490,6 +572,205 @@ mod tests {
         assert_eq!(advisories["bulk"].len(), MAX_ADVISORY_FILES - 1);
         assert_eq!(report.date.as_deref(), Some("2020-01-01"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn clone_under(cargo_home: &Path, name: &str) -> PathBuf {
+        let clone = cargo_home.join("advisory-dbs").join(name);
+        fs::create_dir_all(clone.join("crates")).unwrap();
+        fs::create_dir_all(clone.join(".git")).unwrap();
+        fs::write(clone.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(
+            clone.join(".git/config"),
+            format!("[remote \"origin\"]\n\turl = {RUSTSEC_REMOTE}\n"),
+        )
+        .unwrap();
+        clone
+    }
+
+    #[test]
+    fn the_cargo_home_is_cargo_home_then_home_then_the_windows_profile() {
+        let set = |value: &str| Some(OsString::from(value));
+        assert_eq!(
+            cargo_home(set("named"), set("home"), set("profile")),
+            Some(PathBuf::from("named"))
+        );
+        assert_eq!(
+            cargo_home(set(""), set("home"), set("profile")),
+            Some(Path::new("home").join(".cargo"))
+        );
+        assert_eq!(
+            cargo_home(None, set("home"), set("profile")),
+            Some(Path::new("home").join(".cargo")),
+            "HOME outranks USERPROFILE"
+        );
+        let profile = cargo_home(None, None, set("profile"));
+        if cfg!(windows) {
+            assert_eq!(profile, Some(Path::new("profile").join(".cargo")));
+            assert_eq!(cargo_home(None, set(""), set("profile")), profile);
+        } else {
+            assert_eq!(profile, None, "USERPROFILE names a home on Windows only");
+        }
+        assert_eq!(cargo_home(None, None, None), None);
+        assert_eq!(cargo_home(set(""), set(""), set("")), None);
+        assert_eq!(AdvisoryDatabase::locate_from(None, None, None, None), None);
+    }
+
+    #[test]
+    fn discovery_follows_the_home_cargo_follows() {
+        let root = scratch("homes");
+        let home = root.join("home");
+        let profile = root.join("profile");
+        let under_home = clone_under(&home.join(".cargo"), "advisory-db-1111111111111111");
+        let under_profile = clone_under(&profile.join(".cargo"), "advisory-db-2222222222222222");
+        let variable = |path: &Path| Some(path.as_os_str().to_owned());
+
+        let both = AdvisoryDatabase::locate_from(None, None, variable(&home), variable(&profile));
+        assert_eq!(
+            both,
+            Some(AdvisoryDatabase {
+                source: AdvisorySource::CargoDeny,
+                path: under_home,
+            }),
+            "HOME wins over USERPROFILE"
+        );
+        let profile_only = AdvisoryDatabase::locate_from(None, None, None, variable(&profile));
+        if cfg!(windows) {
+            assert_eq!(
+                profile_only,
+                Some(AdvisoryDatabase {
+                    source: AdvisorySource::CargoDeny,
+                    path: under_profile,
+                })
+            );
+        } else {
+            assert_eq!(profile_only, None);
+        }
+        let named = AdvisoryDatabase::locate_from(Some(root.clone()), None, variable(&home), None);
+        assert_eq!(named, Some(AdvisoryDatabase::explicit(&root)));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_advisory_reads_the_same_whatever_its_line_endings() {
+        let lf = advisory("RUSTSEC-2020-0001", "2020-01-01") + "\n# Title\n\nBody.\n";
+        let crlf = lf.replace('\n', "\r\n");
+        let mixed = format!("{}\n", crlf.strip_suffix("\r\n").unwrap());
+        assert!(crlf.contains("\r\n```\r\n") && mixed.ends_with("Body.\n"));
+        let read = front_matter(&lf, false);
+        assert_eq!(
+            read.as_ref().map(|file| file.advisory.id.as_str()),
+            Some("RUSTSEC-2020-0001")
+        );
+        assert_eq!(front_matter(&crlf, false), read);
+        assert_eq!(front_matter(&mixed, false), read);
+
+        let bare = "[advisory]\nid = \"RUSTSEC-2020-0002\"\npackage = \"bulk\"\ndate = \"2020-01-02\"\n\n[versions]\npatched = [\">= 1.0.1\"]\n";
+        let read = front_matter(bare, true);
+        assert_eq!(read.as_ref().map(|file| file.versions.patched.len()), Some(1));
+        assert_eq!(front_matter(&bare.replace('\n', "\r\n"), true), read);
+    }
+
+    #[test]
+    fn a_carriage_return_inside_a_string_skips_that_file_and_no_other() {
+        let root = scratch("carriage-return");
+        let crates = root.join("crates/bulk");
+        for index in 0..3 {
+            let id = format!("RUSTSEC-2020-000{index}");
+            fs::write(
+                crates.join(format!("{id}.md")),
+                advisory(&id, "2020-01-01").replace('\n', "\r\n"),
+            )
+            .unwrap();
+        }
+        let broken = advisory("RUSTSEC-2020-0009", "2020-01-01")
+            .replace("RUSTSEC-2020-0009", "RUSTSEC-\r2020");
+        assert_eq!(front_matter(&broken, false), None);
+        fs::write(crates.join("RUSTSEC-2020-0009.md"), broken).unwrap();
+
+        let (advisories, report) = read(&AdvisoryDatabase::explicit(&root)).unwrap();
+        assert_eq!((report.advisories, report.skipped), (3, 1));
+        assert_eq!(advisories["bulk"].len(), 3);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_database_is_unreadable_when_nothing_or_more_than_a_twentieth_was_skipped() {
+        let report = |advisories, skipped| AdvisoryDbReport {
+            source: AdvisorySource::Explicit,
+            date: None,
+            advisories,
+            skipped,
+        };
+        for (advisories, skipped) in [(0, 1), (0, 1489), (18, 1), (37, 2), (1, 1)] {
+            assert!(report(advisories, skipped).unreadable(), "{advisories} read, {skipped} skipped");
+        }
+        for (advisories, skipped) in [(0, 0), (7, 0), (19, 1), (38, 2), (1489, 0), (1489, 78)] {
+            assert!(!report(advisories, skipped).unreadable(), "{advisories} read, {skipped} skipped");
+        }
+    }
+
+    fn outcome_of(database: Option<&AdvisoryDatabase>) -> CargoHealthScan {
+        let plan = crate::policy::PolicyPlan::default();
+        let active = ActiveRules::of(&plan, crate::policy::Producer::CargoHealth);
+        let packages = [LockedPackage {
+            name: "bulk".to_owned(),
+            version: "1.0.0".to_owned(),
+            source: Some(CRATES_IO[0].to_owned()),
+            dependencies: Vec::new(),
+        }];
+        let mut scan = CargoHealthScan::default();
+        inspect(database, &packages, "", None, &active, &mut scan);
+        scan
+    }
+
+    #[test]
+    fn an_unreadable_database_reports_nothing_and_says_how_much_it_skipped() {
+        let root = scratch("unreadable");
+        let crates = root.join("crates/bulk");
+        fs::write(
+            crates.join("RUSTSEC-2020-0001.md"),
+            advisory("RUSTSEC-2020-0001", "2020-01-01"),
+        )
+        .unwrap();
+        let readable = outcome_of(Some(&AdvisoryDatabase::explicit(&root)));
+        assert!(
+            matches!(readable.advisory, AdvisoryOutcome::Consulted(_)),
+            "{:?}",
+            readable.advisory
+        );
+        assert_eq!(readable.candidates.len(), 1);
+
+        fs::write(crates.join("RUSTSEC-2020-0002.md"), "```toml\nnot = = toml\n```\n").unwrap();
+        let unreadable = outcome_of(Some(&AdvisoryDatabase::explicit(&root)));
+        assert_eq!(
+            unreadable.advisory,
+            AdvisoryOutcome::Unreadable(UnreadableDatabase {
+                path: root.clone(),
+                files: 2,
+                skipped: 1,
+                message: "The RustSec database could not be read: 1 of 2 files were skipped. The known-vulnerability check did not run.".to_owned(),
+            })
+        );
+        assert!(unreadable.candidates.is_empty(), "{:?}", unreadable.candidates);
+        assert_eq!(
+            unreadable_sentence(Some("~/.cargo/advisory-db"), 1489, 1489),
+            "The RustSec database at ~/.cargo/advisory-db could not be read: 1489 of 1489 files were skipped. The known-vulnerability check did not run."
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_off_switch_is_the_null_device_named_explicitly() {
+        let off = AdvisoryDatabase::explicit("/dev/null");
+        assert!(off.turns_the_check_off());
+        assert_eq!(outcome_of(Some(&off)).advisory, AdvisoryOutcome::TurnedOff);
+        assert_eq!(outcome_of(None).advisory, AdvisoryOutcome::Missing);
+        assert!(!AdvisoryDatabase::explicit("/dev/null/crates").turns_the_check_off());
+        let discovered = AdvisoryDatabase {
+            source: AdvisorySource::CargoAudit,
+            path: PathBuf::from("/dev/null"),
+        };
+        assert!(!discovered.turns_the_check_off());
     }
 
     #[test]

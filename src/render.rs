@@ -481,30 +481,40 @@ fn render_configuration<W: Write>(
     )
 }
 
+const ADVISORY_DB_MISSING: &str = "Known-vulnerability check skipped: no RustSec database under ~/.cargo. Run `cargo deny fetch` or `cargo audit` once, or pass --advisory-db <path>.";
+
+const ADVISORY_CHECK_OFF: &str =
+    "Known-vulnerability check skipped: --advisory-db /dev/null turns it off.";
+
 fn render_advisory_database<W: Write>(
     writer: &mut W,
     report: &InspectReport,
     options: TerminalOptions<'_>,
 ) -> Result<(), RenderError> {
-    let missing = report.policy.as_ref().is_some_and(|policy| {
-        policy
-            .rules
-            .iter()
-            .any(|rule| rule.not_evaluated == Some(crate::NotEvaluated::AdvisoryDbMissing))
-    });
-    if missing {
-        return line(
+    use crate::score_block::UncheckedAdvisories;
+
+    let skipped = match report.unchecked_advisories() {
+        Some(UncheckedAdvisories::NoDatabase) => Some(ADVISORY_DB_MISSING),
+        Some(UncheckedAdvisories::TurnedOff) => Some(ADVISORY_CHECK_OFF),
+        None => None,
+    };
+    if let Some(skipped) = skipped {
+        return line(writer, skipped, options, Style::Muted);
+    }
+    let Some(database) = &report.scan.advisory_db else {
+        return Ok(());
+    };
+    match database.skipped {
+        0 => {}
+        1 => line(writer, "1 advisory file could not be read.", options, Style::Muted)?,
+        skipped => line(
             writer,
-            "No local RustSec database: run cargo audit once to create one.",
+            &format!("{skipped} advisory files could not be read."),
             options,
             Style::Muted,
-        );
+        )?,
     }
-    let age = report
-        .scan
-        .advisory_db
-        .as_ref()
-        .and_then(|database| database.age_days(std::time::SystemTime::now()));
+    let age = database.age_days(std::time::SystemTime::now());
     match age {
         Some(days) if days > crate::cargo_health::STALE_AFTER_DAYS => line(
             writer,
@@ -593,11 +603,23 @@ fn render_scan_errors<W: Write>(
         Status::Failed => "Scan failed",
     };
     for error in &report.errors {
+        let located = match &report.scan.advisory_check {
+            crate::AdvisoryCheck::Unreadable {
+                database,
+                skipped,
+                files,
+            } if error.code == crate::cargo_health::UNREADABLE => Some(
+                crate::cargo_health::unreadable_sentence(Some(database), *skipped, *files),
+            ),
+            _ => None,
+        };
         line(
             writer,
             &format!(
                 "{heading}: {} ({}/{})",
-                error.message, error.stage, error.code
+                located.as_deref().unwrap_or(&error.message),
+                error.stage,
+                error.code
             ),
             options,
             Style::Warning,

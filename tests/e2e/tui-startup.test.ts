@@ -45,7 +45,14 @@ describe.skipIf(!requireTmux())("interactive report landing", () => {
       expect(pane).toContain("› Hand off to an agent");
       expect(pane).not.toContain("GitHub Actions");
       expect(pane).toMatch(/Security \d+ · Reliability \d+ · Maintainability \d+ · Performance \d+ · Dependencies \d+/);
-      expect(rows(pane)).toHaveLength(12);
+      const dimensions = rows(pane).findIndex((row) => row.includes(" · Dependencies "));
+      expect(
+        rows(pane)
+          .slice(dimensions + 1, dimensions + 3)
+          .map((row) => row.trim())
+          .join(" "),
+      ).toBe("Security and Dependencies were scored without the known-vulnerability check (--advisory-db /dev/null).");
+      expect(rows(pane)).toHaveLength(14);
       expect(rows(pane).at(-1)).toBe(MENU_HINT);
     } finally {
       session.kill();

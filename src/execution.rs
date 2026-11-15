@@ -126,6 +126,12 @@ impl ExecutionResult {
             scan.errors
                 .iter()
                 .map(|error| ProducerError::new("dependencies", error.code, error.message))
+                .chain(match &scan.advisory {
+                    cargo_health::AdvisoryOutcome::Unreadable(unreadable) => Some(
+                        ProducerError::new("dependencies", cargo_health::UNREADABLE, &unreadable.message),
+                    ),
+                    _ => None,
+                })
         });
         let repo = self.repo.iter().flat_map(|scan| {
             scan.errors

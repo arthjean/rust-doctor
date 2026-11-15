@@ -422,6 +422,7 @@ mod tests {
                 ignored: 0,
                 excluded_generated: 0,
                 advisory_db: None,
+                advisory_check: crate::AdvisoryCheck::Published,
             },
             diagnostics,
             suppressions: Vec::new(),

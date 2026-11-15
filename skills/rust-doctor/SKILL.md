@@ -221,7 +221,9 @@ SIGTERM or SIGHUP) exits 130 with `interrupted` in `errors` and a null
 `audit.score`, leaving no process behind.
 When the score is partial, `audit.score.reasons` says why. Without a local
 RustSec database the two advisory rules publish `not_evaluated` and the score
-stays authoritative; the scan never downloads one.
+stays authoritative; the scan never downloads one. A database that is found
+but cannot be read is a failed stage: `advisory-db-unreadable` in `errors`,
+exit 1 and a partial score, never a clean result.
 
 Use `--json` for anything you parse. `--verbose` is for a human reading a
 terminal, and a run with neither flag on a terminal opens an interactive report

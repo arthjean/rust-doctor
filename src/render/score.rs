@@ -83,6 +83,14 @@ pub(super) fn render_score<W: Write>(
             options,
             Style::Plain,
         )?;
+        if let Some(unchecked) = report.unchecked_advisories() {
+            line(
+                writer,
+                crate::score_block::unchecked_advisories_line(unchecked),
+                options,
+                Style::Muted,
+            )?;
+        }
         for ceiling in &score.ceilings {
             if let Some(sentence) = dimension_ceiling_line(score.dimensions, ceiling) {
                 line(writer, &sentence, options, Style::Muted)?;

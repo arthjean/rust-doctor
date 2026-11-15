@@ -63,3 +63,5 @@ row tagged with this identifier, and `tests/e2e/known-bugs.json` mirrors this ta
 | real/B8 | low | A comment list that is not JSON fails the Action's comment step (exit 5) instead of downgrading to a warning | `test.failing` |
 | real/B9 | low | An empty report leaves the Action's `authoritative` output empty instead of `false` | `test.failing` |
 | tui/BUG-14 | low to medium | An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher | PR #45 |
+| failures/BUG-17 | high | A RustSec database checked out with CRLF line endings reads as empty: every advisory is skipped and the score stays authoritative | US-004 |
+| failures/BUG-18 | high | A database that was found but yields nothing readable reports zero advisories under a complete scan and an authoritative score | US-005 |

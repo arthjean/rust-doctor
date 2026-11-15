@@ -104,6 +104,15 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
             .and_then(|dimensions| ScoreDimensions::deserialize(dimensions).ok())
         {
             let _ = writeln!(out, "\n{}", crate::score_block::dimensions_line(dimensions));
+            if unchecked_advisories(report) {
+                let _ = writeln!(
+                    out,
+                    "\n{}",
+                    crate::score_block::unchecked_advisories_line(
+                        crate::score_block::UncheckedAdvisories::NoDatabase
+                    )
+                );
+            }
         }
     } else {
         let reasons: Vec<String> = score
@@ -163,6 +172,17 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
     };
     render_table(&mut out, findings, limit, baseline, collected);
     Ok(out)
+}
+
+fn unchecked_advisories(report: &Value) -> bool {
+    report
+        .pointer("/policy/rules")
+        .and_then(Value::as_array)
+        .is_some_and(|rules| {
+            rules.iter().any(|rule| {
+                rule.get("not_evaluated").and_then(Value::as_str) == Some("advisory-db-missing")
+            })
+        })
 }
 
 fn render_scope(out: &mut String, report: &Value) {

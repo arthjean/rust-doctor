@@ -15,6 +15,13 @@ pub use menu::{
 };
 pub use viewer::{CopyFeedback, ViewerState, viewer};
 
+#[derive(Clone, Copy)]
+pub struct Shown {
+    pub value: u8,
+    pub projection: Option<u8>,
+    pub unchecked: Option<score_block::UncheckedAdvisories>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ScoreVariant {
     Landing,
@@ -27,9 +34,13 @@ pub fn score_header(
     project_name: &str,
     finding_count: usize,
     width: usize,
-    displayed: u8,
-    displayed_projection: Option<u8>,
+    shown: Shown,
 ) -> Vec<Line> {
+    let Shown {
+        value: displayed,
+        projection: displayed_projection,
+        unchecked,
+    } = shown;
     let box_width = width.saturating_sub(score_block::RIGHT_EDGE_SAFETY_COLUMNS);
     let score = match score {
         Ok(score) => score,
@@ -109,6 +120,14 @@ pub fn score_header(
         && let Some(dimensions) = dimensions
     {
         lines.push(Line::text(dimensions, Style::DIM));
+        if let Some(unchecked) = unchecked {
+            let said = Span::new(score_block::unchecked_advisories_line(unchecked), Style::DIM);
+            lines.extend(
+                text::wrap_spans(&[said], box_width.saturating_sub(2))
+                    .into_iter()
+                    .map(|line| line.indented(2)),
+            );
+        }
     }
     if variant == ScoreVariant::Landing
         && let Some(projection) = score
@@ -193,6 +212,14 @@ mod tests {
         }
     }
 
+    fn at(value: u8, projection: Option<u8>) -> Shown {
+        Shown {
+            value,
+            projection,
+            unchecked: None,
+        }
+    }
+
     fn visible(lines: &[Line]) -> Vec<String> {
         lines.iter().map(|line| line.render(false, false)).collect()
     }
@@ -208,9 +235,7 @@ mod tests {
             "workspace",
             2,
             200,
-            70,
-            None,
-        ))
+            at(70, None)))
         .join("\n");
         assert!(
             rendered.contains(rust_doctor::ScoreReason::StageFailed.explanation()),
@@ -226,9 +251,7 @@ mod tests {
             "delgres-ceramique",
             2,
             60,
-            90,
-            None,
-        ));
+            at(90, None)));
         assert!(rendered[0].starts_with("  ┌─────┐  90 / 100 Great  ·  delgres-ceramique"));
         assert!(rendered[1].starts_with("  │ ◠ ◠ │  █"));
         assert!(rendered[1].ends_with('░'));
@@ -246,9 +269,7 @@ mod tests {
             "w",
             1,
             80,
-            70,
-            None,
-        ));
+            at(70, None)));
         assert!(
             rendered.iter().any(|row| row == "  Sec 100 · Rel 100 · Maint 100 · Perf 100 · Deps 100"),
             "{rendered:?}"
@@ -265,7 +286,7 @@ mod tests {
             (ScoreVariant::Landing, partial.clone()),
             (ScoreVariant::Viewer, score(70, ScoreLabel::NeedsWork)),
         ] {
-            let rendered = visible(&score_header(variant, Ok(&shown), "w", 1, 200, 70, None));
+            let rendered = visible(&score_header(variant, Ok(&shown), "w", 1, 200, at(70, None)));
             let expected = variant == ScoreVariant::Landing && shown.authoritative;
             let line = "  Security 100 · Reliability 100 · Maintainability 100 · Performance 100 · \
                         Dependencies 100";
@@ -285,9 +306,7 @@ mod tests {
                     "workspace",
                     4,
                     width,
-                    60,
-                    Some(90),
-                )) {
+                    at(60, Some(90)))) {
                     assert!(
                         display_width(&rendered) <= width - score_block::RIGHT_EDGE_SAFETY_COLUMNS,
                         "width {width} exceeded by {rendered:?}"
@@ -307,9 +326,7 @@ mod tests {
             "workspace",
             4,
             60,
-            60,
-            Some(90),
-        ));
+            at(60, Some(90))));
         let bar_width = score_block::bar_width(60).unwrap();
         assert_eq!(
             rendered[1].matches('▓').count(),
@@ -324,6 +341,60 @@ mod tests {
     }
 
     #[test]
+    fn the_landing_says_under_the_dimensions_that_no_advisory_was_checked() {
+        use rust_doctor::score_block::{UncheckedAdvisories, unchecked_advisories_line};
+
+        let scored = score(90, ScoreLabel::Great);
+        let header = |variant, unchecked| {
+            let shown = Shown {
+                unchecked,
+                ..at(90, None)
+            };
+            visible(&score_header(variant, Ok(&scored), "w", 1, 200, shown))
+        };
+        for unchecked in [UncheckedAdvisories::NoDatabase, UncheckedAdvisories::TurnedOff] {
+            let rendered = header(ScoreVariant::Landing, Some(unchecked));
+            let dimensions = rendered
+                .iter()
+                .position(|row| row.starts_with("  Security 100"))
+                .unwrap();
+            assert_eq!(
+                rendered[dimensions + 1],
+                format!("  {}", unchecked_advisories_line(unchecked))
+            );
+            let viewer = header(ScoreVariant::Viewer, Some(unchecked));
+            assert!(!viewer.iter().any(|row| row.contains("known-vulnerability")), "{viewer:?}");
+        }
+        let checked = header(ScoreVariant::Landing, None);
+        assert!(!checked.iter().any(|row| row.contains("known-vulnerability")), "{checked:?}");
+
+        let shown = Shown {
+            unchecked: Some(UncheckedAdvisories::TurnedOff),
+            ..at(90, None)
+        };
+        let narrow = visible(&score_header(ScoreVariant::Landing, Ok(&scored), "w", 1, 100, shown));
+        let first = narrow
+            .iter()
+            .position(|row| row.starts_with("  Security and Dependencies"))
+            .unwrap();
+        assert_eq!(
+            narrow[first..first + 2].iter().map(|row| row.trim()).collect::<Vec<_>>().join(" "),
+            unchecked_advisories_line(UncheckedAdvisories::TurnedOff),
+            "{narrow:?}"
+        );
+        assert!(narrow[first + 1].starts_with("  ") && !narrow[first].contains('…'), "{narrow:?}");
+
+        let mut partial = score(70, ScoreLabel::NeedsWork);
+        partial.authoritative = false;
+        let shown = Shown {
+            unchecked: Some(UncheckedAdvisories::NoDatabase),
+            ..at(70, None)
+        };
+        let rendered = visible(&score_header(ScoreVariant::Landing, Ok(&partial), "w", 1, 200, shown));
+        assert!(!rendered.iter().any(|row| row.contains("known-vulnerability")), "{rendered:?}");
+    }
+
+    #[test]
     fn a_terminal_too_narrow_for_the_face_keeps_the_score_and_the_branding() {
         let rendered = visible(&score_header(
             ScoreVariant::Viewer,
@@ -331,9 +402,7 @@ mod tests {
             "workspace",
             1,
             20,
-            40,
-            None,
-        ));
+            at(40, None)));
         assert_eq!(rendered.len(), 2);
         assert!(rendered[0].starts_with("40 / 100 Critic"));
         assert!(!rendered[1].contains('┌'));

@@ -113,8 +113,11 @@ impl App<'_> {
             &self.project_name,
             self.session.presentation.finding_count,
             width,
-            displayed,
-            projection,
+            screens::Shown {
+                value: displayed,
+                projection,
+                unchecked: self.session.report.unchecked_advisories(),
+            },
         )
     }
 

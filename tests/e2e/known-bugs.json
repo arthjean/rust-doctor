@@ -445,5 +445,19 @@
     "status": "fixed",
     "fixed_by": "PR #45",
     "defect": "An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher"
+  },
+  {
+    "id": "failures/BUG-17",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-004",
+    "defect": "A RustSec database checked out with CRLF line endings reads as empty: every advisory is skipped and the score stays authoritative"
+  },
+  {
+    "id": "failures/BUG-18",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-005",
+    "defect": "A database that was found but yields nothing readable reports zero advisories under a complete scan and an authoritative score"
   }
 ]

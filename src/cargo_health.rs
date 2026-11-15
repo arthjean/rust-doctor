@@ -744,7 +744,9 @@ mod advisories;
 mod keys;
 mod resolution;
 pub use advisories::{AdvisoryDatabase, AdvisoryDbReport, AdvisorySource};
-pub(crate) use advisories::{AdvisoryOutcome, STALE_AFTER_DAYS};
+pub(crate) use advisories::{AdvisoryOutcome, STALE_AFTER_DAYS, UNREADABLE, unreadable_sentence};
+#[cfg(test)]
+pub(crate) use advisories::UnreadableDatabase;
 use keys::DeclaredKeys;
 pub(crate) use resolution::locked_direct_versions;
 use resolution::{inspect_resolution, resolution_owner};

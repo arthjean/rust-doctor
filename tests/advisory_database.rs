@@ -144,7 +144,7 @@ fn a_named_database_reports_the_affected_package_at_its_lockfile_entry() {
 
     assert_eq!(
         report["scan"]["advisory_db"],
-        serde_json::json!({"source": "explicit", "date": "2020-01-20", "advisories": 7, "skipped": 1})
+        serde_json::json!({"source": "explicit", "date": "2020-01-20", "advisories": 38, "skipped": 1})
     );
     let wire = serde_json::to_string(&report).unwrap();
     assert!(!wire.contains(named.to_str().unwrap()));
@@ -171,7 +171,7 @@ fn discovery_reads_what_cargo_audit_or_cargo_deny_left_under_cargo_home() {
     clone_at(&root.join("cargo-home/advisory-dbs/advisory-db-1111111111111111"), RUSTSEC);
     let report = json(&root, &[]);
     assert_eq!(report["scan"]["advisory_db"]["source"], "cargo-deny");
-    assert_eq!(report["scan"]["advisory_db"]["advisories"], 7);
+    assert_eq!(report["scan"]["advisory_db"]["advisories"], 38);
     assert_eq!(findings(&report, UNMAINTAINED).len(), 1);
     fs::remove_dir_all(root).unwrap();
 }
@@ -247,7 +247,7 @@ fn discovery_reads_only_a_clone_of_the_rustsec_remote() {
 
     let report = json(&root, &[]);
     assert_eq!(report["scan"]["advisory_db"]["source"], "cargo-deny");
-    assert_eq!(report["scan"]["advisory_db"]["advisories"], 7);
+    assert_eq!(report["scan"]["advisory_db"]["advisories"], 38);
     assert_eq!(findings(&report, VULNERABLE).len(), 2);
 
     fs::remove_dir_all(databases.join("advisory-db-1111111111111111")).unwrap();
@@ -276,8 +276,193 @@ fn without_a_database_both_rules_are_not_evaluated_and_the_score_keeps_its_autho
     assert_eq!(report["audit"]["score"]["reasons"], serde_json::json!([]));
 
     let terminal = String::from_utf8(scan(&root, &[]).stdout).unwrap();
-    let said: Vec<&str> = terminal.lines().filter(|line| line.contains("RustSec")).collect();
-    assert_eq!(said, ["No local RustSec database: run cargo audit once to create one."]);
+    let said = unwrapped(&terminal);
+    assert!(
+        said.contains("Known-vulnerability check skipped: no RustSec database under ~/.cargo. Run `cargo deny fetch` or `cargo audit` once, or pass --advisory-db <path>."),
+        "{terminal}"
+    );
+    assert_eq!(said.matches("RustSec").count(), 1, "{terminal}");
+    assert!(below_the_dimensions(&terminal).starts_with(UNCHECKED), "{terminal}");
+
+    let saved = root.join("report.json");
+    fs::write(&saved, scan(&root, &["--json"]).stdout).unwrap();
+    let markdown = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .args(["report", "markdown"])
+        .arg(&saved)
+        .output()
+        .unwrap();
+    let markdown = String::from_utf8(markdown.stdout).unwrap();
+    assert!(markdown.contains(UNCHECKED), "{markdown}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+const UNCHECKED: &str = "Security and Dependencies were scored without the known-vulnerability check.";
+
+fn unwrapped(terminal: &str) -> String {
+    terminal.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn below_the_dimensions(terminal: &str) -> String {
+    let text = unwrapped(terminal);
+    let dimensions = text.rsplit_once(" · Dependencies ");
+    assert!(dimensions.is_some(), "no dimensions line in:
+{terminal}");
+    let (_, after) = dimensions.unwrap();
+    after.split_once(' ').map(|(_, below)| below.to_owned()).unwrap_or_default()
+}
+
+#[test]
+fn a_consulted_database_leaves_no_unchecked_line_under_the_score() {
+    let root = scratch("consulted");
+    let named = database();
+    let output = scan(&root, &["--advisory-db", named.to_str().unwrap()]);
+    let terminal = String::from_utf8(output.stdout).unwrap();
+    assert!(terminal.contains(" · Reliability "), "{terminal}");
+    assert!(!unwrapped(&terminal).contains("known-vulnerability"), "{terminal}");
+    assert!(
+        terminal.lines().any(|line| line == "1 advisory file could not be read."),
+        "{terminal}"
+    );
+
+    let report = json(&root, &["--advisory-db", named.to_str().unwrap()]);
+    assert_eq!(report["status"], "complete");
+    assert_eq!(report["audit"]["score"]["authoritative"], true);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_crlf_checkout_of_the_database_reads_every_advisory() {
+    let root = scratch("crlf");
+    let named = database().join("crlf");
+    let sample = fs::read(named.join("crates/fixture-registry-dep/RUSTSEC-2021-9201.md")).unwrap();
+    assert!(
+        sample.windows(2).any(|pair| pair == b"\r\n") && !sample.contains(&b'\t'),
+        "the fixture lost its CRLF line endings, so this test proves nothing"
+    );
+
+    let report = json(&root, &["--advisory-db", named.to_str().unwrap()]);
+    assert_eq!(report["status"], "complete", "{}", report["errors"]);
+    assert_eq!(
+        report["scan"]["advisory_db"],
+        serde_json::json!({"source": "explicit", "date": "2021-03-06", "advisories": 6, "skipped": 0})
+    );
+    let mut vulnerable: Vec<&str> = findings(&report, VULNERABLE)
+        .iter()
+        .map(|finding| finding["message"].as_str().unwrap())
+        .collect();
+    vulnerable.sort_unstable();
+    assert_eq!(
+        vulnerable,
+        [
+            "Cargo.lock resolves fixture-registry-dep 1.0.0, which RUSTSEC-2021-9201 affects; patched in >= 1.0.1.",
+            "Cargo.lock resolves fixture-registry-dep 1.0.0, which RUSTSEC-2021-9204 affects; patched in >= 2.0.0.",
+        ]
+    );
+    assert_eq!(findings(&report, UNMAINTAINED).len(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn unreadable_database(at: &Path) {
+    let crates = at.join("crates/fixture-registry-dep");
+    fs::create_dir_all(&crates).unwrap();
+    fs::copy(
+        database().join("crates/fixture-registry-dep/RUSTSEC-2020-9001.md"),
+        crates.join("RUSTSEC-2020-9001.md"),
+    )
+    .unwrap();
+    for index in 0..3 {
+        fs::write(
+            crates.join(format!("RUSTSEC-2020-950{index}.md")),
+            "```toml\n[advisory]\nid = = broken\n```\n",
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn a_database_that_cannot_be_read_fails_the_dependency_stage() {
+    let root = scratch("unreadable-database");
+    let named = root.join("project/unreadable-db");
+    unreadable_database(&named);
+
+    let output = scan(&root, &["--json", "--advisory-db", named.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1), "an incomplete scan exits 1");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "incomplete");
+    assert_eq!(report["complete"], false);
+    assert_eq!(
+        report["errors"],
+        serde_json::json!([{
+            "stage": "dependencies",
+            "code": "advisory-db-unreadable",
+            "message": "The RustSec database could not be read: 3 of 4 files were skipped. The known-vulnerability check did not run.",
+        }])
+    );
+    assert_eq!(report["audit"]["score"]["authoritative"], false);
+    assert_eq!(report["audit"]["score"]["reasons"], serde_json::json!(["stage-failed"]));
+    for id in [VULNERABLE, UNMAINTAINED] {
+        assert_eq!(rule(&report, id)["not_evaluated"], "advisory-db-missing");
+        assert!(findings(&report, id).is_empty());
+    }
+    assert!(report["scan"].get("advisory_db").is_none(), "{}", report["scan"]);
+    let wire = String::from_utf8(output.stdout).unwrap();
+    assert!(!wire.contains("unreadable-db"), "the report names the database path");
+
+    let linear = scan(&root, &["--advisory-db", named.to_str().unwrap()]);
+    assert_eq!(linear.status.code(), Some(1));
+    let terminal = unwrapped(&String::from_utf8(linear.stdout).unwrap());
+    assert!(
+        terminal.contains("Scan incomplete: The RustSec database at unreadable-db could not be read: 3 of 4 files were skipped. The known-vulnerability check did not run. (dependencies/advisory-db-unreadable)"),
+        "{terminal}"
+    );
+    assert!(!terminal.contains("Known-vulnerability check skipped"), "{terminal}");
+    assert!(!terminal.contains(UNCHECKED), "{terminal}");
+    assert!(!terminal.contains(root.to_str().unwrap()), "{terminal}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_named_directory_without_a_crates_folder_reads_as_no_database() {
+    let root = scratch("no-crates");
+    let empty = root.join("empty-db");
+    fs::create_dir_all(&empty).unwrap();
+    let output = scan(&root, &["--json", "--advisory-db", empty.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["status"], "complete", "{}", report["errors"]);
+    for id in [VULNERABLE, UNMAINTAINED] {
+        assert_eq!(rule(&report, id)["not_evaluated"], "advisory-db-missing");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn discovery_falls_back_to_the_user_profile_when_no_home_is_set() {
+    let root = scratch("user-profile");
+    let profile = root.join("profile");
+    clone_at(&profile.join(".cargo/advisory-dbs/advisory-db-1111111111111111"), RUSTSEC);
+    let machine = PathBuf::from(std::env::var_os("USERPROFILE").expect("a Windows host sets USERPROFILE"));
+    let rustup_home = std::env::var_os("RUSTUP_HOME").map_or_else(|| machine.join(".rustup"), PathBuf::from);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
+        .arg(root.join("project"))
+        .args(["--yes", "--json"])
+        .env_remove("CARGO_HOME")
+        .env_remove("HOME")
+        .env("USERPROFILE", &profile)
+        .env("RUSTUP_HOME", rustup_home)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("CARGO_TARGET_DIR", root.join("target"))
+        .output()
+        .unwrap();
+    let parsed = serde_json::from_slice::<Value>(&output.stdout);
+    assert!(parsed.is_ok(), "{}", String::from_utf8_lossy(&output.stderr));
+    let report = parsed.unwrap();
+    assert_eq!(report["status"], "complete", "{}", report["errors"]);
+    assert_eq!(report["scan"]["advisory_db"]["source"], "cargo-deny");
+    assert_eq!(report["scan"]["advisory_db"]["advisories"], 38);
+    assert_eq!(findings(&report, VULNERABLE).len(), 2);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -352,6 +537,20 @@ fn dev_null_turns_the_advisory_check_off_as_the_help_says() {
     for id in [VULNERABLE, UNMAINTAINED] {
         assert_eq!(rule(&report, id)["not_evaluated"], "advisory-db-missing");
     }
+    let terminal = String::from_utf8(scan(&root, &["--advisory-db", "/dev/null"]).stdout).unwrap();
+    assert!(
+        terminal
+            .lines()
+            .any(|line| line == "Known-vulnerability check skipped: --advisory-db /dev/null turns it off."),
+        "{terminal}"
+    );
+    assert!(!terminal.contains("no RustSec database"), "{terminal}");
+    assert!(
+        below_the_dimensions(&terminal).starts_with(
+            "Security and Dependencies were scored without the known-vulnerability check (--advisory-db /dev/null)."
+        ),
+        "{terminal}"
+    );
     let help = Command::new(env!("CARGO_BIN_EXE_rust-doctor"))
         .arg("--help")
         .output()

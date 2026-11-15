@@ -54,6 +54,23 @@ pub const fn label_text(label: ScoreLabel, authoritative: bool) -> &'static str 
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UncheckedAdvisories {
+    NoDatabase,
+    TurnedOff,
+}
+
+pub const fn unchecked_advisories_line(unchecked: UncheckedAdvisories) -> &'static str {
+    match unchecked {
+        UncheckedAdvisories::NoDatabase => {
+            "Security and Dependencies were scored without the known-vulnerability check."
+        }
+        UncheckedAdvisories::TurnedOff => {
+            "Security and Dependencies were scored without the known-vulnerability check (--advisory-db /dev/null)."
+        }
+    }
+}
+
 pub fn dimensions_line(dimensions: ScoreDimensions) -> String {
     format!(
         "Security {} · Reliability {} · Maintainability {} · Performance {} · Dependencies {}",
@@ -182,6 +199,17 @@ mod tests {
         assert_eq!(eased(60, 90, 0, 16), 60);
         assert_eq!(eased(60, 90, 16, 16), 90);
         assert_eq!(eased(60, 90, 8, 0), 90);
+    }
+
+    #[test]
+    fn the_unchecked_line_names_the_flag_only_when_the_flag_is_the_reason() {
+        let missing = unchecked_advisories_line(UncheckedAdvisories::NoDatabase);
+        assert_eq!(
+            missing,
+            "Security and Dependencies were scored without the known-vulnerability check."
+        );
+        let off = unchecked_advisories_line(UncheckedAdvisories::TurnedOff);
+        assert_eq!(off.strip_prefix(missing.trim_end_matches('.')), Some(" (--advisory-db /dev/null)."));
     }
 
     #[test]

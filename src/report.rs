@@ -19,6 +19,8 @@ use crate::policy::{
     PolicyInput, PolicyPlan, RuleLevel, RuleLevelSource, RuleOverride, RuleTier,
 };
 
+mod advisory_check;
+pub use advisory_check::AdvisoryCheck;
 mod assembly;
 mod exclusion;
 pub(crate) use exclusion::edit_distance;
@@ -442,6 +444,8 @@ pub struct ScanReport {
     pub excluded_generated: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisory_db: Option<AdvisoryDbReport>,
+    #[serde(skip)]
+    pub advisory_check: AdvisoryCheck,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

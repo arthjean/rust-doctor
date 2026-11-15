@@ -87,7 +87,7 @@ pub mod delta_harness {
     }
 }
 pub use report::{
-    Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
+    AdvisoryCheck, Applicability, Diagnostic, DiagnosticContext, DiagnosticSource, DiagnosticSpan, GateReport,
     GateStatus, InspectReport,
     InspectRequest, PackageReport, PolicyBlockingReport, PolicyReport, PolicyRuleReport,
     NotEvaluated, ProjectReport, RelatedLocation, ReportError, SCHEMA_VERSION, ScanReport,
