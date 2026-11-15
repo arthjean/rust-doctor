@@ -24,6 +24,12 @@
   (`tests/docs_contract.rs`). The catalog size, the schema version, the bounds
   and the counts are recomputed rather than reread.
   [doc-gates.md](doc-gates.md)
+- **Windows failures can only shrink** (`tests/windows_test_gate.rs`).
+  `tests/windows-known-failures.txt` holds 34 entries, measured on 2026-11-15
+  under toolchain 1.99.1, down from 103 at 0.10.0: 23 `separator`, 11
+  `unix-only`. Eleven `separator` entries fail only under the
+  `core.autocrlf=true` checkout the Windows job keeps.
+  [ci-workflows.md](ci-workflows.md) states the gate.
 - **The crate passes its own rules.** Production code carries no `unwrap`,
   `expect`, `panic!`, or `dbg!`: use `?`, `ok_or(...)?`, `unwrap_or`, or
   `match`. `Cargo.toml` `[lints.clippy]` flags them, and CI's `-D warnings`

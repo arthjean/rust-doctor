@@ -49,6 +49,7 @@ and no user data.
 | Lint, must be clean | `cargo clippy --all-targets --no-deps -- -D warnings` |
 | Node launcher tests | `cd npm/rust-doctor && bun test tests` |
 | Packed launcher smoke | `cd npm/rust-doctor && bun run smoke:packed` |
+| Windows tests against the ledger, on Windows | `bash scripts/windows-test-gate.sh` |
 | Documentation budgets | `bash scripts/verify-doc-budgets.sh` |
 | Documentation references | `bash scripts/verify-doc-refs.sh` |
 | End-to-end suite, after a release build | `cd tests/e2e && bun install --frozen-lockfile && bun test` |

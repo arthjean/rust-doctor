@@ -2,7 +2,7 @@
 
 | Workflow | When | What it settles |
 |---|---|---|
-| `ci.yml` | push, pull request | Clippy clean, tests on Linux and macOS, the crate still compiles on Windows and on its declared MSRV 1.95, the Node launcher and its packed install, and the end-to-end suite against the release binary |
+| `ci.yml` | push, pull request | Clippy clean, tests on Linux, macOS and Windows (against a ledger), the crate still compiles on its declared MSRV 1.95, the Node launcher and its packed install, and the end-to-end suite against the release binary |
 | `dogfood.yml` | push, pull request | The repository scans itself through `action.yml` from a default depth-1 checkout, with the binary built from the commit under review, in baseline scope on a pull request so only the findings the change introduces are judged (the Action fetches the base itself); a second job posts the summary as one sticky pull request comment. A push reports without failing, and the build is cached even when the gate fails, from the default branch only |
 | `release.yml` | tag `v*`, manual | The five platform binaries the launcher declares and their archives, which cargo-binstall resolves for every target before anything publishes, then the six npm packages, the crate on crates.io and the immutable GitHub Release carrying the archives, then cargo-binstall again against what shipped. A tag publishes; a manual run stops at the two dry runs |
 | `corpus.yml` | weekly, manual, pull request touching the record, its harness, a producer or the score | One job fills the clone cache with every pinned revision and its history; then, in parallel, one reproduces the measurement of `tests/corpus.json` in process and writes the position proof that anchors every published site, and one scans the 18 subjects offline through the CLI and the installed launcher: each matches its record, a rerun is identical, the copy is untouched |
@@ -19,14 +19,9 @@ a pin, list the upstream tags and their commits
 (`gh api repos/<owner>/<action>/tags --jq '.[] | "\(.name) \(.commit.sha)"'`),
 review the diff between the pinned commit and the new one, and replace it.
 
-Three deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
+Two deliberate gaps. There is no `cargo fmt --check` gate: the tree is not
 rustfmt-clean, and reformatting it is a separate mechanical commit, not
-something a CI file should decide. The Windows leg stops at `cargo check`
-rather than `cargo test`: the launcher declares a `win32-x64` package, so the
-build must keep working, but 14 of the 273 unit tests fail there as measured on
-2026-08-12, on path separators, edition resolution and the hotspot self-scan.
-That is a port to do, and a job that stays red forever teaches everyone to
-ignore a red job. And `corpus.yml` is weekly rather than nightly, since every
+something a CI file should decide. And `corpus.yml` is weekly rather than nightly, since every
 input it consumes is pinned, so a nightly run would recompute the same answer
 at the cost of compiling eighteen repositories; the weekly run is what keeps
 its clone cache from being evicted. The cache has one producer, the `clones`
@@ -41,6 +36,14 @@ request touching none of them never starts it, decided by the path filter
 rather than a step that has already booted a runner, and a pull request that
 matches no clone cache fails naming the key it missed rather than fetching
 eighteen third-party repositories to answer a question about a diff.
+
+The Windows leg runs Clippy, then the suite through
+`scripts/windows-test-gate.sh`, comparing its failures with
+`tests/windows-known-failures.txt`, one test per line with a cause class:
+`separator`, `unix-only`, `toolchain` or `wall-clock`. An unlisted failure fails
+the job, as does an entry that passes or names no test, so the ledger only
+shrinks. A `path-form` failure is fixed in `src/path_form.rs` instead. The
+checkout keeps the runner's `core.autocrlf=true`, as Windows contributors do.
 
 The end-to-end suite of `tests/e2e/` ([docs/e2e.md](e2e.md)) takes two jobs
 and a gate. `build-release` compiles the binary once with `--locked` and
