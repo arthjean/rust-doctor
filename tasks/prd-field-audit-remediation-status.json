@@ -33,10 +33,10 @@
     {
       "id": "EP-004",
       "title": "Detectors stop flagging what compiles and runs",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 6,
-      "stories_done": 0
+      "stories_done": 6
     },
     {
       "id": "EP-005",
@@ -300,75 +300,93 @@
       "id": "US-017",
       "title": "Follow modules declared through a local macro",
       "epic": "EP-004",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [],
       "started_at": "2026-11-15",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+      }
     },
     {
       "id": "US-018",
       "title": "Never call a compiled file an orphan",
       "epic": "EP-004",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-017"
       ],
       "started_at": "2026-11-15",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+      }
     },
     {
       "id": "US-019",
       "title": "Recognize offloading outside tokio",
       "epic": "EP-004",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-11-15",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+      }
     },
     {
       "id": "US-020",
       "title": "Count a feature the build script reads as referenced",
       "epic": "EP-004",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-11-15",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+      }
     },
     {
       "id": "US-021",
       "title": "Report a value the build embeds apart from a secret in a build step",
       "epic": "EP-004",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
       "started_at": "2026-11-15",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+      }
     },
     {
       "id": "US-022",
       "title": "Classify a file by its production routes",
       "epic": "EP-004",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
       "started_at": "2026-11-15",
-      "completed_at": null,
-      "reviewed_at": null
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+      }
     },
     {
       "id": "US-023",
