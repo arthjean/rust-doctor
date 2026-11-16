@@ -55,6 +55,58 @@ pub(crate) struct CargoHealthScan {
     #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: CargoHealthCounters,
     pub(crate) allows: BTreeSet<(String, String)>,
+    pub(crate) lint_table_entries: Vec<LintTableEntry>,
+}
+
+#[derive(Debug)]
+pub(crate) struct LintTableEntry {
+    candidate: usize,
+    rule: String,
+    members: Vec<String>,
+    inherited: bool,
+}
+
+impl CargoHealthScan {
+    pub(crate) fn state_hidden_findings(
+        &mut self,
+        hidden: &BTreeMap<(String, String), usize>,
+        selected: Option<&BTreeSet<String>>,
+    ) {
+        for entry in &self.lint_table_entries {
+            let linted = selected.is_none_or(|selected| {
+                entry.members.iter().all(|member| selected.contains(member))
+            });
+            if !linted {
+                continue;
+            }
+            let count = entry
+                .members
+                .iter()
+                .filter_map(|member| hidden.get(&(member.clone(), entry.rule.clone())))
+                .sum();
+            if let Some(candidate) = self.candidates.get_mut(entry.candidate) {
+                candidate.message = lint_table_message(&entry.rule, Some((count, entry.inherited)));
+            }
+        }
+    }
+}
+
+fn lint_table_message(rule: &str, hidden: Option<(usize, bool)>) -> String {
+    let setting = format!("Manifest lint table sets catalogued rule \"{rule}\" to \"allow\"");
+    let Some((count, inherited)) = hidden else {
+        return format!("{setting}.");
+    };
+    let findings = match count {
+        0 => "no finding".to_owned(),
+        1 => "1 finding".to_owned(),
+        count => format!("{count} findings"),
+    };
+    let scope = if inherited {
+        "in the packages that inherit it"
+    } else {
+        "in this package"
+    };
+    format!("{setting}, which hides {findings} {scope}.")
 }
 
 #[derive(Debug, Default)]
@@ -329,6 +381,7 @@ fn inspect_lint_tables(
         let finding = reported.then(|| Finding {
             package: Some(package.name.as_ref()),
             manifest_path,
+            inherited: false,
         });
         let members = [package.name.to_string()];
         permissive_entries(&lints, &source, plan, &members, finding, scan);
@@ -353,6 +406,7 @@ fn inspect_lint_tables(
             let finding = reported.then(|| Finding {
                 package: owner.as_deref(),
                 manifest_path: Some("Cargo.toml".to_owned()),
+                inherited: true,
             });
             permissive_entries(&lints, &source, plan, &inheriting, finding, scan);
         }
@@ -362,6 +416,7 @@ fn inspect_lint_tables(
 struct Finding<'a> {
     package: Option<&'a str>,
     manifest_path: Option<String>,
+    inherited: bool,
 }
 
 fn permissive_entries(
@@ -385,11 +440,15 @@ fn permissive_entries(
             continue;
         }
         if let Some(finding) = &finding {
+            scan.lint_table_entries.push(LintTableEntry {
+                candidate: scan.candidates.len(),
+                rule: rule.clone(),
+                members: members.to_vec(),
+                inherited: finding.inherited,
+            });
             scan.candidates.push(Candidate {
                 definition: &CARGO_PERMISSIVE_LINT_TABLE,
-                message: format!(
-                    "Manifest lint table sets catalogued rule \"{rule}\" to \"allow\"."
-                ),
+                message: lint_table_message(&rule, None),
                 package: finding.package.map(str::to_owned),
                 manifest_path: finding.manifest_path.clone(),
                 span: Some(byte_range_span(key.span(), &starts, source)),

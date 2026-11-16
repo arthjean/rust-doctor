@@ -377,7 +377,7 @@ fn unreferenced_declarations(
                 Observation {
                     key: format!("declared|{}|{feature}", package.name),
                     subject: format!(
-                        "Package \"{}\" declares feature \"{feature}\", which no cfg reads and which activates nothing.",
+                        "Package \"{}\" declares feature \"{feature}\", which no cfg and no build script reads and which activates nothing.",
                         package.name
                     ),
                     span: spans.get(feature.as_str()).copied().unwrap_or_else(head_of_file),

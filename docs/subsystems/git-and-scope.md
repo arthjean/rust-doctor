@@ -74,10 +74,11 @@ finding's span with the new-side ranges `git_scope/lines.rs` reads from
 file's backlog without the second compilation baseline pays.
 
 A lines scope keeps what the change caused even where it has no changed line.
-A span-less finding, a lockfile entry or an inherited dependency, is about its
-file and stays when that file changed; `lines.rs` records a pure deletion as a
-point so a file only pruned still counts as changed. Dependency declarations
-now carry their key's span (`cargo_health/keys.rs`), never their identity. A
+A span-less finding, such as a lockfile entry, is about its file and stays
+when that file changed; `lines.rs` records a pure deletion as a point so a file
+only pruned still counts as changed. Dependency declarations carry their key's
+span (`cargo_health/keys.rs`), a member's `workspace = true` key included, though
+the span never enters their identity. A
 clone family stays when any member meets the scope, and `project_diagnostics`
 promotes that member to primary: filtering on the first member in sorted order
 hid every new copy of older code.

@@ -453,8 +453,10 @@ impl ExecutionContext<'_> {
         let (source, structure, deadline_skipped) = natives.unwrap_or_default();
         let scan = match clippy {
             Some(Some(Ok(mut scan))) => {
-                if let Some(health) = &cargo_health {
-                    manifest_allows::honor(&mut scan, &metadata, self.plan, &health.allows);
+                if let Some(health) = cargo_health.as_mut() {
+                    let hidden =
+                        manifest_allows::honor(&mut scan, &metadata, self.plan, &health.allows);
+                    health.state_hidden_findings(&hidden, self.options.packages.as_ref());
                 }
                 ClippyExecution::from_scan(scan)
             }

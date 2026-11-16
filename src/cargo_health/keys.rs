@@ -76,14 +76,10 @@ impl DeclaredKeys {
                 .of(dependency.kind),
         };
         let key = dependency.rename.as_deref().unwrap_or(&dependency.name);
-        let (spanned, value) = table?
+        let (spanned, _) = table?
             .iter()
             .find(|(candidate, _)| candidate.get_ref() == key)?;
-        let inherited = value
-            .get("workspace")
-            .and_then(toml::Value::as_bool)
-            .unwrap_or(false);
-        (!inherited).then(|| byte_range_span(spanned.span(), &self.starts, &self.source))
+        Some(byte_range_span(spanned.span(), &self.starts, &self.source))
     }
 }
 
@@ -109,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn every_dependency_table_anchors_its_key_and_inheritance_keeps_none() {
+    fn every_dependency_table_anchors_its_key_inherited_ones_included() {
         let source = "[package]\nname = \"a\"\n\n[dependencies]\nserde = \"*\"\n\
                       shared = { workspace = true }\n\n[dev-dependencies.proptest]\nversion = \"*\"\n\n\
                       [target.'cfg(unix)'.build-dependencies]\ncc = \"*\"\n";
@@ -120,7 +116,7 @@ mod tests {
         };
         let line = |dependency: &Dependency| keys.span(dependency).map(|span| span.line_start);
         assert_eq!(line(&dependency("serde", None, None)), Some(5));
-        assert_eq!(line(&dependency("shared", None, None)), None);
+        assert_eq!(line(&dependency("shared", None, None)), Some(6));
         assert_eq!(line(&dependency("proptest", Some("dev"), None)), Some(8));
         assert_eq!(line(&dependency("proptest", None, None)), None);
         assert_eq!(line(&dependency("cc", Some("build"), Some("cfg(unix)"))), Some(12));

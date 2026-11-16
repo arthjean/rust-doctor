@@ -731,7 +731,7 @@
       "test": "tests/structure_kernel.rs::the_structural_pass_publishes_one_diagnostic_per_family"
     },
     {
-      "catches": "a feature the manifest declares that no cfg reads and that activates nothing, or a cfg(feature = \"...\") naming a feature its own package does not declare",
+      "catches": "a feature the manifest declares that no cfg and no build script reads and that activates nothing, or a cfg(feature = \"...\") naming a feature its own package does not declare",
       "id": "rust_doctor::structure::unreferenced_feature",
       "test": "tests/structure_kernel.rs::the_feature_inventory_reports_both_sides_of_the_disagreement",
       "quiet_on": [
