@@ -558,17 +558,17 @@
       "id": "US-033",
       "title": "Bring rust-doctor.com and the release skill in line with core-v7",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-032"
       ],
-      "started_at": null,
+      "started_at": "2026-11-16",
       "completed_at": null,
       "reviewed_at": null,
       "notes": {
-        "plan": "Waits for US-032's record; the rust-doctor-web checkout is on this machine."
+        "progress": "2026-11-16: rust-doctor-web branch core-v7 (local, unpushed, worktree C:/dev/rdw-lf with LF endings): CURRENT_MODEL core-v7, terminal-data share links, the audit-wcag default, the retired-model checks now cover core-v6, scoring.mdx (cause rule, unmeasured prior, Info for withheld rules and unremovable duplicates, unverified), report.mdx (cause, unverified, unwalked_compiled_files, schema 25), src/lib/data.ts; catalog:sync run from the release binary at 0465c1a; .claude/skills/release/references/site.md names core-v7. catalog:check, oxlint, format:check green. Left: corpus:sync from US-032's record; corpus:check fails until then by design. The main checkout's CRLF endings break public-command-examples.ts, and next build cannot export /rules/clippy::* on Windows (PRD 1.6)."
       }
     },
     {
