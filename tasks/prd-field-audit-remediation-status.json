@@ -49,7 +49,7 @@
     {
       "id": "EP-006",
       "title": "Rule texts, re-baseline and public claims",
-      "status": "BLOCKED",
+      "status": "IN_PROGRESS",
       "priority": "P0",
       "stories_total": 4,
       "stories_done": 0
@@ -526,7 +526,7 @@
       "id": "US-031",
       "title": "Pin the audited workspace as a corpus subject",
       "epic": "EP-006",
-      "status": "BLOCKED",
+      "status": "CANCELLED",
       "priority": "P2",
       "size": "L",
       "blocked_by": [],
@@ -534,7 +534,7 @@
       "completed_at": null,
       "reviewed_at": null,
       "notes": {
-        "blocked": "2026-11-16: waits for Arthur to confirm that the audited repository is public and may be pinned at a revision (A6, Open Questions). US-032 proceeds without it."
+        "cancelled": "2026-11-16, Arthur (PRD 1.5): carried to a later release. The audited workspace is public; Arthur chose the agent population and the last revision committed before the audit, but that history carries 'Co-Authored-By: Claude' on 13 of 2280 commits, under the half agent_population.selection_criterion requires and the suite recounts. Its population is decided with that release. The 11 unmeasured rules stay charged at the 5000 bp prior."
       }
     },
     {

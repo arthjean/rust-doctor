@@ -10,6 +10,7 @@
 | 1.2 | 2026-11-16 | Arthur Jean | No epic before EP-007 runs a Linux gate, in WSL or anywhere else; A2 on Linux moves to US-035 |
 | 1.3 | 2026-11-16 | Arthur Jean | `SCORE_MODEL` becomes "core-v7" in US-032, on the corpus replay, since `lambda_freeze.rs` ties the model to the corpus record; a missing database keeps `authoritative` |
 | 1.4 | 2026-11-16 | Arthur Jean | The Linux run of the corpus replay moves to US-038 in EP-007; US-032 keeps the adjudication, the recomputation, the model move and the release note, from US-038's artifacts |
+| 1.5 | 2026-11-16 | Arthur Jean | US-031 leaves release 0.12.0: the audited workspace is public, but its history carries the agent marker on 13 of 2280 commits, under the half the agent population requires; its population is decided in a later release |
 
 ## Problem Statement
 
@@ -1044,7 +1045,7 @@ Questions for engineering input, not mandates:
 ## Open Questions
 
 - **Authoritative with no database.** This PRD keeps `authoritative: true` when no database exists and adds `unverified`. Should a missing database instead drop `authoritative`, as the audit first recommended? Arthur decides before US-029; US-006 and the website copy depend on it. Decided 2026-11-16: `authoritative` stays true and the missing check is published in `unverified`.
-- **Corpus subject.** Is the audited repository public, and may it be pinned at a revision in `tests/corpus.json`? Arthur answers before US-031 starts; eleven precision rates depend on it.
+- **Corpus subject.** Is the audited repository public, and may it be pinned at a revision in `tests/corpus.json`? Arthur answers before US-031 starts; eleven precision rates depend on it. Answered 2026-11-16: public, to be pinned at the last revision committed before the audit was written. It fails the agent population's selection criterion, so US-031 is cancelled for 0.12.0 and carried to a later release (PRD 1.5).
 - **Naming the audited workspace.** This document does not name it, because `tasks/` is tracked in a public repository. Arthur says whether it may be named, here and in the release note.
 - **Release cadence.** Should 0.10.1 and 0.11.0 ship separately, or as one 0.11.0? Arthur decides before tagging; EP-003 does not need EP-001.
 - **Windows runner cost.** A full test run on `windows-latest` on every push adds about 20 to 30 runner minutes. Should it run on pull requests only? Arthur decides during US-007.
