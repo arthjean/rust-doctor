@@ -24,4 +24,4 @@
 /tests/fixtures/dependency-truth/*/target/
 /tests/fixtures/profile-hardening/*/target/
 /tests/fixtures/scan-failures/*/target/
-/.claude/skills/release/
+/.claude/skills/release/runs/
