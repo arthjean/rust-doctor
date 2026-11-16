@@ -49,7 +49,7 @@
     {
       "id": "EP-006",
       "title": "Rule texts, re-baseline and public claims",
-      "status": "TODO",
+      "status": "BLOCKED",
       "priority": "P0",
       "stories_total": 4,
       "stories_done": 0
@@ -59,7 +59,7 @@
       "title": "Linux validation on Fedora",
       "status": "TODO",
       "priority": "P0",
-      "stories_total": 4,
+      "stories_total": 5,
       "stories_done": 0
     }
   ],
@@ -506,7 +506,7 @@
       "id": "US-030",
       "title": "Correct the rule texts that misdirect",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
@@ -514,21 +514,28 @@
         "US-020",
         "US-021"
       ],
-      "started_at": null,
+      "started_at": "2026-11-16",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "implementation": "Implemented 2026-11-16 on 01983c1 (replayed as tree 6fd1679). Help and title of undocumented_unsafe_blocks, help of orphan_module_file and blocking_call_in_async in src/policy/catalog; unreferenced_feature message in src/structure/manifest.rs; permissive_lint_table states the distinct sites src/execution/manifest_allows.rs drops, joined in src/execution.rs after Clippy (no count when Clippy did not lint every member the entry covers, e.g. under --package); inherited dependency keys anchor on the member line in src/cargo_health/keys.rs. Proof from the binary: tests/rule_texts.rs (6 tests). Windows: Clippy clean on 1.99.1, doc gates green, Windows gate green in a CRLF worktree (34 failures, all in the ledger). Linux gates go to US-037.",
+        "release_note": "Messages that change finding ids, for .github/releases/v0.12.0.md (US-032): unreferenced_feature 'which no cfg reads' becomes 'which no cfg and no build script reads'; permissive_lint_table appends ', which hides N findings in this package.' (or 'in the packages that inherit it', 'no finding', '1 finding'). Help and title changes do not change ids. Inherited dependency findings gain a span: ids unchanged, --scope lines now keeps them only when their key line changes, and a baseline without the span still pairs through the fallback key."
+      }
     },
     {
       "id": "US-031",
       "title": "Pin the audited workspace as a corpus subject",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "BLOCKED",
       "priority": "P2",
       "size": "L",
       "blocked_by": [],
       "started_at": null,
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "blocked": "2026-11-16: waits for Arthur to confirm that the audited repository is public and may be pinned at a revision (A6, Open Questions). US-032 proceeds without it."
+      }
     },
     {
       "id": "US-032",
@@ -538,23 +545,14 @@
       "priority": "P0",
       "size": "L",
       "blocked_by": [
-        "US-017",
-        "US-018",
-        "US-019",
-        "US-020",
-        "US-021",
-        "US-022",
-        "US-024",
-        "US-025",
-        "US-026",
-        "US-027",
-        "US-028",
-        "US-029",
-        "US-030"
+        "US-038"
       ],
       "started_at": null,
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "plan": "PRD 1.4 (2026-11-16): the Linux run moves to US-038; this story builds the record from US-038's artifacts on Windows (adjudication, recomputation, CORPUS_NOISE, SCORE_MODEL core-v7, v0.12.0 release note)."
+      }
     },
     {
       "id": "US-033",
@@ -568,7 +566,10 @@
       ],
       "started_at": null,
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "plan": "Waits for US-032's record; the rust-doctor-web checkout is on this machine."
+      }
     },
     {
       "id": "US-034",
@@ -635,7 +636,35 @@
         "US-036",
         "US-030",
         "US-032",
-        "US-033"
+        "US-033",
+        "US-038"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-038",
+      "title": "Produce the core-v7 corpus artifacts on Fedora",
+      "epic": "EP-007",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [
+        "US-034",
+        "US-017",
+        "US-018",
+        "US-019",
+        "US-020",
+        "US-021",
+        "US-022",
+        "US-024",
+        "US-025",
+        "US-026",
+        "US-027",
+        "US-028",
+        "US-029",
+        "US-030"
       ],
       "started_at": null,
       "completed_at": null,

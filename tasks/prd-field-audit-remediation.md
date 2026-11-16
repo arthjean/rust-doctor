@@ -9,6 +9,7 @@
 | 1.1 | 2026-11-16 | Arthur Jean | EP-007 gathers every Linux gate and criterion of release 0.12.0 into one run per epic on a Fedora machine; Windows sessions certify what Windows observes |
 | 1.2 | 2026-11-16 | Arthur Jean | No epic before EP-007 runs a Linux gate, in WSL or anywhere else; A2 on Linux moves to US-035 |
 | 1.3 | 2026-11-16 | Arthur Jean | `SCORE_MODEL` becomes "core-v7" in US-032, on the corpus replay, since `lambda_freeze.rs` ties the model to the corpus record; a missing database keeps `authoritative` |
+| 1.4 | 2026-11-16 | Arthur Jean | The Linux run of the corpus replay moves to US-038 in EP-007; US-032 keeps the adjudication, the recomputation, the model move and the release note, from US-038's artifacts |
 
 ## Problem Statement
 
@@ -196,7 +197,7 @@ From EP-004 on, a story is certified on Windows by Clippy, the documentation gat
 
 Three stories add gates:
 - **US-007 and later:** `bash scripts/windows-test-gate.sh` on a Windows host, which CI runs in the `windows` job.
-- **US-032:** the corpus replay, `RUST_DOCTOR_CORPUS_DIR=<clone cache> RUST_DOCTOR_CORPUS_ARTIFACTS=<artifacts> cargo test --locked --test corpus_precision`.
+- **US-038:** the corpus replay on Fedora, `RUST_DOCTOR_CORPUS_DIR=<clone cache> RUST_DOCTOR_CORPUS_ARTIFACTS=<artifacts> cargo test --locked --test corpus_precision`, whose artifacts US-032 consumes.
 - **US-033:** `bun run build:verified` in the `rust-doctor-web` checkout.
 
 ## Epics & User Stories
@@ -777,14 +778,14 @@ Release 0.12.0. Help texts can be applied where they are printed, the corpus mea
 
 **Priority:** P0
 **Size:** L (5 pts)
-**Dependencies:** Blocked by US-017, US-018, US-019, US-020, US-021, US-022, US-024, US-025, US-026, US-027, US-028, US-029, US-030
+**Dependencies:** Blocked by US-038, which runs the replay on Fedora after US-017 to US-030
 
 **Acceptance Criteria:**
-- [ ] The replay runs under toolchain 1.99.1 with the documented environment, after every story it is blocked by.
+- [ ] The record is built from US-038's artifacts, at the tree US-038 names; no part of the replay runs on Windows.
 - [ ] New or changed sites of `orphan_module_file`, `complex_function`, `oversized_unit`, `duplicate_major_versions`, `blocking_call_in_async`, `unreferenced_feature` and `secret_in_build_step` are adjudicated by two blind passes.
 - [ ] `position_proof` is regenerated, and `precision`, `agent_population.precision`, `gate` and `score_distribution` are recomputed with the existing helpers.
 - [ ] `CORPUS_NOISE` (`src/policy/noise.rs`) matches the record.
-- [ ] `cargo test --release --test delta_pairing -- --ignored --nocapture` is replayed and every new candidate is classified in `tests/fixtures/delta-pairing/verdicts.json`.
+- [ ] Every new candidate of US-038's `delta_pairing` output is classified in `tests/fixtures/delta-pairing/verdicts.json`.
 - [ ] `SCORE_MODEL` becomes "core-v7" in the replay commit, and the audit fixture `audit-core-v6.json` and its references move to v7 (moved from US-025, PRD 1.3).
 - [ ] `SCHEMA_VERSION` is 25, and every file that states the model or the schema agrees: `tests/audit_contract.rs`, `tests/score_credibility_kernel.rs`, `src/audit/tests.rs`, `tests/docs_contract.rs`, `tests/e2e/*.ts`, `npm/rust-doctor/scripts/smoke-packed.mjs`, AGENTS.md, `docs/subsystems/audit.md` and `skills/rust-doctor/SKILL.md`.
 - [ ] Given a subject whose score moves by more than 10 points, when the replay completes, then the release note explains the move by the story that caused it.
@@ -814,6 +815,7 @@ Release 0.12.0. Every gate and criterion that needs Linux runs on Arthur's Fedor
 - EP-004 and EP-005 each have one recorded Fedora run on the tree they were certified at, with every Quality Gate green.
 - The 0.12.0 release candidate, which carries EP-006, passes every Linux job of `ci.yml` on Fedora, then in CI.
 - A failure that Fedora and CI disagree on is recorded as an environment difference, never as a pass.
+- The core-v7 corpus replay runs once on Fedora, and its artifacts are what US-032 builds the record from.
 
 #### US-034: Replay CI's Linux jobs on Fedora
 **Description:** As the maintainer, I want one documented way to run CI's Linux jobs on my Fedora machine against a given tree, so that a Linux verdict there means what a CI run means.
@@ -868,13 +870,28 @@ Release 0.12.0. Every gate and criterion that needs Linux runs on Arthur's Fedor
 
 **Priority:** P0
 **Size:** M (3 pts)
-**Dependencies:** Blocked by US-035, US-036, US-030, US-032, US-033
+**Dependencies:** Blocked by US-035, US-036, US-030, US-032, US-033, US-038
 
 **Acceptance Criteria:**
 - [ ] On the release candidate commit, every Quality Gate passes on Fedora, together with the Node launcher tests (`cd npm/rust-doctor && bun test tests`), the packed smoke (`bun run smoke:packed` against the release binary) and `cargo check --locked --all-targets` under toolchain 1.95.
 - [ ] The corpus test `corpus_precision` passes on Fedora from the clone cache against US-032's record.
 - [ ] The CI run of the candidate's push is green on ubuntu and macOS before the tag; the Fedora run does not replace it.
 - [ ] Given a candidate that fails any of these gates, when the run completes, then the release does not proceed and the failing gate is listed in this story's notes.
+
+#### US-038: Produce the core-v7 corpus artifacts on Fedora
+**Description:** As the maintainer, I want the corpus replay run on a native Linux host, so that the record US-032 builds is a Linux measurement that US-037 can replay on the same machine.
+
+**Priority:** P0
+**Size:** S (2 pts)
+**Dependencies:** Blocked by US-034, US-017, US-018, US-019, US-020, US-021, US-022, US-024, US-025, US-026, US-027, US-028, US-029, US-030
+
+**Acceptance Criteria:**
+- [ ] The replay runs on a committed tree that carries every story it is blocked by, under toolchain 1.99.1 and US-034's environment, with the clone cache outside this repository at the pinned commits of `tests/corpus.json`.
+- [ ] `RUST_DOCTOR_CORPUS_DIR=<clone cache> RUST_DOCTOR_CORPUS_ARTIFACTS=<artifacts> cargo test --locked --test corpus_precision` runs to completion, and its artifacts and `position-proof.json` are handed to US-032 unedited.
+- [ ] `cargo test --release --test delta_pairing -- --ignored --nocapture` runs on the same tree, and its output is handed to US-032.
+- [ ] The run is recorded in this story's notes with the tree id, the toolchain, the subject count and the artifact digests.
+- [ ] Given a test of the replay that fails on the old record, when it is judged, then it is listed for US-032 as a measured change, never as a pass or a defect.
+- [ ] Given a subject whose clone is missing or at another commit, when the run starts, then the run stops and names it.
 
 ---
 
@@ -958,7 +975,7 @@ Network degradation, permission changes and concurrent modifications do not appl
 
 | # | Risk | Probability | Impact | Mitigation |
 |---|------|------------|--------|------------|
-| 1 | core-v7 moves every corpus subject and the distribution gate fails | Med | High | US-023 measures the variants on the record first; US-025 and US-026 are blocked on it; one replay in US-032 |
+| 1 | core-v7 moves every corpus subject and the distribution gate fails | Med | High | US-023 measures the variants on the record first; US-025 and US-026 are blocked on it; one replay, run by US-038 and recorded by US-032 |
 | 2 | Halving unmeasured rules raises every score and hides a severe unmeasured rule | Med | Med | Tier ceilings apply at the full tier (US-026 test); US-031 measures eleven of those rules |
 | 3 | The macro resolution follows a module that is not one, and reads a file twice or under the wrong `cfg` | Med | Med | Only identifiers that resolve to an existing file are followed; attributes come from the transcriber; fixture with a non-module argument |
 | 4 | Native findings depend on whether Clippy ran, through the dep-info veto | Med | Low | The veto only removes orphan and unused-dependency findings; `scan.unwalked_compiled_files` publishes when it applied |
