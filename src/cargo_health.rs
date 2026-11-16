@@ -71,10 +71,12 @@ impl CargoHealthScan {
         &mut self,
         hidden: &BTreeMap<(String, String), usize>,
         selected: Option<&BTreeSet<String>>,
+        unlinted: &[String],
     ) {
         for entry in &self.lint_table_entries {
-            let linted = selected.is_none_or(|selected| {
-                entry.members.iter().all(|member| selected.contains(member))
+            let linted = entry.members.iter().all(|member| {
+                selected.is_none_or(|selected| selected.contains(member))
+                    && !unlinted.contains(member)
             });
             if !linted {
                 continue;

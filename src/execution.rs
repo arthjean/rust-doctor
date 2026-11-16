@@ -456,7 +456,11 @@ impl ExecutionContext<'_> {
                 if let Some(health) = cargo_health.as_mut() {
                     let hidden =
                         manifest_allows::honor(&mut scan, &metadata, self.plan, &health.allows);
-                    health.state_hidden_findings(&hidden, self.options.packages.as_ref());
+                    health.state_hidden_findings(
+                        &hidden,
+                        self.options.packages.as_ref(),
+                        &scan.unlinted,
+                    );
                 }
                 ClippyExecution::from_scan(scan)
             }

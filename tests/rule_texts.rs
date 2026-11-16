@@ -194,3 +194,17 @@ fn an_inherited_dependency_points_at_the_members_own_line_and_keeps_its_id() {
     assert_eq!(moved[0]["span"]["line_start"], 12, "{}", moved[0]);
     assert_eq!(moved[0]["id"], unused[0]["id"]);
 }
+
+#[test]
+fn a_lint_table_entry_claims_no_count_when_a_member_it_covers_did_not_compile() {
+    let root = workspace("suppression/workspace-lint-table");
+    let source = root.join("beta/src/lib.rs");
+    let text = fs::read_to_string(&source).unwrap();
+    fs::write(&source, format!("{text}\npub fn broken() -> u32 {{\n    \"x\"\n}}\n")).unwrap();
+    let report = scan(&root, &[]);
+    assert_eq!(
+        message_naming(&report, LINT_TABLE, "clippy::unwrap_used"),
+        "Manifest lint table sets catalogued rule \"clippy::unwrap_used\" to \"allow\".",
+        "{report}"
+    );
+}
