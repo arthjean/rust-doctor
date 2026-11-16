@@ -41,10 +41,10 @@
     {
       "id": "EP-005",
       "title": "Score model core-v7 and report schema 25",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 7,
-      "stories_done": 0
+      "stories_done": 7
     },
     {
       "id": "EP-006",
@@ -392,94 +392,115 @@
       "id": "US-023",
       "title": "Validate assumption: cause-based charges and one precision prior keep the corpus distribution gate",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). The ignored harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on Windows. The audited-workspace figures come from a rescan (1448 findings, 186759 lines, same score 36, same 23 rules) rather than the 1438 the audit published, since the audit carries no site-level facts; the record says so."
+      }
     },
     {
       "id": "US-024",
       "title": "Publish the cause findings share",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-021"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). tests/cause_kernel.rs drives real Clippy and the repo pass: by-value findings carry 'Big (512 byte)', ids and messages unchanged, the linear report prints the cause line, one variable in three workflows is one cause."
+      }
     },
     {
       "id": "US-025",
       "title": "Charge causes with diminishing returns",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-023",
         "US-024"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). Reading of the lone-duplicate criterion: the curve leaves one finding at its core-v6 charge (weight(1) = 1, a measured lone workspace finding scores its core-v6 value), but with US-026's prior the unmeasured duplicate_major_versions now scores 75 (P2 ceiling), not 72. The literal '72' no longer holds once US-026 ships; Arthur to confirm the PRD wording, and the 72 -> 75 move belongs in the 0.12.0 release note (US-032)."
+      }
     },
     {
       "id": "US-026",
       "title": "Use one precision prior in the score and the ranking",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
         "US-023"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1)."
+      }
     },
     {
       "id": "US-027",
       "title": "Publish a distrusted rule at Info, and require both thresholds for complex_function",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). Distrusted findings now weigh zero, so withheld_rule_ids lists them only under a weighing --rule level; SKILL.md now says so (review fix). Re-adjudicating complex_function's corpus sites is US-032's criterion."
+      }
     },
     {
       "id": "US-028",
       "title": "Warn on a duplicate major only when a member can remove it",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). The release-note criterion is carried by US-032, the only story the PRD lets write .github/releases/v0.12.0.md (Technical Considerations). Message changes to list there: 'required by' names up to three members in name order then '+N more'; 'through' names the first non-member on a shortest path, ties by name; versions listed in semver order. Each changes the finding ids of duplicate_major_versions."
+      }
     },
     {
       "id": "US-029",
       "title": "Publish what the score could not verify",
       "epic": "EP-005",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P1",
       "size": "S",
       "blocked_by": [
         "US-006"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
+      "notes": {
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1)."
+      }
     },
     {
       "id": "US-030",
