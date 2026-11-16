@@ -1,0 +1,11 @@
+[package]
+name = "seed-unreferenced-feature-build-script-read"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[workspace]
+
+[features]
+link = []

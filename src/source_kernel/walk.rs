@@ -12,6 +12,8 @@ use crate::report::DiagnosticContext;
 use crate::source_text::{as_compiled, intersects_errors};
 
 use super::detectors::{self, CrateAliases};
+
+mod macros;
 use super::{
     Enumeration, Identity, LIMITS, Limit, Limits, Reachability, SourceError, SourceUnit,
     WalkCounters, literal_string, push_error, push_limit_error,
@@ -86,6 +88,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
     let mut queue = source_roots(metadata, &mut refusals);
     let mut units = BTreeMap::<Identity, SourceUnit>::new();
     let mut counters = WalkCounters::default();
+    let mut declarations = MacroDeclarations::default();
 
     while let Some(work) = queue.pop_first() {
         if work.depth > limits.module_depth {
@@ -143,6 +146,7 @@ pub(super) fn enumerate_with_limits(metadata: &Metadata, limits: Limits) -> Enum
             continue;
         }
         queue.extend(module_requests(unit, &work, &workspace_root, &mut refusals));
+        queue.extend(declarations.requests(unit, &work, &workspace_root, &mut refusals));
     }
     for work in &queue {
         refusals.lost_tree(work);
@@ -328,6 +332,18 @@ fn load_unit(
     })
 }
 
+struct Site<'a> {
+    work: &'a WorkItem,
+    declaring_path: &'a str,
+    workspace_root: &'a Path,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Declared {
+    Item,
+    MacroArgument,
+}
+
 fn module_requests(
     unit: &SourceUnit,
     work: &WorkItem,
@@ -335,6 +351,11 @@ fn module_requests(
     refusals: &mut Refusals,
 ) -> Vec<WorkItem> {
     let tree = unit.tree();
+    let site = Site {
+        work,
+        declaring_path: unit.relative_path(),
+        workspace_root,
+    };
     let mut requests = Vec::new();
     for module in tree.syntax().descendants().filter_map(ast::Module::cast) {
         if module.item_list().is_some() {
@@ -347,80 +368,183 @@ fn module_requests(
         let Some(name) = module.name().map(|name| name.text().to_string()) else {
             continue;
         };
-        let unresolved = |reason: &str| SourceError {
-            code: "module-not-found",
-            message: format!(
-                "Module \"{name}\" declared in \"{}\" {reason}.",
-                unit.relative_path()
-            ),
-        };
+        let mut base = work.module_directory.clone();
+        base.extend(macros::inline_modules(module.syntax()));
+        requests.extend(resolve(&site, &module, &name, base, Declared::Item, refusals));
+    }
+    requests
+}
 
-        let base = inline_module_directory(&work.module_directory, &module);
-        let attributed = if base == work.module_directory {
-            work.lexical_path.parent().map_or_else(|| base.clone(), Path::to_path_buf)
-        } else {
-            base.clone()
-        };
-        let alternatives = confined(
-            conditional_paths(&module).into_iter().map(|path| attributed.join(path)).collect(),
-            workspace_root,
-            work,
-            refusals,
-        );
-        let mut alternatives: Vec<PathBuf> = alternatives.into_iter().filter(|path| path_exists(path)).collect();
-        let candidates = match path_attribute(&module) {
-            PathAttribute::Absent => vec![
-                base.join(format!("{name}.rs")),
-                base.join(&name).join("mod.rs"),
-            ],
-            PathAttribute::Literal(path) => vec![attributed.join(path)],
-            PathAttribute::Invalid => {
-                refusals.lost(unresolved("has no supported literal path"));
-                refusals.lost_tree(work);
-                continue;
+#[derive(Debug, Clone)]
+struct Waiting {
+    work: WorkItem,
+    declaring_path: String,
+    invocation: macros::Invocation,
+}
+
+#[derive(Debug, Default)]
+struct MacroDeclarations {
+    macros: macros::DeclaringMacros,
+    invocations: BTreeMap<(String, String), Vec<Waiting>>,
+}
+
+impl MacroDeclarations {
+    fn requests(
+        &mut self,
+        unit: &SourceUnit,
+        work: &WorkItem,
+        workspace_root: &Path,
+        refusals: &mut Refusals,
+    ) -> Vec<WorkItem> {
+        let package_id = &work.reachability.package_id;
+        let tree = unit.tree();
+        let mut requests = Vec::new();
+        for learned in self.macros.learn(package_id, &tree) {
+            for waiting in self
+                .invocations
+                .get(&(package_id.clone(), learned))
+                .into_iter()
+                .flatten()
+            {
+                requests.extend(declared_by(&self.macros, waiting, workspace_root, refusals));
             }
-        };
-        let declared = candidates.len();
-        let candidates = confined(candidates, workspace_root, work, refusals);
-        let escaped = candidates.len() < declared;
-        let mut existing = candidates.into_iter().filter(|path| path_exists(path));
-        match (existing.next(), existing.next()) {
-            (Some(path), None) => alternatives.push(path),
-            (Some(_), Some(_)) => {
-                refusals.lost(SourceError {
-                    code: "module-ambiguous",
-                    message: format!(
-                        "Module \"{name}\" declared in \"{}\" has both supported file forms.",
-                        unit.relative_path()
-                    ),
-                });
-                refusals.lost_tree(work);
-                continue;
-            }
-            (None, _) if alternatives.is_empty() => {
-                if !escaped {
-                    refusals.lost(unresolved("could not be resolved"));
-                }
-                refusals.lost_tree(work);
-                continue;
-            }
-            (None, _) => {}
         }
+        for invocation in macros::invocations(&tree, &unit.error_ranges) {
+            let waiting = Waiting {
+                work: work.clone(),
+                declaring_path: unit.relative_path().to_owned(),
+                invocation,
+            };
+            requests.extend(declared_by(&self.macros, &waiting, workspace_root, refusals));
+            self.invocations
+                .entry((package_id.clone(), waiting.invocation.macro_name.clone()))
+                .or_default()
+                .push(waiting);
+        }
+        requests
+    }
+}
 
-        for path in alternatives {
+fn declared_by(
+    declaring: &macros::DeclaringMacros,
+    waiting: &Waiting,
+    workspace_root: &Path,
+    refusals: &mut Refusals,
+) -> Vec<WorkItem> {
+    let site = Site {
+        work: &waiting.work,
+        declaring_path: &waiting.declaring_path,
+        workspace_root,
+    };
+    let mut base = waiting.work.module_directory.clone();
+    base.extend(&waiting.invocation.inline_modules);
+    let mut requests = Vec::new();
+    for argument in &waiting.invocation.arguments {
+        let Some(module) = declaring.declaration(
+            &waiting.work.reachability.package_id,
+            &waiting.invocation.macro_name,
+            argument,
+        ) else {
+            continue;
+        };
+        requests.extend(resolve(
+            &site,
+            &module,
+            argument,
+            base.clone(),
+            Declared::MacroArgument,
+            refusals,
+        ));
+    }
+    requests
+}
+
+fn resolve(
+    site: &Site<'_>,
+    module: &ast::Module,
+    name: &str,
+    base: PathBuf,
+    declared: Declared,
+    refusals: &mut Refusals,
+) -> Vec<WorkItem> {
+    let work = site.work;
+    let unresolved = |reason: &str| SourceError {
+        code: "module-not-found",
+        message: format!(
+            "Module \"{name}\" declared in \"{}\" {reason}.",
+            site.declaring_path
+        ),
+    };
+    let attributed = if base == work.module_directory {
+        work.lexical_path.parent().map_or_else(|| base.clone(), Path::to_path_buf)
+    } else {
+        base.clone()
+    };
+    let alternatives = confined(
+        conditional_paths(module).into_iter().map(|path| attributed.join(path)).collect(),
+        site.workspace_root,
+        work,
+        refusals,
+    );
+    let mut alternatives: Vec<PathBuf> = alternatives.into_iter().filter(|path| path_exists(path)).collect();
+    let candidates = match path_attribute(module) {
+        PathAttribute::Absent => vec![
+            base.join(format!("{name}.rs")),
+            base.join(name).join("mod.rs"),
+        ],
+        PathAttribute::Literal(path) => vec![attributed.join(path)],
+        PathAttribute::Invalid if declared == Declared::MacroArgument => return Vec::new(),
+        PathAttribute::Invalid => {
+            refusals.lost(unresolved("has no supported literal path"));
+            refusals.lost_tree(work);
+            return Vec::new();
+        }
+    };
+    let declared_candidates = candidates.len();
+    let candidates = confined(candidates, site.workspace_root, work, refusals);
+    let escaped = candidates.len() < declared_candidates;
+    let mut existing = candidates.into_iter().filter(|path| path_exists(path));
+    match (existing.next(), existing.next()) {
+        (Some(path), None) => alternatives.push(path),
+        (Some(_), Some(_)) => {
+            refusals.lost(SourceError {
+                code: "module-ambiguous",
+                message: format!(
+                    "Module \"{name}\" declared in \"{}\" has both supported file forms.",
+                    site.declaring_path
+                ),
+            });
+            refusals.lost_tree(work);
+            return Vec::new();
+        }
+        (None, _) if alternatives.is_empty() && declared == Declared::MacroArgument => {
+            return Vec::new();
+        }
+        (None, _) if alternatives.is_empty() => {
+            if !escaped {
+                refusals.lost(unresolved("could not be resolved"));
+            }
+            refusals.lost_tree(work);
+            return Vec::new();
+        }
+        (None, _) => {}
+    }
+
+    alternatives
+        .into_iter()
+        .map(|path| {
             let resolved = crate::path_form::canonical(&path).unwrap_or_else(|_| path.clone());
             let mut reachability = work.reachability.clone();
-            reachability.test_gated |= is_test_gate(&module);
-            requests.push(WorkItem {
+            reachability.test_gated |= is_test_gate(module);
+            WorkItem {
                 lexical_path: path,
                 edition: work.edition,
                 module_directory: module_directory_for_file(&resolved),
                 reachability,
                 depth: work.depth + 1,
-            });
-        }
-    }
-    requests
+            }
+        })
+        .collect()
 }
 
 fn confined(
@@ -437,21 +561,6 @@ fn confined(
         refusals.lost_tree(work);
     }
     confined
-}
-
-fn inline_module_directory(module_directory: &Path, module: &ast::Module) -> PathBuf {
-    let mut inline: Vec<String> = module
-        .syntax()
-        .ancestors()
-        .skip(1)
-        .filter_map(ast::Module::cast)
-        .filter(|ancestor| ancestor.item_list().is_some())
-        .filter_map(|ancestor| ancestor.name().map(|name| name.text().to_string()))
-        .collect();
-    inline.reverse();
-    let mut base = module_directory.to_path_buf();
-    base.extend(inline);
-    base
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

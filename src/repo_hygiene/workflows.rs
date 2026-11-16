@@ -1,9 +1,11 @@
 use std::path::Path;
 
-use super::{MAX_FILE_BYTES, RepoFinding, RepoScan, path_context, read_bounded};
+use super::{BuildStep, MAX_FILE_BYTES, RepoFinding, RepoScan, path_context, read_bounded};
 use crate::policy::REPO_SECRET_IN_BUILD_STEP;
 use crate::source_text::SourceSpan;
 use crate::workspace_path;
+
+const SCOPED_HELP: &str = "Move the secret to the one step that needs it and compile in a step without it.";
 
 const COMPILING: [&str; 9] = ["bench", "build", "check", "clippy", "doc", "install", "publish", "run", "test"];
 
@@ -34,6 +36,15 @@ pub(super) fn scan_workflow(workspace_root: &Path, path: &str, scan: &mut RepoSc
                 column_end: finding.end,
             }),
             context: path_context(path),
+            build_step: Some(BuildStep {
+                help: if finding.subcommand == "publish" || finding.oidc {
+                    REPO_SECRET_IN_BUILD_STEP.help
+                } else {
+                    SCOPED_HELP
+                },
+                subcommand: finding.subcommand,
+                variable: finding.variable,
+            }),
         });
     }
 }
@@ -46,6 +57,7 @@ pub(super) struct BuildWithSecret {
     pub(super) line: usize,
     pub(super) column: usize,
     pub(super) end: usize,
+    pub(super) oidc: bool,
 }
 
 struct Entry<'a> {
@@ -144,6 +156,7 @@ struct Run {
 #[derive(Default)]
 struct Job {
     secret: Option<String>,
+    oidc: bool,
     reusable: bool,
     steps: Vec<Step>,
 }
@@ -168,13 +181,21 @@ pub(super) fn compiling_steps_with_secrets(source: &str) -> Vec<BuildWithSecret>
 #[derive(Default)]
 struct Walk {
     workflow_secret: Option<String>,
+    workflow_oidc: bool,
     jobs: Vec<Job>,
 }
 
 impl Walk {
     fn record(&mut self, source: &str, path: &[&str], entry: &Entry<'_>) {
         let secret = |key: &str| secret_variable(key, entry.value).then(|| key.to_owned());
+        let oidc = grants_oidc(path.last().copied(), entry);
         match path {
+            [] | ["permissions"] if oidc => self.workflow_oidc = true,
+            ["jobs", _] | ["jobs", _, "permissions"] if oidc => {
+                if let Some(job) = self.jobs.last_mut() {
+                    job.oidc = true;
+                }
+            }
             [] if entry.key == "env" => remember(&mut self.workflow_secret, secret("env")),
             ["env"] => remember(&mut self.workflow_secret, secret(entry.key)),
             ["jobs"] => self.jobs.push(Job::default()),
@@ -272,11 +293,20 @@ impl Walk {
                         line: run.line,
                         column: run.column,
                         end: run.column + run.width,
+                        oidc: job.oidc || self.workflow_oidc,
                     })
                 }));
             }
         }
         findings
+    }
+}
+
+fn grants_oidc(parent: Option<&str>, entry: &Entry<'_>) -> bool {
+    let value = entry.value.trim_matches(|quote| quote == '"' || quote == '\'');
+    match parent {
+        Some("permissions") => entry.key == "id-token" && value == "write",
+        _ => entry.key == "permissions" && value == "write-all",
     }
 }
 

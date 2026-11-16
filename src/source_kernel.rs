@@ -13,6 +13,7 @@ use crate::source_text::{SourceSpan, line_starts, source_span};
 mod aliases;
 mod bindings;
 mod detectors;
+mod embedded;
 mod gates;
 pub(crate) mod harness;
 pub(crate) mod references;
@@ -23,6 +24,7 @@ mod walk;
 use aliases::AliasMap;
 use detectors::{CrateAliases, DETECTORS, Detection, Detector};
 
+pub(crate) use embedded::EmbeddedSite;
 pub(crate) use walk::{enumerate, workspace_relative};
 
 #[derive(Debug, Clone, Copy)]
@@ -104,6 +106,7 @@ pub(crate) struct SourceScan {
     pub(crate) candidates: Vec<Candidate>,
     pub(crate) errors: Vec<SourceError>,
     pub(crate) not_evaluated: Vec<(&'static str, crate::NotEvaluated)>,
+    pub(crate) embedded: BTreeMap<String, EmbeddedSite>,
     #[allow(dead_code, reason = "read only by the tests that assert the pass did the work")]
     pub(crate) counters: AnalysisCounters,
 }
@@ -206,8 +209,23 @@ impl SourceUnit {
             .map(|reach| reach.package_id.as_str())
     }
 
+    pub(crate) fn build_script_packages<'a>(&'a self, contexts: &'a TargetContexts) -> impl Iterator<Item = &'a str> {
+        self.reachability
+            .iter()
+            .filter(|reach| reach.context(contexts) == Some(DiagnosticContext::BuildScript))
+            .map(|reach| reach.package_id.as_str())
+    }
+
     pub(crate) fn context(&self, contexts: &TargetContexts) -> Option<DiagnosticContext> {
-        unanimous(self.reachability.iter().map(|reach| reach.context(contexts))).flatten()
+        let routes: Vec<Option<DiagnosticContext>> =
+            self.reachability.iter().map(|reach| reach.context(contexts)).collect();
+        if routes.iter().any(Option::is_none) {
+            return None;
+        }
+        NON_PRODUCTION_ORDER
+            .into_iter()
+            .find(|context| routes.contains(&Some(*context)))
+            .or_else(|| unanimous(routes).flatten())
     }
 
     pub(crate) fn is_test_target(&self, contexts: &TargetContexts) -> bool {
@@ -222,27 +240,38 @@ impl SourceUnit {
     }
 
     fn production_line_count(&self) -> usize {
-        let line_starts = line_starts(&self.source);
-        let line_of = |offset: usize| line_starts.partition_point(|start| *start <= offset);
-        let mut gated = 0;
-        let mut last_gated_line = 0;
-        let mut preorder = self.tree().syntax().preorder();
-        while let Some(event) = preorder.next() {
-            let ra_ap_syntax::WalkEvent::Enter(node) = event else {
-                continue;
-            };
-            if ast::Item::cast(node.clone()).is_none() || !detectors::carries_test_attribute(&node) {
-                continue;
-            }
-            preorder.skip_subtree();
-            let range = node.text_range();
-            let first = line_of(range.start().into()).max(last_gated_line + 1);
-            let last = line_of(range.end().into());
-            gated += (last + 1).saturating_sub(first);
-            last_gated_line = last_gated_line.max(last);
-        }
-        self.source.lines().count().saturating_sub(gated)
+        self.source.lines().count().saturating_sub(test_gated_lines(&self.source, &self.tree()))
     }
+}
+
+const NON_PRODUCTION_ORDER: [DiagnosticContext; 4] = [
+    DiagnosticContext::BuildScript,
+    DiagnosticContext::Benchmark,
+    DiagnosticContext::Example,
+    DiagnosticContext::Tests,
+];
+
+pub(crate) fn test_gated_lines(source: &str, tree: &SourceFile) -> usize {
+    let line_starts = line_starts(source);
+    let line_of = |offset: usize| line_starts.partition_point(|start| *start <= offset);
+    let mut gated = 0;
+    let mut last_gated_line = 0;
+    let mut preorder = tree.syntax().preorder();
+    while let Some(event) = preorder.next() {
+        let ra_ap_syntax::WalkEvent::Enter(node) = event else {
+            continue;
+        };
+        if ast::Item::cast(node.clone()).is_none() || !detectors::carries_test_attribute(&node) {
+            continue;
+        }
+        preorder.skip_subtree();
+        let range = node.text_range();
+        let first = line_of(range.start().into()).max(last_gated_line + 1);
+        let last = line_of(range.end().into());
+        gated += (last + 1).saturating_sub(first);
+        last_gated_line = last_gated_line.max(last);
+    }
+    gated
 }
 
 #[derive(Debug, Default)]
@@ -310,6 +339,7 @@ impl Enumeration {
     pub(crate) fn into_measurement(mut self) -> SourceMeasurement {
         let (production_files, production_lines) = self.production_source();
         let packages = self.package_measurements();
+        let reached = self.units.values().map(|unit| unit.relative_path.clone()).collect();
         self.errors.sort();
         self.errors.dedup();
         SourceMeasurement {
@@ -319,6 +349,7 @@ impl Enumeration {
             complete: self.complete,
             errors: self.errors,
             packages,
+            reached,
         }
     }
 
@@ -370,6 +401,7 @@ pub(crate) struct SourceMeasurement {
     pub(crate) complete: bool,
     pub(crate) errors: Vec<SourceError>,
     pub(crate) packages: BTreeMap<String, PackageMeasurement>,
+    pub(crate) reached: BTreeSet<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -432,6 +464,7 @@ struct Findings {
     counters: AnalysisCounters,
     errors: Vec<SourceError>,
     gates: BTreeMap<&'static str, gates::Gate>,
+    embedded: BTreeMap<String, EmbeddedSite>,
 }
 
 impl Findings {
@@ -453,6 +486,7 @@ impl Findings {
             candidates: self.candidates.into_values().collect(),
             errors: self.errors,
             not_evaluated,
+            embedded: self.embedded,
             counters: self.counters,
         }
     }
@@ -539,8 +573,12 @@ fn analyze_unit(
         }
     }
 
+    let production = emitter.context.is_none() && !context.test_code;
     for node in tree.syntax().descendants() {
         findings.counters.nodes_visited += 1;
+        if production && node.kind() == SyntaxKind::MACRO_CALL {
+            emitter.embed(&mut findings.embedded, &node);
+        }
         for detector in registry.for_kind(node.kind()) {
             if closed.contains(detector.definition.id) {
                 continue;
@@ -567,6 +605,18 @@ struct Emitter<'a> {
 }
 
 impl Emitter<'_> {
+    fn embed(&self, embedded: &mut BTreeMap<String, EmbeddedSite>, node: &ra_ap_syntax::SyntaxNode) {
+        let Some((macro_name, variable)) = embedded::embedded_variable(node) else {
+            return;
+        };
+        if detectors::under_test_attribute(node) {
+            return;
+        }
+        let line = source_span(node.text_range(), &self.line_starts, self.source).line_start;
+        let path = self.path.to_owned();
+        embedded::record(embedded, variable, EmbeddedSite { macro_name, path, line });
+    }
+
     fn insert(
         &self,
         candidates: &mut BTreeMap<CandidateKey, Candidate>,

@@ -1,0 +1,12 @@
+[package]
+name = "foreign-macro-app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+foreign-macro-declare = { path = "../declare" }
+foreign-macro-helper = { path = "../helper" }

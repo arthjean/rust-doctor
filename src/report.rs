@@ -25,6 +25,7 @@ mod assembly;
 mod exclusion;
 pub(crate) use exclusion::edit_distance;
 mod normalize;
+mod reconcile;
 mod sanitize;
 pub(crate) use sanitize::{home_directory, replace_path};
 
@@ -33,7 +34,7 @@ pub(crate) use assembly::{
     interrupted_failure, policy_failure, preparation_failure, scope_failure,
 };
 
-pub const SCHEMA_VERSION: u8 = 24;
+pub const SCHEMA_VERSION: u8 = 25;
 
 pub(crate) const DEADLINE_EXCEEDED: &str = "deadline-exceeded";
 
@@ -445,6 +446,8 @@ pub struct ScanReport {
     pub excluded_generated: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisory_db: Option<AdvisoryDbReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unwalked_compiled_files: Option<usize>,
     #[serde(skip)]
     pub advisory_check: AdvisoryCheck,
 }

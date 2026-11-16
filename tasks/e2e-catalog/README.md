@@ -65,3 +65,9 @@ row tagged with this identifier, and `tests/e2e/known-bugs.json` mirrors this ta
 | tui/BUG-14 | low to medium | An external SIGINT, SIGTERM or SIGHUP while the report waits for a key sometimes exits with the scan's code instead of 130: the report's quit path races the signal watcher | PR #45 |
 | failures/BUG-17 | high | A RustSec database checked out with CRLF line endings reads as empty: every advisory is skipped and the score stays authoritative | US-004 |
 | failures/BUG-18 | high | A database that was found but yields nothing readable reports zero advisories under a complete scan and an authoritative score | US-005 |
+| failures/BUG-19 | high | A module declared through a local `macro_rules!` that writes `mod $name;` is reported as `orphan_module_file` with "delete it", its files are not read, and a dependency only they use reads as unused | US-017 |
+| failures/BUG-20 | high | A file Cargo compiled is reported as `orphan_module_file` when another crate's macro declares it | US-018 |
+| failures/BUG-21 | medium | `blocking_call_in_async` reports a blocking call inside `smol::unblock`, which already runs it on a thread pool | US-019 |
+| failures/BUG-22 | medium | `unreferenced_feature` asks to delete a feature the build script reads through `CARGO_FEATURE_<NAME>` | US-020 |
+| failures/BUG-23 | medium | `secret_in_build_step` reports a value the binary embeds through `option_env!` as a leaked secret, with help about `cargo publish` and OIDC in jobs that never publish | US-021 |
+| failures/BUG-24 | low | A file reached by a build script and by a `#[cfg(test)]` module is scored as production, and a file-level `oversized_unit` counts test items | US-022 |

@@ -1,0 +1,4 @@
+rule = "rust_doctor::structure::unreferenced_feature"
+weakness = "api-variant"
+source = "field audit 2026-11-15, a feature read through CARGO_FEATURE_LINK in build.rs, fixed by US-020"
+verdict = "quiet"

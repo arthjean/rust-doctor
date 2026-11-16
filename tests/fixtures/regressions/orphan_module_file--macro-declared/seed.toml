@@ -1,0 +1,4 @@
+rule = "rust_doctor::structure::orphan_module_file"
+weakness = "macro-argument"
+source = "field audit 2026-11-15, 29 of 29 orphans declared through a local macro_rules!, fixed by US-017"
+verdict = "quiet"

@@ -260,7 +260,7 @@ pub(super) fn normalize_repo_finding(
         severity: canonical_severity(definition.default_level),
         category: Some(definition.category.to_owned()),
         message,
-        help: Some(definition.help.to_owned()),
+        help: Some(finding.build_step.as_ref().map_or(definition.help, |step| step.help).to_owned()),
         package: None,
         target: None,
         path,

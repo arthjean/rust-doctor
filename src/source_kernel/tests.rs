@@ -750,10 +750,38 @@ fn a_unit_publishes_only_what_every_reacher_agrees_on() {
     assert_eq!(unit.context(&agreeing), Some(DiagnosticContext::Tests));
     assert!(unit.is_test_target(&agreeing));
 
-    let mut disagreeing = agreeing.clone();
-    disagreeing.insert("beta:0".to_owned(), None);
-    assert_eq!(unit.context(&disagreeing), None);
-    assert!(!unit.is_test_target(&disagreeing));
+    let mut production_and_tests = agreeing.clone();
+    production_and_tests.insert("beta:0".to_owned(), None);
+    assert_eq!(unit.context(&production_and_tests), None);
+    assert!(!unit.is_test_target(&production_and_tests));
+
+    let mut build_and_tests = agreeing.clone();
+    build_and_tests.insert("alpha:1".to_owned(), Some(DiagnosticContext::BuildScript));
+    assert_eq!(unit.context(&build_and_tests), Some(DiagnosticContext::BuildScript));
+
+    let mut every_kind = build_and_tests.clone();
+    every_kind.insert("beta:0".to_owned(), Some(DiagnosticContext::Example));
+    assert_eq!(unit.context(&every_kind), Some(DiagnosticContext::BuildScript));
+    every_kind.insert("alpha:1".to_owned(), Some(DiagnosticContext::Benchmark));
+    assert_eq!(unit.context(&every_kind), Some(DiagnosticContext::Benchmark));
+    every_kind.insert("alpha:1".to_owned(), Some(DiagnosticContext::Tests));
+    assert_eq!(unit.context(&every_kind), Some(DiagnosticContext::Example));
+
+    let tests_alone = TargetContexts::from([
+        ("alpha:0".to_owned(), None),
+        ("alpha:1".to_owned(), None),
+        ("beta:0".to_owned(), None),
+    ]);
+    unit.reachability = unit
+        .reachability
+        .iter()
+        .cloned()
+        .map(|reach| Reachability {
+            test_gated: true,
+            ..reach
+        })
+        .collect();
+    assert_eq!(unit.context(&tests_alone), Some(DiagnosticContext::Tests));
 }
 
 #[test]

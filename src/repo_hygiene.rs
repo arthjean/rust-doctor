@@ -43,6 +43,14 @@ pub(crate) struct RepoFinding {
     pub(crate) path: String,
     pub(crate) span: Option<SourceSpan>,
     pub(crate) context: Option<DiagnosticContext>,
+    pub(crate) build_step: Option<BuildStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BuildStep {
+    pub(crate) subcommand: String,
+    pub(crate) variable: String,
+    pub(crate) help: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +166,7 @@ fn inspect_with(
             path: published,
             span: None,
             context: None,
+            build_step: None,
         });
     }
 
@@ -189,6 +198,7 @@ fn inspect_tracked(
             path: published,
             span: None,
             context: path_context(path),
+            build_step: None,
         });
     }
     if active.on(&REPO_HARDCODED_CREDENTIAL) {
@@ -352,6 +362,7 @@ fn scan_credentials(workspace_root: &Path, path: &str, scan: &mut RepoScan) {
                 column_end,
             }),
             context,
+            build_step: None,
         });
     }
 }
@@ -370,6 +381,7 @@ fn ignored_lockfile(
             path: LOCKFILE.to_owned(),
             span: None,
             context: None,
+            build_step: None,
         })
 }
 

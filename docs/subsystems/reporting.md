@@ -29,7 +29,7 @@ scope's `base_ref`, `staged` and `untracked_unreported`, v19 the policy's
 and the scan's `ignored` and `excluded_generated`, v20 the scan's
 `advisory_db`, v21 the scope `mode` `contextual` and the discovery error
 `ambiguous-workspace`, v22 `timings`, a package's `unlinted`, the delta's
-`rule_count_matches` and the codes `interrupted` and `line-map-unavailable`, v23 the `not_evaluated` reasons `crate-absent` and `crate-version-unsupported`, which leave the score its authority, v24 the score's `ceilings`, each with the rules holding its tier, and a category's `production`, the occurrences that weigh. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
+`rule_count_matches` and the codes `interrupted` and `line-map-unavailable`, v23 the `not_evaluated` reasons `crate-absent` and `crate-version-unsupported`, which leave the score its authority, v24 the score's `ceilings`, each with the rules holding its tier, and a category's `production`, the occurrences that weigh, v25 the scan's `unwalked_compiled_files`. A `toolchain` error such as `lint-list-unavailable` is a notice: published, and no
 reason against the score. No historical field was ever removed or retyped, so the
 projection is only the removal of what came after, and `scan.command` is the one
 member dropped from both sides: it records what actually ran, so it moves
@@ -69,7 +69,8 @@ No pass-through with a second name. `baseline_report_failure` had a
 `baseline_cleanup_failure` in front of it that called it and nothing else, and
 `summarize` stood in front of `Summary::from_diagnostics`.
 
-What leaves the report is counted or listed, never dropped. `exclusion.rs`
+What leaves the report for being out of scope is counted or listed, never
+dropped. `exclusion.rs`
 applies, in one order and before the scope projection, an `[ignore]` path, a
 file declared generated or vendored, a member `--package` did not select, a
 native directive with a reason, and an `[[overrides]]` level, and the report
@@ -79,6 +80,13 @@ directive whose finding sits outside the changed lines from reading as unused.
 A dependency finding carries no line, since its identity and the corpus's
 `line: 0` sites are frozen, so a manifest directive reaches it through the key
 declared on the line below, matched to the finding's own key by identity.
+
+What the build disproves is not published. `reconcile.rs` reads Cargo's
+dep-info only after a clean Clippy run whose inventory stayed under its 8 MiB
+budget: an orphan Cargo compiled is dropped, and so is every `unused_dependency`
+of a package whose compiled files the walk missed, counted in
+`scan.unwalked_compiled_files`. A build-step secret that an `env!` or
+`option_env!` of production code embeds is published at Info, naming that site.
 
 The toolchain's replacement travels with the finding. `select_suggestion` reads
 the `children` of a compiler message, keeps the best rated replacement on the

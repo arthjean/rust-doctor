@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
@@ -53,13 +53,43 @@ fn target_root_inventory(metadata: &Metadata) -> SourceFileInventory {
 }
 
 fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> SourceFileInventory {
+    let compiled = compiler_files(metadata, messages);
+    SourceFileInventory {
+        files: compiled.files().count(),
+        production_lines: 0,
+        complete: compiled.complete,
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct CompiledFiles {
+    pub(crate) by_package: BTreeMap<PackageId, BTreeSet<PathBuf>>,
+    pub(crate) complete: bool,
+}
+
+impl CompiledFiles {
+    pub(crate) fn files(&self) -> impl Iterator<Item = &PathBuf> {
+        self.by_package
+            .values()
+            .flatten()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+    }
+}
+
+pub(crate) fn compiled_files(metadata: &Metadata, scan: &ScanExecution) -> Option<CompiledFiles> {
+    let compiled = compiler_files(metadata, &scan.messages);
+    compiled.complete.then_some(compiled)
+}
+
+fn compiler_files(metadata: &Metadata, messages: &[CapturedMessage]) -> CompiledFiles {
     let Ok(workspace_root) = crate::path_form::canonical(metadata.workspace_root.as_std_path()) else {
-        return SourceFileInventory::default();
+        return CompiledFiles::default();
     };
     let (workspace_packages, target_roots, mut complete) =
         workspace_targets(metadata, &workspace_root);
     let expects_artifact = !target_roots.is_empty();
-    let mut files = BTreeSet::new();
+    let mut by_package = BTreeMap::<PackageId, BTreeSet<PathBuf>>::new();
     let mut saw_artifact = false;
     let mut remaining_dep_info_bytes = DEP_INFO_BYTES_LIMIT;
 
@@ -74,6 +104,7 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
             continue;
         }
         saw_artifact = true;
+        let files = by_package.entry(artifact.package_id.clone()).or_default();
         match artifact_source_files(artifact, &workspace_root, &mut remaining_dep_info_bytes) {
             Ok(paths) => files.extend(paths),
             Err(()) => {
@@ -88,15 +119,14 @@ fn compiler_inventory(metadata: &Metadata, messages: &[CapturedMessage]) -> Sour
     }
 
     if expects_artifact && !saw_artifact {
-        files.extend(target_roots);
+        by_package
+            .entry(PackageId { repr: String::new() })
+            .or_default()
+            .extend(target_roots);
         complete = false;
     }
 
-    SourceFileInventory {
-        files: files.len(),
-        production_lines: 0,
-        complete,
-    }
+    CompiledFiles { by_package, complete }
 }
 
 fn workspace_targets(
@@ -338,6 +368,20 @@ mod tests {
                 "target/debug/build/example-a1b2c3/build_script_build-a1b2c3.d"
             ))
         );
+    }
+
+    #[test]
+    fn an_incomplete_dep_info_inventory_publishes_no_compiled_set() {
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .manifest_path(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+            .no_deps()
+            .other_options(["--offline".to_owned()])
+            .exec()
+            .expect("this repository's metadata should load");
+        let scan = ScanExecution::default();
+
+        assert!(!compiler_files(&metadata, &scan.messages).complete);
+        assert_eq!(compiled_files(&metadata, &scan), None);
     }
 
     #[test]

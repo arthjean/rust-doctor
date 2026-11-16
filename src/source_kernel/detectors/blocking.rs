@@ -71,6 +71,32 @@ pub(in crate::source_kernel) static VARIANTS: super::Variants = super::Variants 
             carve_out: "the closure runs on the blocking pool, not on the executor",
         },
         super::Semantic {
+            description: "a blocking write handed to smol::unblock inside an async block",
+            source: "fn save(path: std::path::PathBuf, data: Vec<u8>) -> impl std::future::Future<Output = ()> { async move { let _ = smol::unblock(move || std::fs::write(path, data)).await; } }",
+            fires: false,
+            carve_out: "smol and the blocking crate run an unblock closure on their thread pool",
+        },
+        super::Semantic {
+            description: "a helper reaching std::fs called inside smol::unblock",
+            source: "fn load() -> String { std::fs::read_to_string(\"config.toml\").unwrap_or_default() }
+async fn handler() { let _ = smol::unblock(|| load()).await; }",
+            fires: false,
+            carve_out: "the helper runs inside the offloaded closure, not on the executor",
+        },
+        super::Semantic {
+            description: "a blocking write made directly in an async fn of a crate using smol",
+            source: "async fn save(data: Vec<u8>) { smol::Timer::after(std::time::Duration::from_millis(1)).await; let _ = std::fs::write(\"out\", data); }",
+            fires: true,
+            carve_out: "",
+        },
+        super::Semantic {
+            description: "a local function named unblock that runs its closure inline",
+            source: "fn unblock<T>(work: impl FnOnce() -> T) -> T { work() }
+async fn handler() { let _ = unblock(|| std::fs::read(\"data\")); }",
+            fires: false,
+            carve_out: "the rule reads an offloading call by its name and does not follow a local function of that name, a limit its not_a_defect_when states",
+        },
+        super::Semantic {
             description: "a fully qualified call under the crate's own prelude glob",
             source: "use crate::prelude::*;\nasync fn tick() { std::thread::sleep(std::time::Duration::from_secs(1)); }",
             fires: false,
@@ -105,7 +131,7 @@ static COMMAND: Item = Item {
 
 const WAITING_METHODS: [&str; 2] = ["output", "status"];
 
-const OFFLOADING_CALLS: [&str; 3] = ["block_in_place", "spawn", "spawn_blocking"];
+const OFFLOADING_CALLS: [&str; 4] = ["block_in_place", "spawn", "spawn_blocking", "unblock"];
 
 fn blocking_call(context: &Context<'_>, node: &SyntaxNode) -> Option<Detection> {
     let call = ast::CallExpr::cast(node.clone())?;

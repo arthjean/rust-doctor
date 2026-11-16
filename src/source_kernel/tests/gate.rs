@@ -88,10 +88,13 @@ fn a_target_cargo_already_names_keeps_its_own_context() {
 }
 
 #[test]
-fn a_bench_reach_and_a_gated_reach_abstain_rather_than_arbitrate() {
+fn a_bench_reach_and_a_gated_reach_take_the_benchmark_context() {
     let enumeration = enumerate(&metadata("test-gate"));
 
-    assert_eq!(context_of(&enumeration, "benches/dual.rs"), None);
+    assert_eq!(
+        context_of(&enumeration, "benches/dual.rs"),
+        Some(DiagnosticContext::Benchmark)
+    );
 }
 
 #[test]

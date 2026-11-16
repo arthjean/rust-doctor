@@ -332,7 +332,7 @@ fn seven_rule_policy_matrix_is_deterministic_private_and_non_mutating() {
 
     let (default_exit, default) = &reports["default"];
     assert_eq!(*default_exit, 0);
-    assert_eq!(default["schema_version"], 24);
+    assert_eq!(default["schema_version"], 25);
     assert_eq!(default["status"], "complete");
     assert_eq!(default["summary"]["warnings"], 9);
     assert_eq!(default["summary"]["total"], 9);

@@ -185,6 +185,7 @@ fn report_with_diagnostics(diagnostics: Vec<Diagnostic>) -> InspectReport {
             ignored: 0,
             excluded_generated: 0,
             advisory_db: None,
+            unwalked_compiled_files: None,
             advisory_check: crate::AdvisoryCheck::Published,
         },
         summary: Summary::from_diagnostics(&diagnostics),
@@ -598,6 +599,7 @@ fn complete_analysis_side(
         source_measurement: None,
         source: Some(crate::source_kernel::SourceScan {
             not_evaluated: Vec::new(),
+            embedded: std::collections::BTreeMap::new(),
             candidates: vec![crate::source_kernel::Candidate {
                 definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
                 message: message.into(),
@@ -866,6 +868,7 @@ fn source_candidates_share_identity_while_source_errors_only_make_scans_incomple
     );
     let source = source_kernel::SourceScan {
         not_evaluated: Vec::new(),
+        embedded: std::collections::BTreeMap::new(),
         candidates: vec![source_kernel::Candidate {
             definition: &crate::policy::SOURCE_DYNAMIC_SHELL,
             message: "A dynamic value is interpolated into a shell command string.".into(),

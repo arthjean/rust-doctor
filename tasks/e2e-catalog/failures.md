@@ -319,6 +319,18 @@ BUG-17 (correctness, high). A RustSec database checked out with CRLF line ending
 
 BUG-18 (correctness, high). A database that was found but yields nothing readable (every file skipped, or more than a twentieth of them) publishes `scan.advisory_db` with `advisories: 0`, exit 0 and an authoritative score: "0 advisories" reads as "no vulnerability". Repro: AD-12 on a release before 0.10.1. Fixed by US-005 of the same PRD.
 
+BUG-19 (correctness, high). A module declared through a local `macro_rules!` that writes `mod $name;` is reported as `orphan_module_file` with "delete it", its files are not read, and a dependency only they use reads as unused. Repro: a crate whose `lib.rs` defines `macro_rules! modules { ($($m:ident),*) => { $(pub mod $m;)* }; }` and calls `modules!(alpha, beta);`, scanned on a release before 0.12.0. Fixed by US-017 of `tasks/prd-field-audit-remediation.md`.
+
+BUG-20 (correctness, high). A file Cargo compiled is reported as `orphan_module_file` when another crate's macro declares it. Repro: a member calling `other_member::modules!(alpha, beta);`, scanned with Clippy on a release before 0.12.0: both files are reported although dep-info lists them. Fixed by US-018 of `tasks/prd-field-audit-remediation.md`.
+
+BUG-21 (correctness, medium). `blocking_call_in_async` reports a blocking call inside `smol::unblock`, which already runs it on a thread pool. Repro: `smol::unblock(move || std::fs::write(path, data)).await` in an `async fn`, on a release before 0.12.0. Fixed by US-019 of `tasks/prd-field-audit-remediation.md`.
+
+BUG-22 (correctness, medium). `unreferenced_feature` asks to delete a feature the build script reads through `CARGO_FEATURE_<NAME>`. Repro: `link = []` and a `build.rs` calling `env::var_os("CARGO_FEATURE_LINK")`, on a release before 0.12.0. Fixed by US-020 of `tasks/prd-field-audit-remediation.md`.
+
+BUG-23 (correctness, medium). `secret_in_build_step` reports a value the binary embeds through `option_env!` as a leaked secret, with help about `cargo publish` and OIDC in jobs that never publish. Repro: a workflow step `cargo build` with `ANALYTICS_KEY: ${{ secrets.ANALYTICS_KEY }}` in its env and `option_env!("ANALYTICS_KEY")` in `src/lib.rs`, on a release before 0.12.0. Fixed by US-021 of `tasks/prd-field-audit-remediation.md`.
+
+BUG-24 (correctness, low). A file reached by a build script and by a `#[cfg(test)]` module is scored as production, and a file-level `oversized_unit` counts test items. Repro: `src/shared.rs` included by `build.rs` through `#[path]` and by `#[cfg(test)] mod shared;` in `lib.rs`, on a release before 0.12.0: its findings weigh in the score. Fixed by US-022 of `tasks/prd-field-audit-remediation.md`.
+
 OBS-1. `related[]` is unbounded: 120,000 identical function bodies yield one diagnostic with 119,999 related locations, 12.8 MB of JSON.
 
 OBS-2. A workspace that does not compile shows `100 / 100 Core partial` under a smiling face. It is labeled partial, but a reader skimming the block sees a perfect score.

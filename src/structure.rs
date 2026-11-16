@@ -203,6 +203,7 @@ struct Unit<'a> {
     path: &'a str,
     context: Option<DiagnosticContext>,
     packages: Vec<&'a str>,
+    scripted_by: Vec<&'a str>,
     inventory: Inventory,
 }
 
@@ -217,6 +218,7 @@ impl<'a> Unit<'a> {
             path: unit.relative_path(),
             context: unit.context(enumeration.contexts()),
             packages: unit.package_ids().collect(),
+            scripted_by: unit.build_script_packages(enumeration.contexts()).collect(),
         }
     }
 
@@ -232,6 +234,7 @@ impl<'a> Unit<'a> {
             path,
             context: None,
             packages: vec!["probe"],
+            scripted_by: Vec::new(),
         }
     }
 

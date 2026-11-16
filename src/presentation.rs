@@ -439,6 +439,7 @@ mod tests {
                 ignored: 0,
                 excluded_generated: 0,
                 advisory_db: None,
+                unwalked_compiled_files: None,
                 advisory_check: crate::AdvisoryCheck::Published,
             },
             diagnostics,

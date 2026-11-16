@@ -222,10 +222,10 @@ pub(crate) static SOURCE_BLOCKING_IN_ASYNC: RuleDefinition = RuleDefinition {
     producer: Producer::SourceKernel,
     default_level: RuleLevel::Warn,
     tier: RuleTier::P2,
-    help: "Use the async equivalent (tokio::fs, tokio::time::sleep, tokio::process, reqwest's async client) or move the call into tokio::task::spawn_blocking; the rule also follows a call into a synchronous helper of the same file, four helpers deep, and reports it at the call made from async code.",
+    help: "Use the async equivalent (tokio::fs, tokio::time::sleep, tokio::process, reqwest's async client) or move the call into tokio::task::spawn_blocking or smol::unblock; the rule also follows a call into a synchronous helper of the same file, four helpers deep, and reports it at the call made from async code.",
     diff_scope: DiffScope::Item,
     title: "Blocking call made directly inside async code",
-    not_a_defect_when: "The call runs once at startup before the runtime serves concurrent tasks, such as reading a config file at the top of an async main, or the future is driven by block_on on a dedicated thread.",
+    not_a_defect_when: "The call runs once at startup before the runtime serves concurrent tasks, such as reading a config file at the top of an async main, or the future is driven by block_on on a dedicated thread. A closure passed to a call named spawn_blocking, block_in_place, spawn or unblock is taken as offloaded, so a local function of that name that runs it inline is not reported.",
     requires: &[],
 };
 pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {

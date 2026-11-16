@@ -459,5 +459,47 @@
     "status": "fixed",
     "fixed_by": "US-005",
     "defect": "A database that was found but yields nothing readable reports zero advisories under a complete scan and an authoritative score"
+  },
+  {
+    "id": "failures/BUG-19",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-017",
+    "defect": "A module declared through a local `macro_rules!` that writes `mod $name;` is reported as `orphan_module_file` with \"delete it\", its files are not read, and a dependency only they use reads as unused"
+  },
+  {
+    "id": "failures/BUG-20",
+    "severity": "high",
+    "status": "fixed",
+    "fixed_by": "US-018",
+    "defect": "A file Cargo compiled is reported as `orphan_module_file` when another crate's macro declares it"
+  },
+  {
+    "id": "failures/BUG-21",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-019",
+    "defect": "`blocking_call_in_async` reports a blocking call inside `smol::unblock`, which already runs it on a thread pool"
+  },
+  {
+    "id": "failures/BUG-22",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-020",
+    "defect": "`unreferenced_feature` asks to delete a feature the build script reads through `CARGO_FEATURE_<NAME>`"
+  },
+  {
+    "id": "failures/BUG-23",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-021",
+    "defect": "`secret_in_build_step` reports a value the binary embeds through `option_env!` as a leaked secret, with help about `cargo publish` and OIDC in jobs that never publish"
+  },
+  {
+    "id": "failures/BUG-24",
+    "severity": "low",
+    "status": "fixed",
+    "fixed_by": "US-022",
+    "defect": "A file reached by a build script and by a `#[cfg(test)]` module is scored as production, and a file-level `oversized_unit` counts test items"
   }
 ]

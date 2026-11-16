@@ -242,22 +242,39 @@ fn a_test_reference_names_a_function_that_still_exists() {
     let index = evidence();
 
     for entry in entries(&index) {
-        let Some(reference) = entry["test"].as_str() else {
-            continue;
-        };
         let id = entry["id"].as_str().expect("an entry names its rule");
-        let (file, function) = reference
-            .rsplit_once("::")
-            .expect("a test reference is <file>::<function>");
-        let path = repository().join(file);
-        assert!(path.exists(), "{id} points at the missing {file}");
-
-        let source = fs::read_to_string(&path).expect("the test file should be readable");
-        assert!(
-            source.contains(&format!("fn {function}(")),
-            "{file} no longer defines {function}, which {id} relies on"
-        );
+        let quiet = entry.get("quiet_on").map_or_else(Vec::new, |cases| {
+            cases
+                .as_array()
+                .expect("quiet_on is an array")
+                .iter()
+                .map(|case| {
+                    assert!(
+                        case["case"].as_str().is_some_and(|text| !text.is_empty()),
+                        "{id} records a quiet case that states nothing"
+                    );
+                    case["test"].as_str().expect("a quiet case names its test")
+                })
+                .collect()
+        });
+        for reference in entry["test"].as_str().into_iter().chain(quiet) {
+            assert_test_exists(id, reference);
+        }
     }
+}
+
+fn assert_test_exists(id: &str, reference: &str) {
+    let (file, function) = reference
+        .rsplit_once("::")
+        .expect("a test reference is <file>::<function>");
+    let path = repository().join(file);
+    assert!(path.exists(), "{id} points at the missing {file}");
+
+    let source = fs::read_to_string(&path).expect("the test file should be readable");
+    assert!(
+        source.contains(&format!("fn {function}(")),
+        "{file} no longer defines {function}, which {id} relies on"
+    );
 }
 
 #[test]

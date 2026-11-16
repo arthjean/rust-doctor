@@ -30,6 +30,7 @@ pub(super) struct Uses {
     included: BTreeSet<String>,
     scripted: BTreeSet<String>,
     features: Vec<Reference>,
+    build_reads: BTreeMap<String, BTreeSet<String>>,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,7 @@ pub(super) fn observe(unit: &Unit<'_>, active: &ActiveRules, uses: &mut Uses) {
         }
     }
     if features {
+        read_build_script_features(unit, uses);
         for attribute in &unit.inventory.attributes {
             if reads_a_cfg(attribute) {
                 let node = attribute.syntax();
@@ -71,6 +73,36 @@ fn read_scripted_paths(unit: &Unit<'_>, uses: &mut Uses) {
             uses.scripted.insert(name.to_string_lossy().into_owned());
         }
     }
+}
+
+const FEATURE_VARIABLE: &str = "CARGO_FEATURE_";
+
+fn read_build_script_features(unit: &Unit<'_>, uses: &mut Uses) {
+    if unit.scripted_by.is_empty() {
+        return;
+    }
+    let names: Vec<String> = unit
+        .source
+        .match_indices(FEATURE_VARIABLE)
+        .map(|(start, _)| {
+            unit.source
+                .get(start + FEATURE_VARIABLE.len()..)
+                .unwrap_or_default()
+                .chars()
+                .take_while(|character| character.is_ascii_uppercase() || character.is_ascii_digit() || *character == '_')
+                .collect()
+        })
+        .collect();
+    for package in &unit.scripted_by {
+        uses.build_reads
+            .entry((*package).to_owned())
+            .or_default()
+            .extend(names.iter().cloned());
+    }
+}
+
+fn build_variable(feature: &str) -> String {
+    feature.to_uppercase().replace('-', "_")
 }
 
 fn read_macro_call(
@@ -312,11 +344,16 @@ fn unreferenced_declarations(
             .filter(|reference| reference.packages.contains(package.id.repr.as_str()))
             .map(|reference| reference.feature.as_str())
             .collect();
+        let build_reads = uses.build_reads.get(package.id.repr.as_str());
+        let read_by_build = |feature: &str| {
+            build_reads.is_some_and(|names| names.contains("") || names.contains(&build_variable(feature)))
+        };
         let unreferenced: Vec<&String> = package
             .features
             .iter()
             .filter(|(feature, activates)| {
-                feature.as_str() != "default"
+                !read_by_build(feature)
+                    && feature.as_str() != "default"
                     && !optional.contains(feature.as_str())
                     && activates.is_empty()
                     && !listed.contains(feature.as_str())

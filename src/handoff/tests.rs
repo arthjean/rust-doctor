@@ -76,6 +76,7 @@ fn report() -> InspectReport {
             ignored: 0,
             excluded_generated: 0,
             advisory_db: None,
+            unwalked_compiled_files: None,
             advisory_check: rust_doctor::AdvisoryCheck::Published,
         },
         diagnostics,

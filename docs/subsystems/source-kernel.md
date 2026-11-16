@@ -22,12 +22,11 @@ order mark and LF endings: a CRLF checkout read raw made every string literal
 spanning lines a parse error, and a Windows scan withheld those files.
 
 One answer to unanimity. A file several targets reach publishes only what all of
-them agree on: its package, its target, its non-production context, the crate
-aliases in scope, the identity a candidate two units emit is merged under. Six
-places used to answer that question with six different pieces of code.
-`unanimous` is the one answer, and disagreement abstains rather than
-arbitrating, because a finding naming the wrong package is worse than a finding
-naming none.
+them agree on: its package, its target, the crate aliases in scope, the
+identity two units merge a candidate under. `unanimous` is the one answer, and
+disagreement abstains, because a finding naming the wrong package is worse than
+one naming none. Context alone arbitrates: one production route makes the file
+production, else it takes the first of build script, benchmark, example, tests.
 
 One typed outcome per load. `Loaded` says whether a file was skipped or whether
 the global byte budget is gone, since only the second ends the walk. That

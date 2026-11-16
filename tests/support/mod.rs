@@ -203,7 +203,7 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     if let Some(summary) = find(&projected, 0, b"\"rule_count_matches\":") {
         projected = remove_member(&projected, summary, "rule_count_matches");
     }
-    for added in ["ignore", "overrides", "suppressions", "ignored", "excluded_generated", "advisory_db"] {
+    for added in ["ignore", "overrides", "suppressions", "ignored", "excluded_generated", "advisory_db", "unwalked_compiled_files"] {
         if let Some(member) = find(&projected, 0, format!("\"{added}\":").as_bytes()) {
             projected = remove_member(&projected, member, added);
         }

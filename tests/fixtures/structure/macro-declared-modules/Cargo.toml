@@ -1,0 +1,14 @@
+[package]
+name = "macro-declared-modules"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = ["crates/probe"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+probe = { path = "crates/probe" }

@@ -1,0 +1,17 @@
+[package]
+name = "build-script-features"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+link = []
+foo-bar = []
+unused = []

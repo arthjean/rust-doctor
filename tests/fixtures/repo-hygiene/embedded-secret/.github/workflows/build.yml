@@ -1,0 +1,27 @@
+name: build
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        env:
+          ANALYTICS_KEY: ${{ secrets.ANALYTICS_KEY }}
+        run: cargo build --release
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: cargo check
+  signed:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Test
+        env:
+          TEST_ONLY_TOKEN: ${{ secrets.TEST_ONLY_TOKEN }}
+        run: cargo test

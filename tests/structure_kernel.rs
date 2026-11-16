@@ -702,7 +702,7 @@ fn the_oversized_units_reach_the_report_and_the_generated_file_does_not() {
     assert!(named.iter().all(|(path, _)| *path == "src/lib.rs"), "{named:#?}");
     assert!(
         named.iter().any(|(_, message)| message.starts_with("src/lib.rs is ")
-            && message.ends_with(" lines long.")),
+            && message.ends_with(" outside test code.")),
         "{named:#?}"
     );
     assert!(

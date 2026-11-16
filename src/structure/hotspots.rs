@@ -3,7 +3,7 @@ use ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode};
 
 use super::{Observation, StructureSettings, Unit, test_context};
 use crate::policy::{ActiveRules, RuleDefinition, STRUCTURE_COMPLEX_FUNCTION, STRUCTURE_OVERSIZED_UNIT};
-use crate::report::ComplexityFigures;
+use crate::report::{ComplexityFigures, DiagnosticContext};
 use crate::source_text::compact;
 
 pub(super) const RULES: [&RuleDefinition; 2] =
@@ -68,15 +68,21 @@ fn oversized(unit: &Unit<'_>, node: &SyntaxNode) -> Option<Observation> {
         return None;
     }
     let label = label(unit, node)?;
-    let subject = match node.kind() {
-        SyntaxKind::SOURCE_FILE => format!("{label} is {lines} lines long."),
-        _ => format!("{label} spans {lines} lines."),
+    let mut context = test_context(node).or(unit.context);
+    let subject = if node.kind() == SyntaxKind::SOURCE_FILE {
+        let outside = lines.saturating_sub(crate::source_kernel::test_gated_lines(unit.source, &unit.tree));
+        if outside < limit {
+            context = context.or(Some(DiagnosticContext::Tests));
+        }
+        format!("{label} is {lines} lines long, {outside} outside test code.")
+    } else {
+        format!("{label} spans {lines} lines.")
     };
     Some(Observation {
         key: format!("{tag}|{}|{label}", unit.path),
         subject,
         span: unit.span(node),
-        context: test_context(node).or(unit.context),
+        context,
         complexity: None,
     })
 }
@@ -419,7 +425,7 @@ mod tests {
         );
         assert!(
             observed[0].1.subject.starts_with("src/lib.rs is ")
-                && observed[0].1.subject.ends_with(" lines long."),
+                && observed[0].1.subject.ends_with(" outside test code."),
             "{}",
             observed[0].1.subject
         );
@@ -494,8 +500,25 @@ mod tests {
         assert_eq!(observed.len(), 1);
         assert_eq!(
             observed[0].1.subject,
-            format!("src/lib.rs is {FILE_LINES} lines long.")
+            format!("src/lib.rs is {FILE_LINES} lines long, {FILE_LINES} outside test code.")
         );
+        assert_eq!(observed[0].1.context, None);
+
+        let tested = format!(
+            "pub fn kept() {{}}\n#[cfg(test)]\nmod tests {{\n{}}}\n",
+            "    fn filler() {}\n".repeat(FILE_LINES)
+        );
+        let observed = observe(&unit(&tested), &StructureSettings::default(), &size_only());
+        let file: Vec<_> = observed
+            .iter()
+            .filter(|(_, entry)| entry.subject.starts_with("src/lib.rs is "))
+            .collect();
+        assert_eq!(file.len(), 1, "{} observations", observed.len());
+        assert_eq!(
+            file[0].1.subject,
+            format!("src/lib.rs is {} lines long, 1 outside test code.", FILE_LINES + 4)
+        );
+        assert_eq!(file[0].1.context, Some(DiagnosticContext::Tests));
     }
 
     #[test]

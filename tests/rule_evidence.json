@@ -599,7 +599,13 @@
     {
       "catches": "a GitHub Actions step that compiles the workspace while a secret is in its step, job or workflow env",
       "id": "rust_doctor::repo::secret_in_build_step",
-      "test": "tests/repo_hygiene.rs::a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line"
+      "test": "tests/repo_hygiene.rs::a_step_compiling_with_a_secret_in_scope_is_reported_at_its_run_line",
+      "quiet_on": [
+        {
+          "case": "a secret variable an env! or option_env! of production code embeds, published at Info with a message naming the embedding site",
+          "test": "tests/detector_false_positives.rs::a_secret_the_build_embeds_is_reported_at_info_for_what_it_is"
+        }
+      ]
     },
     {
       "catches": "a git-tracked file whose name marks it as secret-bearing",
@@ -626,7 +632,13 @@
     {
       "catches": "a blocking std, reqwest::blocking or process call made directly inside async code",
       "id": "rust_doctor::source::blocking_call_in_async",
-      "oracle": "source-kernel/native-families/oracle.json"
+      "oracle": "source-kernel/native-families/oracle.json",
+      "quiet_on": [
+        {
+          "case": "a blocking call inside a closure passed to smol::unblock",
+          "test": "tests/regression_seeds.rs::every_regression_seed_keeps_its_declared_verdict"
+        }
+      ]
     },
     {
       "catches": "jsonwebtoken signature validation turned off, or a token decoded without it",
@@ -695,7 +707,13 @@
     {
       "catches": "a Rust file no module declaration of its package reaches, which Cargo therefore never compiles",
       "id": "rust_doctor::structure::orphan_module_file",
-      "test": "tests/structure_kernel.rs::the_orphan_rule_names_the_file_cargo_never_compiles"
+      "test": "tests/structure_kernel.rs::the_orphan_rule_names_the_file_cargo_never_compiles",
+      "quiet_on": [
+        {
+          "case": "a module file a local macro_rules! declares through a `mod $name;` transcriber",
+          "test": "tests/detector_false_positives.rs::a_module_a_local_macro_declares_is_walked_like_any_other"
+        }
+      ]
     },
     {
       "catches": "a file, function, impl block or module grown past the line count a reviewer holds in one sitting",
@@ -715,7 +733,13 @@
     {
       "catches": "a feature the manifest declares that no cfg reads and that activates nothing, or a cfg(feature = \"...\") naming a feature its own package does not declare",
       "id": "rust_doctor::structure::unreferenced_feature",
-      "test": "tests/structure_kernel.rs::the_feature_inventory_reports_both_sides_of_the_disagreement"
+      "test": "tests/structure_kernel.rs::the_feature_inventory_reports_both_sides_of_the_disagreement",
+      "quiet_on": [
+        {
+          "case": "a feature its build script reads through CARGO_FEATURE_<NAME>, in build.rs or a module it declares",
+          "test": "tests/detector_false_positives.rs::a_feature_the_build_script_reads_is_referenced"
+        }
+      ]
     }
   ],
   "schema_version": 1

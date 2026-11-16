@@ -1,0 +1,4 @@
+rule = "rust_doctor::source::blocking_call_in_async"
+weakness = "api-variant"
+source = "field audit 2026-11-15, 6 of 6 findings inside smol::unblock, fixed by US-019"
+verdict = "quiet"

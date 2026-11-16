@@ -5,7 +5,7 @@ use cargo_metadata::Metadata;
 
 use super::normalize::{
     canonical_severity, compare_diagnostics, compare_optional_paths, merge_compiler_messages,
-    merge_diagnostic, normalize_cargo_health_candidate, normalize_repo_finding,
+    merge_diagnostic, normalize_cargo_health_candidate,
     normalize_source_candidate, normalize_structure_finding,
 };
 use super::exclusion::{self, Exclusion};
@@ -244,32 +244,25 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         .metadata
         .as_ref()
         .map(|metadata| metadata.workspace_root.as_std_path());
-    let (diagnostics, exclusion) = plan.map_or_else(
-        || (Vec::new(), Exclusion::default()),
+    let (diagnostics, exclusion, unwalked) = plan.map_or_else(
+        || (Vec::new(), Exclusion::default(), None),
         |plan| diagnostics_from_execution(&result, plan, scope.as_ref(), &home),
     );
     let summary = Summary::from_diagnostics(&diagnostics);
     let gate = evaluate_gate(status, &diagnostics, blocking);
     let project = project_report(result.manifest_path.as_deref(), result.metadata.as_ref());
-    let scan = scan_report(
+    let mut scan = scan_report(
         result.scan.finished(),
         &exclusion,
         result.cargo_health.as_ref().map(|health| &health.advisory),
         workspace_root,
         &home,
     );
+    scan.unwalked_compiled_files = unwalked;
     let errors = report_errors(&result, workspace_root, &home);
-    let source_inventory =
-        result
-            .metadata
-            .as_ref()
-            .map_or_else(SourceFileInventory::default, |metadata| {
-                audit::source_file_inventory(
-                    metadata,
-                    result.scan.finished(),
-                    result.source_measurement.as_ref(),
-                )
-            });
+    let source_inventory = result.metadata.as_ref().map_or_else(SourceFileInventory::default, |metadata| {
+        audit::source_file_inventory(metadata, result.scan.finished(), result.source_measurement.as_ref())
+    });
     let not_evaluated = not_evaluated(&result, plan);
     let unevaluated = not_evaluated.iter().any(|(_, reason)| {
         !matches!(
@@ -415,16 +408,14 @@ fn diagnostics_from_execution(
     plan: &PolicyPlan,
     scope: Option<&ScopeReport>,
     home: &HomePaths,
-) -> (Vec<Diagnostic>, Exclusion) {
-    if classify(result) == Status::Failed {
-        return (Vec::new(), Exclusion::default());
-    }
+) -> (Vec<Diagnostic>, Exclusion, Option<usize>) {
     let Some(workspace_root) = result
         .metadata
         .as_ref()
+        .filter(|_| classify(result) != Status::Failed)
         .map(|metadata| metadata.workspace_root.as_std_path())
     else {
-        return (Vec::new(), Exclusion::default());
+        return (Vec::new(), Exclusion::default(), None);
     };
 
     let mut merged = BTreeMap::<String, Diagnostic>::new();
@@ -463,19 +454,20 @@ fn diagnostics_from_execution(
     for finding in result.repo.iter().flat_map(|scan| &scan.findings) {
         merge_diagnostic(
             &mut merged,
-            normalize_repo_finding(finding, workspace_root, home),
+            super::reconcile::repo_finding(finding, result, workspace_root, home),
         );
     }
 
     let mut diagnostics: Vec<_> = merged.into_values().collect();
     apply_policy(&mut diagnostics, plan);
+    let unwalked = super::reconcile::apply(&mut diagnostics, result);
     let exclusion =
         exclusion::apply(&mut diagnostics, plan, &result.exclusions, &dependency_keys);
     if let Some(scope) = scope {
         project_diagnostics(&mut diagnostics, scope, workspace_root);
     }
     diagnostics.sort_by(compare_diagnostics);
-    (diagnostics, exclusion)
+    (diagnostics, exclusion, unwalked)
 }
 
 pub(crate) fn preparation_failure(
@@ -666,6 +658,7 @@ fn scan_report(
         noise_lines: scan.map(|scan| scan.noise_lines),
         ignored: exclusion.ignored,
         excluded_generated: exclusion.excluded_generated,
+        unwalked_compiled_files: None,
         advisory_db: match advisory {
             Some(AdvisoryOutcome::Consulted(report)) => Some(report.clone()),
             _ => None,

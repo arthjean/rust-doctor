@@ -108,7 +108,7 @@ fn fixture_report() -> InspectReport {
         .collect();
     let summary = Summary::from_diagnostics(&diagnostics);
     InspectReport {
-        schema_version: 24,
+        schema_version: rust_doctor::SCHEMA_VERSION,
         audit: Audit::build(DIAGNOSTICS, DIAGNOSTICS * 100, Status::Complete, &diagnostics),
         status: Status::Complete,
         complete: true,
@@ -131,6 +131,7 @@ fn fixture_report() -> InspectReport {
             ignored: 0,
             excluded_generated: 0,
             advisory_db: None,
+            unwalked_compiled_files: None,
             advisory_check: rust_doctor::AdvisoryCheck::Published,
         },
         diagnostics,

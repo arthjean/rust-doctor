@@ -90,7 +90,7 @@ fn an_await_added_under_a_held_lock_is_the_changes_finding_under_a_contextual_sc
 
     let contextual = scan(&root, "contextual");
     assert_eq!(contextual["scope"]["mode"], "contextual", "{contextual}");
-    assert_eq!(contextual["schema_version"], 24);
+    assert_eq!(contextual["schema_version"], 25);
     assert_eq!(holding_lock(&contextual), 1, "{contextual}");
     let lines = scan(&root, "lines");
     assert_eq!(holding_lock(&lines), 0, "{lines}");

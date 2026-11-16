@@ -22,6 +22,9 @@ pub(super) fn render_narrowing<W: Write>(
             Style::Muted,
         )?;
     }
+    if let Some(count) = scan.unwalked_compiled_files.filter(|count| *count > 0) {
+        line(writer, &unwalked(count), options, Style::Muted)?;
+    }
     if let Some(summary) = suppression_summary(report) {
         line(writer, &summary, options, Style::Muted)?;
     }
@@ -43,6 +46,17 @@ pub(super) fn render_narrowing<W: Write>(
         }
     }
     Ok(())
+}
+
+pub(super) fn unwalked(count: usize) -> String {
+    let (files, were, they, are) = if count == 1 {
+        ("file", "was", "it", "is")
+    } else {
+        ("files", "were", "they", "are")
+    };
+    format!(
+        "{count} compiled {files} {were} not read by the native rules: {they} {are} declared in a way the module walk cannot follow."
+    )
 }
 
 fn findings(count: usize) -> String {

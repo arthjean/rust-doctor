@@ -35,6 +35,8 @@ pub(crate) struct SourceFileInventory {
     pub(crate) complete: bool,
 }
 
+pub(crate) use source_inventory::{CompiledFiles, compiled_files};
+
 pub(crate) fn source_file_inventory(
     metadata: &Metadata,
     scan: Option<&ScanExecution>,
