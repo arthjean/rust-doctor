@@ -9,6 +9,7 @@ fn score(value: u8, label: ScoreLabel, authoritative: bool) -> AuditScore {
         value,
         label,
         authoritative,
+        unverified: Vec::new(),
         reasons: if authoritative {
             Vec::new()
         } else {

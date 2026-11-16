@@ -274,6 +274,19 @@ fn without_a_database_both_rules_are_not_evaluated_and_the_score_keeps_its_autho
     assert!(report["scan"].get("advisory_db").is_none());
     assert_eq!(report["audit"]["score"]["authoritative"], true);
     assert_eq!(report["audit"]["score"]["reasons"], serde_json::json!([]));
+    assert_eq!(report["audit"]["score"]["unverified"], serde_json::json!(["advisories"]));
+
+    let turned_off = json(&root, &["--advisory-db", "/dev/null"]);
+    assert_eq!(turned_off["audit"]["score"]["unverified"], serde_json::json!(["advisories"]));
+    assert_eq!(turned_off["audit"]["score"]["authoritative"], true);
+
+    let one_rule = json(&root, &["--rule", &format!("{VULNERABLE}=off")]);
+    assert_eq!(one_rule["audit"]["score"]["unverified"], serde_json::json!(["advisories"]));
+    let neither = json(
+        &root,
+        &["--rule", &format!("{VULNERABLE}=off"), "--rule", &format!("{UNMAINTAINED}=off")],
+    );
+    assert_eq!(neither["audit"]["score"]["unverified"], serde_json::json!([]));
 
     let terminal = String::from_utf8(scan(&root, &[]).stdout).unwrap();
     let said = unwrapped(&terminal);
@@ -327,6 +340,7 @@ fn a_consulted_database_leaves_no_unchecked_line_under_the_score() {
     let report = json(&root, &["--advisory-db", named.to_str().unwrap()]);
     assert_eq!(report["status"], "complete");
     assert_eq!(report["audit"]["score"]["authoritative"], true);
+    assert_eq!(report["audit"]["score"]["unverified"], serde_json::json!([]));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -400,6 +414,7 @@ fn a_database_that_cannot_be_read_fails_the_dependency_stage() {
     );
     assert_eq!(report["audit"]["score"]["authoritative"], false);
     assert_eq!(report["audit"]["score"]["reasons"], serde_json::json!(["stage-failed"]));
+    assert_eq!(report["audit"]["score"]["unverified"], serde_json::json!(["advisories"]));
     for id in [VULNERABLE, UNMAINTAINED] {
         assert_eq!(rule(&report, id)["not_evaluated"], "advisory-db-missing");
         assert!(findings(&report, id).is_empty());

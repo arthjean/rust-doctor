@@ -186,6 +186,9 @@ pub(crate) fn project_current_wire_to_v7(output: &[u8]) -> Vec<u8> {
     while let Some(diagnostic) = find(&projected, 0, b"\"unscored\":") {
         projected = remove_member(&projected, diagnostic, "unscored");
     }
+    while let Some(diagnostic) = find(&projected, 0, b"\"cause\":") {
+        projected = remove_member(&projected, diagnostic, "cause");
+    }
     if let Some(toolchain) = find(&projected, 0, b"\"rust_doctor\":") {
         projected = remove_member(&projected, toolchain, "rust_doctor");
     }

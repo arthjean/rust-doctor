@@ -11,6 +11,7 @@ pub(crate) static CARGO_DUPLICATE_MAJOR_VERSIONS: RuleDefinition = RuleDefinitio
     title: "Two major versions of one crate resolved",
     not_a_defect_when: "The duplicate comes from transitive dependencies mid-migration whose types never cross between the two versions in this workspace's code, so it costs only build time until upstream aligns.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_MISSING_LOCKFILE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::missing_lockfile",
@@ -23,6 +24,7 @@ pub(crate) static CARGO_MISSING_LOCKFILE: RuleDefinition = RuleDefinition {
     title: "Binary crate without a committed Cargo.lock",
     not_a_defect_when: "The binary is an internal example or dev tool in a library repository that deliberately leaves Cargo.lock untracked so CI exercises the latest compatible dependency versions.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::permissive_lint_table",
@@ -35,6 +37,7 @@ pub(crate) static CARGO_PERMISSIVE_LINT_TABLE: RuleDefinition = RuleDefinition {
     title: "Manifest [lints] entry allowing an active catalogued rule",
     not_a_defect_when: "The allowed lint contradicts the crate's documented purpose, such as print_stdout allowed in a CLI crate whose job is terminal output, and the reason is recorded beside the entry.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_PERMISSIVE_RUSTFLAGS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::permissive_rustflags",
@@ -47,6 +50,7 @@ pub(crate) static CARGO_PERMISSIVE_RUSTFLAGS: RuleDefinition = RuleDefinition {
     title: "Check-disabling rustflag in .cargo/config.toml",
     not_a_defect_when: "The config is used only by a dedicated benchmarking or fuzzing setup, never by the build that ships or the one CI tests.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_RELEASE_DEBUG_SYMBOLS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::release_debug_symbols",
@@ -59,6 +63,7 @@ pub(crate) static CARGO_RELEASE_DEBUG_SYMBOLS: RuleDefinition = RuleDefinition {
     title: "Release profile shipping full unstripped debug info",
     not_a_defect_when: "The release binary never leaves the build machine, or the packaging step splits and strips the debug info (split-debuginfo, objcopy, a symbol server) before anything ships.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_TEST_ONLY_DEPENDENCY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::test_only_dependency",
@@ -71,6 +76,7 @@ pub(crate) static CARGO_TEST_ONLY_DEPENDENCY: RuleDefinition = RuleDefinition {
     title: "Regular dependency only used by tests or examples",
     not_a_defect_when: "Library consumers really need the crate through a path the scan cannot see, such as a public macro's expansion that names it or a feature-gated module.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_UNUSED_DEPENDENCY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unused_dependency",
@@ -83,6 +89,7 @@ pub(crate) static CARGO_UNUSED_DEPENDENCY: RuleDefinition = RuleDefinition {
     title: "Declared dependency no source references",
     not_a_defect_when: "The crate is needed only for linking or a side effect, such as a native library or an allocator, or it is referenced solely through macro expansion or doctests, which the scan does not see.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_UNCHECKED_RELEASE_OVERFLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unchecked_release_overflow",
@@ -95,6 +102,7 @@ pub(crate) static CARGO_UNCHECKED_RELEASE_OVERFLOW: RuleDefinition = RuleDefinit
     title: "Release binary built without overflow checks",
     not_a_defect_when: "Profiling shows the checks cost measurable throughput in a hot integer path, and the code uses explicit checked_ or wrapping_ arithmetic wherever overflow matters.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_UNMAINTAINED_DEPENDENCY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unmaintained_dependency",
@@ -107,6 +115,7 @@ pub(crate) static CARGO_UNMAINTAINED_DEPENDENCY: RuleDefinition = RuleDefinition
     title: "Lockfile crate flagged unmaintained by RustSec",
     not_a_defect_when: "The crate is small, finished and free of any vulnerability advisory, no maintained replacement exists, and the team accepts owning fixes if one is ever needed.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_VULNERABLE_DEPENDENCY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::vulnerable_dependency",
@@ -119,6 +128,7 @@ pub(crate) static CARGO_VULNERABLE_DEPENDENCY: RuleDefinition = RuleDefinition {
     title: "Lockfile crate with a RustSec vulnerability advisory",
     not_a_defect_when: "The advisory's affected function or feature is unreachable from this workspace, such as an API the code never calls or a disabled feature, and no patched release is available yet.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::path_dependency_outside_workspace",
@@ -131,6 +141,7 @@ pub(crate) static CARGO_PATH_DEPENDENCY_OUTSIDE_WORKSPACE: RuleDefinition = Rule
     title: "Path dependency resolving outside the scanned workspace",
     not_a_defect_when: "Every build environment provides the target directory on purpose, such as a git submodule or a monorepo directory above the scanned workspace root.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unbounded_registry_dependency",
@@ -143,6 +154,7 @@ pub(crate) static CARGO_UNBOUNDED_REGISTRY: RuleDefinition = RuleDefinition {
     title: "Registry dependency accepting any version",
     not_a_defect_when: "The requirement sits in an unpublished internal tool built only with a committed Cargo.lock and --locked, so the lockfile is the real pin and no consumer resolves the open requirement.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CARGO_UNPINNED_GIT: RuleDefinition = RuleDefinition {
     id: "rust_doctor::cargo::unpinned_git_dependency",
@@ -155,6 +167,7 @@ pub(crate) static CARGO_UNPINNED_GIT: RuleDefinition = RuleDefinition {
     title: "Git dependency pinned by branch or tag",
     not_a_defect_when: "The tag lives in a repository the team controls where tags are immutable by policy, and Cargo.lock is committed, so the resolved commit is already fixed for every build.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static REPO_HARDCODED_CREDENTIAL: RuleDefinition = RuleDefinition {
     id: "rust_doctor::repo::hardcoded_credential",
@@ -167,6 +180,7 @@ pub(crate) static REPO_HARDCODED_CREDENTIAL: RuleDefinition = RuleDefinition {
     title: "Credential-shaped literal in tracked source",
     not_a_defect_when: "The literal is a documented fake that grants access to nothing, such as a vendor's published example key or a throwaway key generated solely for a test fixture.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static REPO_IGNORED_LOCKFILE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::repo::ignored_lockfile",
@@ -179,6 +193,7 @@ pub(crate) static REPO_IGNORED_LOCKFILE: RuleDefinition = RuleDefinition {
     title: "Binary's Cargo.lock ignored by git",
     not_a_defect_when: "The repository builds only libraries, or the ignored lockfile belongs to an example that CI deliberately resolves fresh against the latest compatible versions.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static REPO_SECRET_IN_BUILD_STEP: RuleDefinition = RuleDefinition {
     id: "rust_doctor::repo::secret_in_build_step",
@@ -191,6 +206,7 @@ pub(crate) static REPO_SECRET_IN_BUILD_STEP: RuleDefinition = RuleDefinition {
     title: "CI step compiles with a secret in scope",
     not_a_defect_when: "Every dependency compiled in the step is vendored or pinned and audited, or the secret grants nothing a build script could abuse, such as a read-only token for a public resource.",
     requires: &[],
+    cause: Some(crate::policy::CauseKey::StepVariable),
 };
 pub(crate) static REPO_TRACKED_SECRET_FILE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::repo::tracked_secret_file",
@@ -203,6 +219,7 @@ pub(crate) static REPO_TRACKED_SECRET_FILE: RuleDefinition = RuleDefinition {
     title: "Secret-bearing file tracked by git",
     not_a_defect_when: "The .pem or .key file holds only public material, such as a CA certificate or a public verification key, so committing it leaks nothing.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static REPO_UNIGNORED_BUILD_OUTPUT: RuleDefinition = RuleDefinition {
     id: "rust_doctor::repo::unignored_build_output",
@@ -215,6 +232,7 @@ pub(crate) static REPO_UNIGNORED_BUILD_OUTPUT: RuleDefinition = RuleDefinition {
     title: "Cargo target directory not ignored by git",
     not_a_defect_when: "Every build of the repository writes to a target directory outside the checkout through CARGO_TARGET_DIR or a user-level Cargo config, so no build output can ever appear inside it.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static SOURCE_BLOCKING_IN_ASYNC: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::blocking_call_in_async",
@@ -227,6 +245,7 @@ pub(crate) static SOURCE_BLOCKING_IN_ASYNC: RuleDefinition = RuleDefinition {
     title: "Blocking call made directly inside async code",
     not_a_defect_when: "The call runs once at startup before the runtime serves concurrent tasks, such as reading a config file at the top of an async main, or the future is driven by block_on on a dedicated thread. A closure passed to a call named spawn_blocking, block_in_place, spawn or unblock is taken as offloaded, so a local function of that name that runs it inline is not reported.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::disabled_tls_verification",
@@ -239,6 +258,7 @@ pub(crate) static SOURCE_DISABLED_TLS: RuleDefinition = RuleDefinition {
     title: "TLS certificate or hostname verification turned off",
     not_a_defect_when: "The client only talks to a local test server with a self-signed certificate, in test code or behind an explicit opt-in flag production builds never set.",
     requires: &[CrateGate { krate: "reqwest", versions: "*" }],
+    cause: None,
 };
 pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::dynamic_shell_command",
@@ -251,6 +271,7 @@ pub(crate) static SOURCE_DYNAMIC_SHELL: RuleDefinition = RuleDefinition {
     title: "Shell command string built from runtime values",
     not_a_defect_when: "Every interpolated value is program-controlled, such as a path from CARGO_MANIFEST_DIR in a build script or a subcommand chosen from a fixed enum, so no untrusted input reaches the shell.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static SOURCE_SQL_FROM_FORMAT: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::sql_built_from_format",
@@ -263,6 +284,7 @@ pub(crate) static SOURCE_SQL_FROM_FORMAT: RuleDefinition = RuleDefinition {
     title: "SQL text assembled from runtime values",
     not_a_defect_when: "The interpolated value is an identifier chosen from a fixed allowlist in code, such as a column name mapped from an enum for ORDER BY, which placeholders cannot bind anyway.",
     requires: &[CrateGate { krate: "diesel", versions: "*" }, CrateGate { krate: "postgres", versions: "*" }, CrateGate { krate: "rusqlite", versions: "*" }, CrateGate { krate: "sea-orm", versions: "*" }, CrateGate { krate: "sqlx", versions: "*" }, CrateGate { krate: "tokio-postgres", versions: "*" }],
+    cause: None,
 };
 pub(crate) static SOURCE_BLOCK_IN_PLACE_CURRENT_THREAD: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::block_in_place_on_current_thread",
@@ -275,6 +297,7 @@ pub(crate) static SOURCE_BLOCK_IN_PLACE_CURRENT_THREAD: RuleDefinition = RuleDef
     title: "block_in_place on a current-thread runtime",
     not_a_defect_when: "The call is only reached under a runtime the function itself never runs on, for example a helper invoked solely from a multi-thread runtime it builds.",
     requires: &[CrateGate { krate: "tokio", versions: ">=1, <2" }],
+    cause: None,
 };
 pub(crate) static SOURCE_BLOCK_ON_IN_ASYNC: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::block_on_in_async",
@@ -287,6 +310,7 @@ pub(crate) static SOURCE_BLOCK_ON_IN_ASYNC: RuleDefinition = RuleDefinition {
     title: "block_on called inside async code",
     not_a_defect_when: "The async block is never polled by an executor but driven by hand on a dedicated thread that owns no runtime.",
     requires: &[CrateGate { krate: "futures", versions: ">=0.3, <0.4" }, CrateGate { krate: "tokio", versions: ">=1, <2" }],
+    cause: None,
 };
 pub(crate) static SOURCE_DISABLED_JWT_VALIDATION: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::disabled_jwt_validation",
@@ -299,6 +323,7 @@ pub(crate) static SOURCE_DISABLED_JWT_VALIDATION: RuleDefinition = RuleDefinitio
     title: "JWT signature validation turned off",
     not_a_defect_when: "The decoded claims are only used to pick the verification key or issuer, and the token is verified with signature checks before any claim is trusted.",
     requires: &[CrateGate { krate: "jsonwebtoken", versions: "*" }],
+    cause: None,
 };
 pub(crate) static SOURCE_INSECURE_AUTH_COOKIE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::insecure_auth_cookie",
@@ -311,6 +336,7 @@ pub(crate) static SOURCE_INSECURE_AUTH_COOKIE: RuleDefinition = RuleDefinition {
     title: "Auth cookie readable by page scripts",
     not_a_defect_when: "The cookie carries no credential, only a value the frontend must read such as a CSRF token or a display preference, despite a name that sounds like auth.",
     requires: &[CrateGate { krate: "cookie", versions: "*" }],
+    cause: None,
 };
 pub(crate) static SOURCE_PERMISSIVE_CORS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::permissive_cors",
@@ -323,6 +349,7 @@ pub(crate) static SOURCE_PERMISSIVE_CORS: RuleDefinition = RuleDefinition {
     title: "CORS layer lets any origin send credentials",
     not_a_defect_when: "The layer is only built for local development or for a public, unauthenticated API whose responses carry no user data.",
     requires: &[CrateGate { krate: "actix-cors", versions: "*" }, CrateGate { krate: "tower-http", versions: "*" }],
+    cause: None,
 };
 pub(crate) static SOURCE_SECRET_ENV_FALLBACK: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::secret_env_fallback",
@@ -335,6 +362,7 @@ pub(crate) static SOURCE_SECRET_ENV_FALLBACK: RuleDefinition = RuleDefinition {
     title: "Secret env var falls back to a literal",
     not_a_defect_when: "The fallback is a well-known local development value that the service refuses to start with outside development, so no deployment can run on it.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static SOURCE_UNCHECKED_HTTP_STATUS: RuleDefinition = RuleDefinition {
     id: "rust_doctor::source::unchecked_http_status",
@@ -347,6 +375,7 @@ pub(crate) static SOURCE_UNCHECKED_HTTP_STATUS: RuleDefinition = RuleDefinition 
     title: "HTTP body read without checking the status",
     not_a_defect_when: "The status is checked elsewhere before the body is trusted, for example by middleware or by a helper the response is passed through, or the error body is deliberately parsed as data.",
     requires: &[CrateGate { krate: "reqwest", versions: "*" }],
+    cause: None,
 };
 pub(crate) static STRUCTURE_COMPLEX_FUNCTION: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::complex_function",
@@ -357,8 +386,9 @@ pub(crate) static STRUCTURE_COMPLEX_FUNCTION: RuleDefinition = RuleDefinition {
     help: "Split the branching into smaller functions, or flatten it with early returns, so one reading holds the whole path.",
     diff_scope: DiffScope::Line,
     title: "Function exceeding its complexity threshold",
-    not_a_defect_when: "The function is a flat dispatch, such as one large match mapping each enum variant or opcode to a single call, whose branch count is high but whose every path reads independently.",
+    not_a_defect_when: "The branching mirrors an external specification the reader checks clause by clause, such as a protocol state machine or a grammar, so splitting it would separate each clause from the rule it implements.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_CRATE_LEVEL_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::crate_level_allow",
@@ -371,6 +401,7 @@ pub(crate) static STRUCTURE_CRATE_LEVEL_ALLOW: RuleDefinition = RuleDefinition {
     title: "File-wide or module-wide inner allow attribute",
     not_a_defect_when: "The file is generated code nobody edits by hand, such as bindgen or protobuf output, where a file-wide allow is the only practical scope.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::duplicate_function_body",
@@ -383,6 +414,7 @@ pub(crate) static STRUCTURE_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefini
     title: "Functions with identical bodies apart from names",
     not_a_defect_when: "The copies live in independently versioned crates or in test fixtures, or implement the same trait for unrelated types, where a shared helper would couple code meant to evolve separately.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::near_duplicate_function_body",
@@ -395,6 +427,7 @@ pub(crate) static STRUCTURE_NEAR_DUPLICATE_FUNCTION_BODY: RuleDefinition = RuleD
     title: "Functions with nearly identical bodies",
     not_a_defect_when: "The similar functions are parallel cases expected to diverge, such as per-protocol handlers or test cases sharing a setup shape, where a common abstraction would obscure each one.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_ORPHAN_MODULE_FILE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::orphan_module_file",
@@ -407,6 +440,7 @@ pub(crate) static STRUCTURE_ORPHAN_MODULE_FILE: RuleDefinition = RuleDefinition 
     title: "Rust file no mod declaration reaches",
     not_a_defect_when: "The file is pulled in by other means, such as include!, a #[path] attribute, a build script, or a test that reads it as fixture data rather than compiling it as a module.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_OVERSIZED_UNIT: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::oversized_unit",
@@ -419,6 +453,7 @@ pub(crate) static STRUCTURE_OVERSIZED_UNIT: RuleDefinition = RuleDefinition {
     title: "Oversized file, function, impl block or module",
     not_a_defect_when: "The unit is generated or data-like, such as a lookup table, a large match over a published enum or a file of independent test cases, where splitting would scatter one cohesive list.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_STACKED_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::stacked_allow_attribute",
@@ -431,6 +466,7 @@ pub(crate) static STRUCTURE_STACKED_ALLOW: RuleDefinition = RuleDefinition {
     title: "Item stacking several allow attributes or lints",
     not_a_defect_when: "The item is an FFI or generated binding whose shape is dictated externally, so several related lints such as non_camel_case_types, non_snake_case and dead_code legitimately need silencing together.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::unreasoned_allow_attribute",
@@ -443,6 +479,7 @@ pub(crate) static STRUCTURE_UNREASONED_ALLOW: RuleDefinition = RuleDefinition {
     title: "Allow attribute without a reason argument",
     not_a_defect_when: "The crate's MSRV predates Rust 1.81, which stabilized the reason argument on lint attributes, and the justification is written in an adjacent comment instead.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinition {
     id: "rust_doctor::structure::unreferenced_feature",
@@ -455,4 +492,5 @@ pub(crate) static STRUCTURE_UNREFERENCED_FEATURE: RuleDefinition = RuleDefinitio
     title: "Unread feature, or cfg naming an undeclared feature",
     not_a_defect_when: "The feature is a deliberately empty stub kept as published surface so downstream crates that enable it keep compiling after its code was removed or made default.",
     requires: &[],
+    cause: None,
 };

@@ -7,6 +7,8 @@ use super::share::build_share_url;
 use crate::policy::{CATALOG, Producer};
 use crate::report::{DiagnosticSource, DiagnosticSpan};
 
+mod calibration;
+mod core_v7;
 mod lambda_freeze;
 mod ranking;
 mod scale;
@@ -19,6 +21,9 @@ fn the_audit_holds_the_size_bound_it_scores_for() {
         include_str!("ranking.rs"),
         include_str!("source_inventory.rs"),
         include_str!("tests.rs"),
+        include_str!("tests/calibration.rs"),
+        include_str!("tests/core_v7.rs"),
+        include_str!("charge.rs"),
         include_str!("tests/lambda_freeze.rs"),
         include_str!("tests/ranking.rs"),
         include_str!("tests/scale.rs"),
@@ -176,6 +181,7 @@ fn diagnostic_with_category(category: Option<&str>) -> Diagnostic {
         span: None,
         related: Vec::new(),
         similarity_basis_points: None,
+        cause: None,
         unscored: None,
         complexity: None,
         suggestion: None,
@@ -309,6 +315,7 @@ fn diagnostic(input: &OracleDiagnostic, index: usize) -> Diagnostic {
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        cause: None,
         unscored: None,
         complexity: None,
         suggestion: None,
@@ -498,6 +505,7 @@ fn invalid_score_state_is_rejected_before_sharing() {
         categories: Vec::new(),
         inventory_is_complete: true,
         stage_reasons: std::collections::BTreeSet::new(),
+        unverified: std::collections::BTreeSet::new(),
         packages: Vec::new(),
         score: Some(AuditScore {
             model: SCORE_MODEL.to_owned(),
@@ -505,6 +513,7 @@ fn invalid_score_state_is_rejected_before_sharing() {
             label: ScoreLabel::Great,
             authoritative: true,
             reasons: Vec::new(),
+            unverified: Vec::new(),
             dimensions: ScoreDimensions {
                 security: 100,
                 reliability: 100,
@@ -564,6 +573,7 @@ fn catalog_diagnostics(occurrences: usize) -> Vec<Diagnostic> {
             span: None,
             related: Vec::new(),
             similarity_basis_points: None,
+            cause: None,
             unscored: None,
             complexity: None,
             suggestion: None,
@@ -577,17 +587,17 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
     let diagnostics = catalog_diagnostics(1);
     let audit = Audit::build(500, 50_000, Status::Complete, &diagnostics);
     let score = audit.score.expect("a scored audit should exist");
-    assert_eq!(score.value, 21);
+    assert_eq!(score.value, 30);
     assert_eq!(score.label, ScoreLabel::Critical);
     assert_eq!(score.worst_tier, Some(RuleTier::P0));
     assert_eq!(score.applied_ceiling, Some(40));
     assert!(score.authoritative);
 
-    assert_eq!(score.dimensions.security, 0);
-    assert_eq!(score.dimensions.reliability, 10);
-    assert_eq!(score.dimensions.maintainability, 45);
+    assert_eq!(score.dimensions.security, 1);
+    assert_eq!(score.dimensions.reliability, 29);
+    assert_eq!(score.dimensions.maintainability, 66);
     assert_eq!(score.dimensions.performance, 75);
-    assert_eq!(score.dimensions.dependencies, 0);
+    assert_eq!(score.dimensions.dependencies, 7);
     assert!(
         score
             .dimensions
@@ -620,6 +630,7 @@ fn diagnostics_for(rules: &[(&str, &str, Severity, usize)]) -> Vec<Diagnostic> {
                 span: None,
                 related: Vec::new(),
                 similarity_basis_points: None,
+                cause: None,
                 unscored: None,
                 complexity: None,
                 suggestion: None,
@@ -792,6 +803,7 @@ fn every_diagnostic_lands_in_exactly_one_bucket() {
         span: None,
         related: Vec::new(),
         similarity_basis_points: None,
+        cause: None,
         unscored: None,
         complexity: None,
         suggestion: None,

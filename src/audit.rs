@@ -12,6 +12,7 @@ use crate::report::{Diagnostic, Severity, Status};
 use crate::source_kernel::SourceMeasurement;
 
 mod ceilings;
+mod charge;
 mod density;
 mod ranking;
 mod packages;
@@ -21,11 +22,13 @@ mod source_inventory;
 
 pub use ceilings::ScoreCeiling;
 pub use packages::PackageAudit;
-pub use reason::ScoreReason;
+pub use reason::{ScoreReason, Unverified};
 pub use share::ShareError;
 
 pub(crate) use ceilings::OVERALL;
 use ceilings::{capped, tier_overall_ceiling, worse_tier};
+use charge::CauseTally;
+pub(crate) use charge::ChargedSites;
 use density::{DensityScope, Scale, calculate_dimensions, contributions};
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -55,6 +58,7 @@ pub struct Audit {
     pub score: Option<AuditScore>,
     inventory_is_complete: bool,
     stage_reasons: BTreeSet<ScoreReason>,
+    unverified: BTreeSet<Unverified>,
     pub packages: Vec<PackageAudit>,
 }
 
@@ -129,6 +133,7 @@ pub struct AuditScore {
     pub label: ScoreLabel,
     pub authoritative: bool,
     pub reasons: Vec<ScoreReason>,
+    pub unverified: Vec<Unverified>,
     pub dimensions: ScoreDimensions,
     pub worst_tier: Option<RuleTier>,
     pub applied_ceiling: Option<u8>,
@@ -195,7 +200,7 @@ pub(crate) struct RuleAggregate {
     tier: Option<RuleTier>,
     pub(crate) occurrences: usize,
     numerator: u64,
-    owned: u64,
+    sites: ChargedSites,
     noise: Option<u16>,
     contribution: u64,
 }
@@ -218,7 +223,7 @@ struct PendingRule {
     tier: Option<RuleTier>,
     occurrences: usize,
     numerator: u64,
-    owned: u64,
+    causes: CauseTally,
     noise: Option<u16>,
 }
 
@@ -272,6 +277,18 @@ impl Audit {
         self.score = None;
     }
 
+    pub(crate) fn publish_unverified(&mut self, unverified: BTreeSet<Unverified>) {
+        let listed: Vec<Unverified> = unverified.iter().copied().collect();
+        for score in self
+            .score
+            .iter_mut()
+            .chain(self.packages.iter_mut().filter_map(|package| package.score.as_mut()))
+        {
+            score.unverified.clone_from(&listed);
+        }
+        self.unverified = unverified;
+    }
+
     fn build_with_inventory(
         inventory: SourceFileInventory,
         members: usize,
@@ -304,6 +321,7 @@ impl Audit {
             score,
             inventory_is_complete,
             stage_reasons,
+            unverified: BTreeSet::new(),
             packages: Vec::new(),
         }
     }
@@ -326,6 +344,7 @@ impl Audit {
         if self.score.is_none() {
             rebuilt.score = None;
         }
+        rebuilt.publish_unverified(self.unverified.clone());
         rebuilt
     }
 
@@ -656,6 +675,7 @@ fn score(aggregation: &RuleAggregation, reasons: Vec<ScoreReason>) -> AuditScore
         label: score_label(scored.value),
         authoritative,
         reasons,
+        unverified: Vec::new(),
         dimensions: scored.dimensions,
         worst_tier: scored.worst_tier,
         applied_ceiling: scored.applied_ceiling,
@@ -720,7 +740,7 @@ pub(crate) fn aggregate_rules<'a>(
             tier: definition.map(|definition| definition.tier),
             occurrences: 0,
             numerator: 0,
-            owned: 0,
+            causes: CauseTally::default(),
             noise: crate::policy::corpus_measurement(rule_id)
                 .map(CorpusMeasurement::noise_basis_points),
         });
@@ -733,9 +753,8 @@ pub(crate) fn aggregate_rules<'a>(
             && let Some(weight) = weight
         {
             rule.numerator = rule.numerator.saturating_add(weight);
-            if diagnostic.package.is_some() {
-                rule.owned = rule.owned.saturating_add(weight);
-            }
+            rule.causes
+                .add(diagnostic.cause.as_deref(), weight, diagnostic.package.is_some());
             if rule.dimension.is_some_and(|current| current != dimension) {
                 rule.mapping_conflict = true;
                 voided.insert(ScoreReason::CategoryMappingConflict);
@@ -763,7 +782,7 @@ pub(crate) fn aggregate_rules<'a>(
             tier: rule.tier,
             occurrences: rule.occurrences,
             numerator: rule.numerator,
-            owned: rule.owned,
+            sites: rule.causes.charged(rule.scope),
             noise: rule.noise,
             contribution: 0,
         })

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::configuration::WorkspaceConfiguration;
 
 mod catalog;
+mod cause;
 #[cfg(test)]
 mod coverage;
 pub(crate) mod lint_table;
@@ -33,8 +34,10 @@ pub(crate) use catalog::{
 };
 pub(crate) use noise::{
     CorpusMeasurement, UNMEASURED_NOISE_BASIS_POINTS, WITHHOLD_NOISE_BASIS_POINTS, corpus_measurement,
+    is_distrusted,
 };
 pub use paths::PathOverrideReport;
+pub(crate) use cause::{CauseKey, CauseSite};
 pub(crate) use paths::{PathOverride, PathPolicy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum)]

@@ -479,6 +479,7 @@
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
+          "unverified": [],
           "value": 100,
           "worst_tier": null
         },
@@ -711,21 +712,22 @@
             }
           ],
           "dimensions": {
-            "dependencies": 72,
+            "dependencies": 75,
             "maintainability": 100,
-            "performance": 78,
+            "performance": 88,
             "reliability": 75,
-            "security": 37
+            "security": 50
           },
           "label": "Needs work",
           "model": "core-v6",
-          "projected_after_top_three": 97,
+          "projected_after_top_three": 98,
           "projected_rule_ids": [
             "clippy::permissions_set_readonly_false",
             "clippy::mut_mutex_lock",
             "rust_doctor::cargo::missing_lockfile"
           ],
           "reasons": [],
+          "unverified": [],
           "value": 65,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
@@ -803,6 +805,7 @@
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
+          "unverified": [],
           "value": 100,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
@@ -1170,6 +1173,7 @@
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
+          "unverified": [],
           "value": 99,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
@@ -1243,6 +1247,7 @@
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
+          "unverified": [],
           "value": 100,
           "withheld_rule_ids": [
             "clippy::indexing_slicing"
@@ -1314,7 +1319,7 @@
             }
           ],
           "dimensions": {
-            "dependencies": 51,
+            "dependencies": 72,
             "maintainability": 100,
             "performance": 100,
             "reliability": 100,
@@ -1327,7 +1332,8 @@
             "rust_doctor::cargo::missing_lockfile"
           ],
           "reasons": [],
-          "value": 92,
+          "unverified": [],
+          "value": 96,
           "worst_tier": "P2"
         },
         "source_files": 10
@@ -1395,7 +1401,7 @@
             }
           ],
           "dimensions": {
-            "dependencies": 51,
+            "dependencies": 72,
             "maintainability": 100,
             "performance": 100,
             "reliability": 100,
@@ -1408,7 +1414,8 @@
             "rust_doctor::cargo::missing_lockfile"
           ],
           "reasons": [],
-          "value": 92,
+          "unverified": [],
+          "value": 96,
           "worst_tier": "P2"
         },
         "source_files": 1000
@@ -1485,7 +1492,7 @@
             "dependencies": 100,
             "maintainability": 100,
             "performance": 100,
-            "reliability": 74,
+            "reliability": 75,
             "security": 100
           },
           "label": "Great",
@@ -1495,6 +1502,7 @@
             "clippy::mut_mutex_lock"
           ],
           "reasons": [],
+          "unverified": [],
           "value": 94,
           "worst_tier": "P2"
         },
@@ -1567,6 +1575,7 @@
           "reasons": [
             "stage-failed"
           ],
+          "unverified": [],
           "value": 100,
           "worst_tier": null
         },
@@ -1637,6 +1646,7 @@
           "reasons": [
             "category-mapping-conflict"
           ],
+          "unverified": [],
           "value": 100,
           "worst_tier": null
         },
@@ -1707,6 +1717,7 @@
           "reasons": [
             "category-mapping-conflict"
           ],
+          "unverified": [],
           "value": 100,
           "worst_tier": null
         },
@@ -1791,7 +1802,7 @@
             "maintainability": 100,
             "performance": 100,
             "reliability": 100,
-            "security": 37
+            "security": 50
           },
           "label": "Needs work",
           "model": "core-v6",
@@ -1800,6 +1811,7 @@
           "reasons": [
             "category-mapping-conflict"
           ],
+          "unverified": [],
           "value": 65,
           "worst_tier": "P1"
         },
@@ -1880,7 +1892,7 @@
             "maintainability": 100,
             "performance": 100,
             "reliability": 100,
-            "security": 37
+            "security": 50
           },
           "label": "Needs work",
           "model": "core-v6",
@@ -1889,6 +1901,7 @@
           "reasons": [
             "scan-incomplete"
           ],
+          "unverified": [],
           "value": 65,
           "worst_tier": "P1"
         },
@@ -1978,6 +1991,7 @@
             "rust_doctor::source::dynamic_shell_command"
           ],
           "reasons": [],
+          "unverified": [],
           "value": 40,
           "worst_tier": "P0"
         },
@@ -2067,6 +2081,7 @@
             "clippy::unimplemented"
           ],
           "reasons": [],
+          "unverified": [],
           "value": 65,
           "worst_tier": "P1"
         },
@@ -2148,6 +2163,7 @@
             "clippy::todo"
           ],
           "reasons": [],
+          "unverified": [],
           "value": 94,
           "worst_tier": "P2"
         },
@@ -2208,7 +2224,7 @@
           "ceilings": [],
           "dimensions": {
             "dependencies": 100,
-            "maintainability": 85,
+            "maintainability": 92,
             "performance": 100,
             "reliability": 100,
             "security": 100
@@ -2220,7 +2236,8 @@
             "clippy::dbg_macro"
           ],
           "reasons": [],
-          "value": 98,
+          "unverified": [],
+          "value": 99,
           "worst_tier": "P3"
         },
         "source_files": 3
@@ -2316,6 +2333,7 @@
             "clippy::permissions_set_readonly_false"
           ],
           "reasons": [],
+          "unverified": [],
           "value": 40,
           "worst_tier": "P0"
         },
@@ -2406,6 +2424,7 @@
           "reasons": [
             "scan-incomplete"
           ],
+          "unverified": [],
           "value": 40,
           "worst_tier": "P0"
         },

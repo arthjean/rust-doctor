@@ -63,6 +63,7 @@ fn report() -> InspectReport {
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        cause: None,
         unscored: None,
         complexity: None,
         suggestion: None,
@@ -544,6 +545,7 @@ fn diagnostic(code: &str, category: &str, occurrences: usize) -> Diagnostic {
         span: None,
         related: Vec::new(),
         similarity_basis_points: None,
+        cause: None,
         unscored: None,
         complexity: None,
         suggestion: None,
@@ -556,7 +558,12 @@ const PER_KILOLINE_RULES: [(&str, &str); 3] = [
     ("clippy::dbg_macro", "maintainability"),
     ("clippy::manual_memcpy", "performance"),
 ];
-const WORKSPACE_RULE: (&str, &str) = ("rust_doctor::cargo::test_only_dependency", "dependencies");
+const WORKSPACE_RULES: [(&str, &str); 4] = [
+    ("rust_doctor::cargo::test_only_dependency", "dependencies"),
+    ("rust_doctor::cargo::unused_dependency", "dependencies"),
+    ("rust_doctor::cargo::missing_lockfile", "dependencies"),
+    ("rust_doctor::cargo::permissive_rustflags", "dependencies"),
+];
 const SECURITY_RULE: (&str, &str) = (
     "rust_doctor::source::disabled_tls_verification",
     "security",
@@ -574,7 +581,7 @@ fn sites(rule: (&str, &str), count: usize) -> impl Iterator<Item = Diagnostic> {
 fn scored(count: usize, security: usize, production_lines: usize) -> InspectReport {
     let diagnostics: Vec<Diagnostic> = PER_KILOLINE_RULES
         .into_iter()
-        .chain([WORKSPACE_RULE])
+        .chain(WORKSPACE_RULES)
         .flat_map(|rule| sites(rule, count))
         .chain(sites(SECURITY_RULE, security))
         .collect();
@@ -586,8 +593,8 @@ fn value_of(report: &InspectReport) -> u8 {
 }
 
 fn scoring(target: u8) -> Option<InspectReport> {
-    const COUNTS: [usize; 11] = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
-    const SECURITY: [usize; 3] = [0, 12, 60];
+    const COUNTS: [usize; 14] = [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 233, 610, 1597];
+    const SECURITY: [usize; 4] = [0, 12, 60, 300];
     for security in SECURITY {
         for count in COUNTS {
             let (mut low, mut high) = (1usize, 4_000_000usize);

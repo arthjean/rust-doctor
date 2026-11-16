@@ -185,13 +185,7 @@ pub fn build_prompt(
         let Some(rule_id) = prompt.require(RuleId::new(&advisory.rule_id)) else {
             break;
         };
-        let line = format!(
-            "Spread across {} files: {} ({} findings). Plan it as one change, not {} fixes.",
-            advisory.files,
-            rule_id.as_str(),
-            advisory.occurrences,
-            advisory.occurrences
-        );
+        let line = advisory.sentence(rule_id.as_str());
         prompt.push_line(&line);
     }
     prompt.push_line(&format!("Validate with: {}", rescan_command.as_str()));

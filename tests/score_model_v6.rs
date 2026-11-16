@@ -125,7 +125,14 @@ fn a_withheld_rule_caps_nothing_and_an_unmeasured_p2_rule_still_caps() {
         files.push((format!("src/padding{module}.rs"), constants));
     }
     for (root, reliability) in [(small, 99), (workspace(&files), 100)] {
-        let exit = json(&root, &[]);
+        let published = json(&root, &[]);
+        let found = diagnostics(&published, "clippy::exit");
+        assert_eq!(found.len(), 1, "{published:#}");
+        assert_eq!(found[0]["severity"], "info", "a rule the corpus distrusts publishes at Info");
+        assert_eq!(published["audit"]["score"]["dimensions"]["reliability"], 100);
+        assert!(published["audit"]["score"]["withheld_rule_ids"].is_null());
+
+        let exit = json(&root, &["--rule", "clippy::exit=warn"]);
         let score = &exit["audit"]["score"];
         assert_eq!(diagnostics(&exit, "clippy::exit").len(), 1, "{exit:#}");
         assert_eq!(score["dimensions"]["reliability"], reliability, "{score:#}");
@@ -176,7 +183,10 @@ fn a_measured_rule_is_discounted_once_in_the_ranking() {
     );
     let score = &report["audit"]["score"];
     assert_eq!(score["projected_rule_ids"][0], DUPLICATE, "{report:#}");
-    assert_eq!(score["dimensions"]["dependencies"], 72);
+    assert_eq!(
+        score["dimensions"]["dependencies"], 75,
+        "a lone duplicate is charged one site at the unmeasured prior, so the P2 ceiling binds"
+    );
     assert_eq!(
         score["projected_after_top_three"], 100,
         "the ceiling the duplicate holds is released whole, not discounted: {score:#}"
@@ -415,4 +425,43 @@ fn the_ceilings_and_the_production_counts_reach_the_text_and_the_share_link() {
     assert_eq!(counted("w"), sum("production", "warnings"), "{share}");
     assert_eq!(counted("e"), sum("production", "errors"), "{share}");
     assert_eq!(counted("i"), sum("production", "info"), "{share}");
+}
+
+#[test]
+fn a_duplicate_warns_only_when_a_member_manifest_can_remove_it() {
+    let removable = workspace(&with_dependencies(
+        "png = { path = \"png5\" }\nimage = { path = \"image\" }\n",
+        "pub fn app() -> u8 {\n    png::ID + image::ID\n}\n",
+        &[
+            ("png5", "png", "0.5.0", ""),
+            ("png6", "png", "0.6.0", ""),
+            ("image", "image", "1.0.0", "png = { path = \"../png6\" }\n"),
+        ],
+    ));
+    let report = json(&removable, &[]);
+    let found = diagnostics(&report, DUPLICATE);
+    assert_eq!(found.len(), 1, "{report:#}");
+    assert_eq!(found[0]["severity"], "warning", "{:#}", found[0]);
+    assert_eq!(found[0]["path"], "Cargo.toml", "the member manifest that can remove it");
+    assert_eq!(
+        found[0]["message"],
+        "Crate \"png\" is resolved with incompatible versions 0.5.0 (required by app), 0.6.0 (through image)."
+    );
+
+    let shared = workspace(&with_dependencies(
+        "png = { path = \"png5\" }\nimage = { path = \"image\" }\ndecoder = { path = \"decoder\" }\n",
+        "pub fn app() -> u8 {\n    png::ID + image::ID + decoder::ID\n}\n",
+        &[
+            ("png5", "png", "0.5.0", ""),
+            ("png6", "png", "0.6.0", ""),
+            ("image", "image", "1.0.0", "png = { path = \"../png6\" }\n"),
+            ("decoder", "decoder", "1.0.0", "png = { path = \"../png5\" }\n"),
+        ],
+    ));
+    let report = json(&shared, &[]);
+    let found = diagnostics(&report, DUPLICATE);
+    assert_eq!(found.len(), 1, "{report:#}");
+    assert_eq!(found[0]["severity"], "info", "a third-party crate also requires 0.5: {:#}", found[0]);
+    assert_eq!(found[0]["base_severity"], "warning");
+    assert_eq!(report["audit"]["score"]["dimensions"]["dependencies"], 100);
 }

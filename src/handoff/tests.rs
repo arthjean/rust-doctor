@@ -46,6 +46,7 @@ fn report() -> InspectReport {
         }),
         related: Vec::new(),
         similarity_basis_points: None,
+        cause: None,
         unscored: None,
         complexity: None,
         suggestion: None,

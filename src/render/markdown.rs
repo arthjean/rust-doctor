@@ -176,13 +176,9 @@ pub fn render_markdown(report: &Value, limit: usize) -> Result<String, MarkdownE
 
 fn unchecked_advisories(report: &Value) -> bool {
     report
-        .pointer("/policy/rules")
+        .pointer("/audit/score/unverified")
         .and_then(Value::as_array)
-        .is_some_and(|rules| {
-            rules.iter().any(|rule| {
-                rule.get("not_evaluated").and_then(Value::as_str) == Some("advisory-db-missing")
-            })
-        })
+        .is_some_and(|unverified| unverified.iter().any(|check| check == "advisories"))
 }
 
 fn render_scope(out: &mut String, report: &Value) {

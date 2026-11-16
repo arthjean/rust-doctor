@@ -252,7 +252,10 @@ fn scored_findings_drive_projection_and_exact_share_counts() {
     assert_eq!(report.audit.categories[0].occurrences.warnings, 3);
     assert_eq!(report.audit.categories[0].occurrences.total, 3);
     assert_eq!(report.audit.categories[0].distinct.total, 3);
-    assert_eq!(score.dimensions.reliability, 74);
+    assert_eq!(
+        score.dimensions.reliability, 75,
+        "three unmeasured todo sites are charged at half, so the P2 ceiling binds"
+    );
     assert_eq!(score.worst_tier, Some(RuleTier::P2));
     assert_eq!(score.applied_ceiling, None);
     assert_eq!(score.value, 94);

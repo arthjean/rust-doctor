@@ -94,9 +94,15 @@ fn every_published_rule_carries_a_closed_tier() {
         ]
     );
 
+    let noise = noise_of(&report);
     for diagnostic in report["diagnostics"].as_array().unwrap() {
         assert_eq!(diagnostic["base_severity"], "warning", "{diagnostic}");
-        assert_eq!(diagnostic["severity"], "warning", "{diagnostic}");
+        let distrusted = diagnostic["code"]
+            .as_str()
+            .and_then(|code| noise.get(code))
+            .is_some_and(|noise| *noise > 5000);
+        let published = if distrusted { "info" } else { "warning" };
+        assert_eq!(diagnostic["severity"], published, "{diagnostic}");
     }
 }
 
@@ -116,6 +122,7 @@ fn the_score_is_reproducible_from_the_published_report() {
         })
         .collect();
 
+    let noise = noise_of(&report);
     let production_lines = report["audit"]["production_lines"].as_u64().unwrap();
     let kilolines = (production_lines as f64 / 1000.0).max(2.0);
 
@@ -130,8 +137,12 @@ fn the_score_is_reproducible_from_the_published_report() {
         let Some(weight) = severity_weight(diagnostic["severity"].as_str().unwrap()) else {
             continue;
         };
+        if weight == 0.0 {
+            continue;
+        }
+        let kept = 1.0 - f64::from(noise.get(code).copied().unwrap_or(5000)) / 10_000.0;
         let entry = densities.entry(dimension).or_insert((0.0, None));
-        entry.0 += weight / denominator(code, kilolines);
+        entry.0 += weight * kept / denominator(code, kilolines);
         if let Some(tier) = tiers.get(code).map(String::as_str)
             && entry.1.is_none_or(|current| tier < current)
         {
@@ -180,6 +191,18 @@ fn the_score_is_reproducible_from_the_published_report() {
     );
 }
 
+fn noise_of(report: &Value) -> BTreeMap<String, u16> {
+    report["policy"]["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|rule| {
+            let noise = rule["corpus_noise_basis_points"].as_u64()?;
+            Some((rule["id"].as_str()?.to_owned(), u16::try_from(noise).ok()?))
+        })
+        .collect()
+}
+
 fn dimension_of(category: Option<&str>) -> Option<&'static str> {
     match category? {
         "security" => Some("security"),
@@ -194,7 +217,8 @@ fn dimension_of(category: Option<&str>) -> Option<&'static str> {
 fn severity_weight(severity: &str) -> Option<f64> {
     match severity {
         "error" => Some(2.0),
-        "warning" | "info" => Some(1.0),
+        "warning" => Some(1.0),
+        "info" => Some(0.0),
         _ => None,
     }
 }

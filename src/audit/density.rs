@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::policy::{Producer, RuleTier};
+use crate::policy::{Producer, RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
 use crate::report::Severity;
 
 use super::ceilings::{capped, tier_dimension_ceiling, tier_overall_ceiling, worse_tier};
@@ -10,26 +10,27 @@ use super::{
 
 impl RuleAggregate {
     pub(super) fn charged(&self) -> f64 {
-        self.charge(self.numerator)
+        self.charge(self.sites.total())
     }
 
-    pub(super) fn charge(&self, sites: u64) -> f64 {
-        let kept = self
-            .noise
-            .map_or(BASIS_POINTS, |noise| BASIS_POINTS.saturating_sub(u64::from(noise)));
-        let weighted = sites.saturating_mul(tier_weight(self.tier));
-        weighted as f64 * kept as f64 / BASIS_POINTS as f64
+    pub(super) fn charge(&self, sites: f64) -> f64 {
+        let noise = self.noise.unwrap_or(UNMEASURED_NOISE_BASIS_POINTS);
+        let kept = BASIS_POINTS.saturating_sub(u64::from(noise));
+        sites * tier_weight(self.tier) as f64 * kept as f64 / BASIS_POINTS as f64
     }
 
     fn density(&self, scale: Scale) -> f64 {
         match self.scope {
             DensityScope::PerKiloline => self.charged() / scale.divisor(self.scope),
             DensityScope::Workspace => {
-                let owned = self.owned.min(self.numerator);
-                self.charge(self.numerator - owned) + self.charge(owned) / scale.members()
+                self.charge(self.sites.unowned()) + self.charge(self.sites.owned()) / scale.members()
             }
         }
     }
+}
+
+pub(super) fn cause_weight(sites: f64) -> f64 {
+    if sites >= 1.0 { 1.0 + sites.ln() } else { 0.0 }
 }
 
 pub(super) const KILOLINE_FLOOR: f64 = 2.0;

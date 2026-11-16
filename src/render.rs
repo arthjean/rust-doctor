@@ -264,15 +264,7 @@ fn render_advisories<W: Write>(
         )?;
     }
     for advisory in &presentation.migration_advisories {
-        line(
-            writer,
-            &format!(
-                "Spread across {} files: {} ({} findings). Plan it as one change, not {} fixes.",
-                advisory.files, advisory.rule_id, advisory.occurrences, advisory.occurrences
-            ),
-            options,
-            Style::Warning,
-        )?;
+        line(writer, &advisory.sentence(&advisory.rule_id), options, Style::Warning)?;
     }
     Ok(())
 }
@@ -324,6 +316,9 @@ fn render_group<W: Write>(
     )?;
     if let Some(help) = group.resolved_help() {
         line(writer, &format!("Help: {help}"), options, Style::Muted)?;
+    }
+    if let Some(causes) = group.causes.line() {
+        line(writer, &causes, options, Style::Plain)?;
     }
 
     for diagnostic in group.diagnostics.iter().take(view.location_limit()) {

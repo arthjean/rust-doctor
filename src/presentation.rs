@@ -10,10 +10,12 @@ use crate::{
     UnscoredReason,
 };
 
+mod causes;
 mod code_frame;
 mod group_count;
 mod suggestion;
 
+pub use causes::{CauseCount, RuleCauses};
 pub use group_count::{GroupCount, context_label};
 pub use suggestion::{SuggestionPlacement, replaced_text};
 pub use code_frame::{
@@ -60,6 +62,7 @@ pub struct DiagnosticGroup {
     pub count: GroupCount,
     pub category: Option<AuditCategoryName>,
     pub occurrences: usize,
+    pub causes: RuleCauses,
     pub diagnostics: Vec<GroupDiagnostic>,
 }
 
@@ -89,6 +92,21 @@ pub struct MigrationAdvisory {
     pub rule_id: String,
     pub occurrences: usize,
     pub files: usize,
+    pub cause: Option<CauseCount>,
+}
+
+impl MigrationAdvisory {
+    pub fn sentence(&self, rule_id: &str) -> String {
+        let cause = self
+            .cause
+            .as_ref()
+            .map(|cause| format!(", {} of them from {}", cause.findings, cause.cause))
+            .unwrap_or_default();
+        format!(
+            "Spread across {} files: {rule_id} ({} findings{cause}). Plan it as one change, not {} fixes.",
+            self.files, self.occurrences, self.occurrences
+        )
+    }
 }
 
 impl DiagnosticGroup {
@@ -264,6 +282,7 @@ fn diagnostic_groups(
         let is_note = diagnostics
             .first()
             .is_some_and(|diagnostic| diagnostic.unscored.is_some());
+        let causes = RuleCauses::of(diagnostics.iter().copied());
         let diagnostics = diagnostics
             .into_iter()
             .map(|diagnostic| GroupDiagnostic {
@@ -317,6 +336,7 @@ fn diagnostic_groups(
                 count,
                 category,
                 occurrences,
+                causes,
                 diagnostics,
             },
         ));
@@ -342,6 +362,7 @@ fn migration_advisories(groups: &[DiagnosticGroup]) -> Vec<MigrationAdvisory> {
                 rule_id: group.rule_id.clone(),
                 occurrences: group.occurrences,
                 files: files.len(),
+                cause: group.causes.dominant().cloned(),
             })
         })
         .collect()
@@ -406,6 +427,7 @@ mod tests {
             }),
             related: Vec::new(),
             similarity_basis_points: None,
+            cause: None,
             unscored: None,
             complexity: None,
             suggestion: None,
@@ -505,11 +527,11 @@ mod tests {
             ids,
             [
                 "clippy::same_warning",
-                "clippy::low_error",
                 "clippy::security_error",
+                "clippy::low_error",
                 "clippy::many_warnings"
             ],
-            "uncatalogued rules carry no tier and cost nothing, so severity then id order them"
+            "uncatalogued rules carry no tier, so severity then the score each one costs order them"
         );
         let same_warning = presentation
             .groups
@@ -731,6 +753,7 @@ mod tests {
                 rule_id: "clippy::sweep".to_owned(),
                 occurrences: 80,
                 files: 40,
+                cause: None,
             }]
         );
         let below = ReportPresentation::derive(&report(diagnostics.into_iter().take(39).collect()));

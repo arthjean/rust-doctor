@@ -223,7 +223,15 @@ fn every_rule_admitted_outside_a_pack_fires_on_its_own_fixture() {
         let finding = observed[0];
         assert_eq!(finding["occurrences"], 1, "{id}");
         assert_eq!(finding["category"], rule["category"], "{id}");
-        assert_eq!(finding["severity"], "warning", "{id}");
+        let distrusted = rule["corpus_noise_basis_points"]
+            .as_u64()
+            .is_some_and(|noise| noise > 5000);
+        assert_eq!(
+            finding["severity"],
+            if distrusted { "info" } else { "warning" },
+            "{id}: a rule the corpus distrusts publishes at info"
+        );
+        assert_eq!(finding["base_severity"], "warning", "{id}");
         assert!(
             finding["help"]
                 .as_str()

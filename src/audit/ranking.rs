@@ -1,23 +1,13 @@
 use std::collections::BTreeSet;
 
-use crate::policy::{UNMEASURED_NOISE_BASIS_POINTS, WITHHOLD_NOISE_BASIS_POINTS};
+use crate::policy::WITHHOLD_NOISE_BASIS_POINTS;
 
 use super::density::capped_score_micro;
-use super::{BASIS_POINTS, RuleAggregate, RuleAggregation, worse_tier};
+use super::{RuleAggregate, RuleAggregation, worse_tier};
 
 impl RuleAggregate {
-    pub(crate) fn expected_repair_value(&self) -> u64 {
+    pub(crate) const fn expected_repair_value(&self) -> u64 {
         self.contribution()
-            .saturating_mul(self.kept_basis_points())
-            / BASIS_POINTS
-    }
-
-    pub(super) fn kept_basis_points(&self) -> u64 {
-        if self.noise.is_some() {
-            BASIS_POINTS
-        } else {
-            BASIS_POINTS.saturating_sub(u64::from(UNMEASURED_NOISE_BASIS_POINTS))
-        }
     }
 
     pub(crate) const fn rule_tier(&self) -> Option<crate::policy::RuleTier> {
@@ -62,9 +52,7 @@ impl RuleAggregation {
                     let mut after = removed.clone();
                     after.insert(rule.id.clone());
                     let gain = capped_score_micro(&self.rules, &after, self.scale)
-                        .saturating_sub(reached)
-                        .saturating_mul(rule.kept_basis_points())
-                        / BASIS_POINTS;
+                        .saturating_sub(reached);
                     let holds_the_ceiling =
                         worst_tier.is_some() && rule.scoring_tier() == worst_tier;
                     (gain, holds_the_ceiling, rule.expected_repair_value(), *rule)

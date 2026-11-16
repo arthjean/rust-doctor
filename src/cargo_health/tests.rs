@@ -819,7 +819,12 @@ fn duplicate_major_versions_are_named_with_their_versions() {
         .find(|candidate| candidate.definition.id == CARGO_DUPLICATE_MAJOR_VERSIONS.id)
         .expect("the duplicate candidate should exist");
     assert_eq!(candidate.package.as_deref(), Some("duplicate-resolution"));
-    assert_eq!(candidate.manifest_path.as_deref(), Some("Cargo.lock"));
+    assert_eq!(
+        candidate.manifest_path.as_deref(),
+        Some("Cargo.toml"),
+        "only the member requires 2.0.0, so its manifest is where the duplicate is removed"
+    );
+    assert!(!candidate.informational);
     assert_eq!(candidate.definition.category, "dependencies");
 
     assert!(!candidate.message.starts_with("Crate \"aligned\""));

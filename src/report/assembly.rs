@@ -16,7 +16,7 @@ use super::{
     NotEvaluated, PackageReport, PolicyReport, ProjectReport, RelatedLocation, ReportError,
     SCHEMA_VERSION, ScanReport, Severity, Status, Summary, ToolchainReport,
 };
-use crate::audit::{self, Audit, ScoreReason, SourceFileInventory};
+use crate::audit::{self, Audit, ScoreReason, SourceFileInventory, Unverified};
 use crate::cargo_health::{self, AdvisoryOutcome};
 use crate::delta::{DeltaReport, DiffMap};
 use crate::execution::{
@@ -283,7 +283,7 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         .finished()
         .map(|scan| scan.unlinted.iter().cloned().collect())
         .unwrap_or_default();
-    let audit = Audit::build_from_inventory(
+    let mut audit = Audit::build_from_inventory(
         source_inventory,
         members,
         &unlinted,
@@ -291,6 +291,7 @@ fn from_origin(result: ExecutionResult, origin: Origin<'_>) -> InspectReport {
         stage_reasons,
         &diagnostics,
     );
+    audit.publish_unverified(unverified_checks(plan, &not_evaluated));
 
     InspectReport {
         schema_version: SCHEMA_VERSION,
@@ -364,6 +365,25 @@ fn member_inventories(result: &ExecutionResult, complete: bool) -> Vec<(String, 
             (name, inventory)
         })
         .collect()
+}
+
+pub(super) fn unverified_checks(
+    plan: Option<&PolicyPlan>,
+    not_evaluated: &[(&'static str, NotEvaluated)],
+) -> BTreeSet<Unverified> {
+    let active: Vec<&str> = plan
+        .into_iter()
+        .flat_map(|plan| plan.active_rules(Producer::CargoHealth))
+        .filter(|(definition, _)| cargo_health::ADVISORY_RULES.contains(definition))
+        .map(|(definition, _)| definition.id)
+        .collect();
+    let unchecked = !active.is_empty()
+        && active.iter().all(|id| {
+            not_evaluated
+                .iter()
+                .any(|(rule, reason)| rule == id && *reason == NotEvaluated::AdvisoryDbMissing)
+        });
+    unchecked.then_some(Unverified::Advisories).into_iter().collect()
 }
 
 fn not_evaluated(
@@ -461,6 +481,7 @@ fn diagnostics_from_execution(
     let mut diagnostics: Vec<_> = merged.into_values().collect();
     apply_policy(&mut diagnostics, plan);
     let unwalked = super::reconcile::apply(&mut diagnostics, result);
+    super::cause::assign(&mut diagnostics, workspace_root);
     let exclusion =
         exclusion::apply(&mut diagnostics, plan, &result.exclusions, &dependency_keys);
     if let Some(scope) = scope {
@@ -761,12 +782,13 @@ fn normalize_error(
 
 pub(super) fn apply_policy(diagnostics: &mut [Diagnostic], plan: &PolicyPlan) {
     for diagnostic in diagnostics {
-        if let Some(level) = diagnostic
-            .code
-            .as_deref()
-            .and_then(|code| plan.restamp_level(code))
-        {
+        let Some(code) = diagnostic.code.as_deref() else {
+            continue;
+        };
+        if let Some(level) = plan.restamp_level(code) {
             diagnostic.severity = canonical_severity(level);
+        } else if crate::policy::is_distrusted(code) {
+            diagnostic.severity = Severity::Info;
         }
     }
 }

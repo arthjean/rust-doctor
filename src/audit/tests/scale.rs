@@ -40,7 +40,7 @@ fn the_score_is_invariant_to_duplicating_the_workspace() {
 
 #[test]
 fn the_same_findings_over_more_lines_score_better() {
-    let profile = [("clippy::todo", "correctness", Severity::Warning, 12)];
+    let profile = [("clippy::todo", "correctness", Severity::Warning, 30)];
     let dense = Audit::build(4, 5_000, Status::Complete, &diagnostics_for(&profile));
     let doubled = Audit::build(8, 10_000, Status::Complete, &diagnostics_for(&profile));
     let sparse = Audit::build(40, 50_000, Status::Complete, &diagnostics_for(&profile));
@@ -183,7 +183,7 @@ fn a_report_at_the_diagnostic_limit_still_scores_in_range() {
     let audit = Audit::build(10_000, 1_000_000, Status::Complete, &diagnostics_for(&rules));
     let score = audit.score.expect("a million lines is a scorable workspace");
 
-    assert_eq!(score.dimensions.reliability, 0);
+    assert_eq!(score.dimensions.reliability, 1);
     assert_eq!(score.dimensions.maintainability, 0);
     assert!(score.value <= 100);
     assert_eq!(score.value, 62, "the three untouched dimensions carry it");
@@ -288,10 +288,10 @@ fn a_hundred_and_twenty_line_crate_is_scored_against_the_floor() {
 
     assert_eq!(
         score.dimensions.maintainability,
-        density::dimension_score(3.0 / density::KILOLINE_FLOOR, ScoreDimension::Maintainability),
-        "the floor is the denominator a small workspace is charged against",
+        density::dimension_score(3.0 * 0.5 / density::KILOLINE_FLOOR, ScoreDimension::Maintainability),
+        "the floor is the denominator a small workspace is charged against, at the prior of a rule nobody measured",
     );
-    assert_eq!(score.dimensions.maintainability, 61);
+    assert_eq!(score.dimensions.maintainability, 78);
     assert_eq!(
         density::dimension_score(3.0 / 0.12, ScoreDimension::Maintainability),
         0,

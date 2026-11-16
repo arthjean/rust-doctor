@@ -217,9 +217,10 @@ fn default_path_terminal_help_and_clap_errors_follow_cli_contract() {
         .expect("rust-doctor should start");
     let terminal_stdout = String::from_utf8_lossy(&terminal.stdout);
     assert_eq!(terminal.status.code(), Some(0));
-    assert!(terminal_stdout.contains("P3 warning  Unwrap used  x1"), "{terminal_stdout}");
-    assert!(terminal_stdout.contains("Rule ID: clippy::unwrap_used"));
-    assert!(terminal_stdout.contains("src/lib.rs:8:5"));
+    assert!(
+        terminal_stdout.contains("P3 info  Unwrap used  x0 (+1 info)  clippy::unwrap_used  src/lib.rs:8:5"),
+        "a rule the corpus distrusts publishes at info, named with its location: {terminal_stdout}"
+    );
     assert!(terminal_stdout.contains("/ 100 "));
 
     let help = binary()

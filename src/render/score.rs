@@ -90,7 +90,7 @@ fn capped_sentence(subject: &str, ceiling: &crate::ScoreCeiling) -> String {
 
 pub(super) const TERMS: &str = "P0 to P3 rank a rule's severity. Noise is the share of reviewed \
     sites where the corpus (pinned public repositories) found the rule wrong; unmeasured means no \
-    site was reviewed.";
+    site was reviewed, and the score charges such a rule at half.";
 
 pub(super) const WORKSPACE_ONLY: &str =
     "Findings in CI files and the lockfile weigh on the workspace score only.";

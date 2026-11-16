@@ -128,6 +128,8 @@ pub(crate) struct RuleDefinition {
     pub(crate) title: &'static str,
     pub(crate) not_a_defect_when: &'static str,
     pub(crate) requires: &'static [CrateGate],
+    #[serde(skip)]
+    pub(crate) cause: Option<super::CauseKey>,
 }
 
 pub(crate) const CATEGORIES: [&str; 6] = [

@@ -27,9 +27,13 @@ clean the rest is:
 One P0 finding makes a hundred P3 repairs worth nothing. Read `audit.score.worst_tier`
 and `audit.score.applied_ceiling` first, and repair what sets the ceiling;
 `audit.score.ceilings[]`, new in report schema 24, names the rules holding
-each one. A withheld rule caps nothing. A lone direct duplicate major scores
-72, under the P2 ceiling, and one that only dependencies require publishes at
-`info` and weighs nothing.
+each one. A rule the corpus found wrong on most of the sites it reviewed
+publishes at `info` unless `--rule` sets its level, and caps nothing. A
+duplicate major warns only when one of its versions is required by members
+alone, so a member manifest can remove it; every other one publishes at
+`info` and weighs nothing. `audit.score.unverified` lists the checks the score
+was computed without, such as "advisories" when no RustSec database was read:
+the score keeps its authority, but a clean Dependencies is then unchecked.
 
 Under the ceiling the score is a density, not a tally. The model is `core-v6`,
 published as `audit.score.model`, and each dimension scores
@@ -37,7 +41,11 @@ published as `audit.score.model`, and each dimension scores
 error weighing two, a warning one and an info nothing, each site weighed by the
 tier of its rule, P3 one and every tier above doubling the one below, and each
 rule discounted by the false-positive rate the pinned corpus measured for it,
-over the size of what was scanned: Clippy, the source detectors and the
+a rule nobody measured being charged at half. Findings that share a
+diagnostic's `cause`, such as 303 by-value copies of one type, weigh
+`1 + ln(n)` sites rather than n, and a manifest or repository rule counts each
+cause once, its charge scaled to `1 + ln(c)` over its c causes. D is divided
+by the size of what was scanned: Clippy, the source detectors and the
 structural pass divide by the workspace's production kilolines, floored at
 two, so the same finding costs a small crate more than a large one, while the
 manifest and repository rules divide by nothing, since a workspace has one
@@ -57,10 +65,11 @@ report states on its `Scored` line.
 The report names the shortlist itself. `audit.score.projected_rule_ids` is the
 three rules worth repairing first, in the order to repair them: each is the
 rule that gives the most points back on top of the ones before it, through the
-ceilings, discounted by its measured rate, so the rule holding a ceiling comes
+ceilings, at the charge the score takes, so the rule holding a ceiling comes
 first. `audit.score.projected_after_top_three` is the score they are worth.
 `audit.score.withheld_rule_ids` is what the corpus found wrong more often than
-right. Take that ranking as given rather than rebuilding one from the
+right, listed only when `--rule` keeps such a rule at a level that weighs,
+since it otherwise publishes at `info`. Take that ranking as given rather than rebuilding one from the
 categories.
 
 ## After changing Rust code

@@ -83,6 +83,11 @@ pub(crate) fn corpus_measurement(id: &str) -> Option<&'static CorpusMeasurement>
     by_id(&CORPUS_NOISE, id, |measurement| measurement.id)
 }
 
+pub(crate) fn is_distrusted(id: &str) -> bool {
+    corpus_measurement(id)
+        .is_some_and(|measurement| measurement.noise_basis_points() > WITHHOLD_NOISE_BASIS_POINTS)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;

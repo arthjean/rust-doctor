@@ -1,4 +1,4 @@
-use crate::audit::{DensityScope, RuleAggregate, ScoreDimension};
+use crate::audit::{ChargedSites, DensityScope, RuleAggregate, ScoreDimension};
 use crate::policy::{RuleTier, UNMEASURED_NOISE_BASIS_POINTS};
 use crate::report::Severity;
 
@@ -22,7 +22,7 @@ fn ranked(id: &str, contribution: u64, noise: Option<u16>) -> RuleAggregate {
         tier: Some(RuleTier::P3),
         occurrences: 1,
         numerator: 1,
-        owned: 0,
+        sites: ChargedSites::whole(1, 0),
         noise,
         contribution,
     }
@@ -52,16 +52,17 @@ fn a_rule_the_corpus_measured_wrong_yields_the_lead_to_a_quieter_one() {
 }
 
 #[test]
-fn an_unmeasured_rule_is_ranked_at_half_its_contribution() {
+fn an_unmeasured_rule_is_ranked_by_the_contribution_the_score_already_halved() {
     let unmeasured = ranked("rust_doctor::repo::tracked_secret_file", 1_000_000, None);
-    assert_eq!(unmeasured.expected_repair_value(), 500_000);
+    assert_eq!(unmeasured.expected_repair_value(), 1_000_000);
     assert_eq!(UNMEASURED_NOISE_BASIS_POINTS, 5000);
     assert!(!unmeasured.is_withheld(), "the middle is ranked, not withheld");
 
     let quiet = ranked("clippy::rc_buffer", 1_000_000, Some(2000));
-    assert!(
-        quiet.expected_repair_value() > unmeasured.expected_repair_value(),
-        "a rule measured quiet ranks above one nobody has measured"
+    assert_eq!(
+        quiet.expected_repair_value(),
+        unmeasured.expected_repair_value(),
+        "the prior is in the charge, so the ranking applies no second factor"
     );
 }
 
@@ -72,6 +73,7 @@ fn the_same_rate_on_more_sites_moves_further_from_the_default() {
     let mut unmeasured = ranked("rust_doctor::repo::tracked_secret_file", 0, None);
     for rule in [&mut five, &mut forty, &mut unmeasured] {
         rule.numerator = 10;
+        rule.sites = ChargedSites::whole(10, 0);
     }
 
     assert!(forty.charged() < five.charged());
@@ -97,7 +99,7 @@ fn a_measured_rule_is_discounted_once_and_ranks_above_an_unmeasured_peer() {
     let measured = ranked("clippy::ptr_arg", 1_000_000, Some(3333));
     let unmeasured = ranked("clippy::useless_vec", 1_000_000, None);
     assert_eq!(measured.expected_repair_value(), 1_000_000);
-    assert_eq!(unmeasured.expected_repair_value(), 500_000);
+    assert_eq!(unmeasured.expected_repair_value(), 1_000_000);
 }
 
 #[test]
@@ -206,19 +208,22 @@ fn the_rate_discounts_the_charge_of_a_measured_rule() {
     assert_eq!(clean.value, 100);
     let mut indexing = ranked("clippy::indexing_slicing", 0, Some(9762));
     indexing.numerator = 10_000;
+    indexing.sites = ChargedSites::whole(10_000, 0);
     assert_eq!(indexing.charged(), 238.0);
     let mut unreachable = ranked("clippy::unreachable", 0, Some(7143));
     unreachable.numerator = 10_000;
+    unreachable.sites = ChargedSites::whole(10_000, 0);
     assert_eq!(unreachable.charged(), 2857.0);
 }
 
 #[test]
-fn an_unmeasured_rule_is_charged_whole() {
+fn an_unmeasured_rule_is_charged_at_the_prior_the_noise_table_gives_it() {
     let mut rule = ranked("rust_doctor::repo::tracked_secret_file", 0, None);
     rule.numerator = 3;
-    assert_eq!(rule.charged(), 3.0);
+    rule.sites = ChargedSites::whole(3, 0);
+    assert_eq!(rule.charged(), 1.5, "a rule nobody reviewed keeps 10000 - 5000 basis points");
     rule.tier = Some(RuleTier::P1);
-    assert_eq!(rule.charged(), 12.0, "a P1 site weighs four P3 sites");
+    assert_eq!(rule.charged(), 6.0, "a P1 site weighs four P3 sites");
     rule.noise = Some(2500);
     assert_eq!(rule.charged(), 9.0, "a measured rule keeps the share the corpus confirmed");
 }

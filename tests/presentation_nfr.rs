@@ -100,6 +100,7 @@ fn fixture_report() -> InspectReport {
             span: None,
             related: Vec::new(),
             similarity_basis_points: None,
+            cause: None,
             unscored: None,
             complexity: None,
             suggestion: None,

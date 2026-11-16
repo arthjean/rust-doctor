@@ -412,6 +412,7 @@ fn presentation(rule_ids: &[&str]) -> ReportPresentation {
                 },
                 category: Some(AuditCategoryName::Bugs),
                 occurrences: 1,
+                causes: rust_doctor::presentation::RuleCauses::default(),
                 diagnostics: vec![GroupDiagnostic {
                     message: "message".to_owned(),
                     help: None,
@@ -444,6 +445,7 @@ fn scored_report(value: u8) -> InspectReport {
         label: score_block::label_for(value),
         authoritative: true,
         reasons: Vec::new(),
+        unverified: Vec::new(),
         dimensions: ScoreDimensions {
             security: value,
             reliability: value,

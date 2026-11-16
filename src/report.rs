@@ -22,6 +22,7 @@ use crate::policy::{
 mod advisory_check;
 pub use advisory_check::AdvisoryCheck;
 mod assembly;
+mod cause;
 mod exclusion;
 pub(crate) use exclusion::edit_distance;
 mod normalize;
@@ -478,6 +479,8 @@ pub struct Diagnostic {
     pub complexity: Option<ComplexityFigures>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<Suggestion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
     pub occurrences: usize,
 }
 

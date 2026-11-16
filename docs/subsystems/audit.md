@@ -2,7 +2,8 @@
 
 `src/audit.rs` is the score and the category tallies: the two severity counts
 the report publishes, the five dimensions and their weights, the tier ceilings
-and what a rule is charged, under score model core-v6 and report schema 25.
+and what a rule is charged, under report schema 25 and the core-v7 charges,
+still labeled core-v6 until the corpus replay moves the label.
 `src/audit/density.rs` is the penalty itself, the severity and tier weights,
 the per-producer denominators, the kiloline floor and the exponential the
 density is read through.
@@ -27,27 +28,31 @@ was ranked as though it had cost points.
 
 What a site is charged. A rule's sites are weighed by severity, by the tier of
 the rule, each tier doubling the one below, and discounted by the smoothed rate
-the corpus adjudicated the rule wrong; an unmeasured rule is charged whole,
-since a measurement can only lower a charge. Under core-v3 the tier was only a
-ceiling and the rate only ranked, so a site of `await_holding_lock` cost what a
-site of `useless_vec` cost, and `indexing_slicing`, adjudicated wrong on all
-forty sites the corpus showed it, still took a healthy workspace's reliability
-to the forties. λ_security and λ_dependencies moved to four and six with the
-weights, so a lone `P1` security site and a lone duplicate major score what
-they scored before. An `Info` site weighs zero and stays authoritative: it is
-the level a producer publishes a fact the workspace cannot act on at, a
-`println!` in a binary target. An uncatalogued note weighs nothing and voids
-nothing. What still drops `authoritative` is published as `score.reasons`, a
-closed `ScoreReason` set, and the flag is true exactly when it is empty.
+the corpus adjudicated the rule wrong, an unmeasured rule at the 5000 basis
+point prior that rate gives a rule nobody reviewed, so the ranking applies no
+second factor. Findings sharing a declared `cause` weigh `1 + ln(n)` sites,
+and a workspace-scope rule counts each cause once, scaled by
+`(1 + ln(c)) / c`: 303 copies of one type, or one variable in three workflows,
+is one decision. docs/core-v7-calibration-2026-11.md measured
+the curve before it shipped. Under
+core-v3 the tier was only a ceiling and the rate only ranked, so a site of
+`await_holding_lock` cost what a site of `useless_vec` cost. An `Info` site
+weighs zero and stays authoritative: it is the level a producer publishes a
+fact the workspace cannot act on at, a `println!` in a binary target. An
+uncatalogued note weighs nothing and voids nothing. What still drops
+`authoritative` is published as `score.reasons`, a closed `ScoreReason` set,
+and the flag is true exactly when it is empty. A reason is a stage that ran
+and failed, so the score is partial; `score.unverified` names a check that
+never ran, such as `advisories` without a database, and leaves the flag alone.
 
 What core-v6 changed. A withheld rule caps nothing: `scoring_tier` in
 `src/audit/ceilings.rs` skips a rule smoothed above 5000 basis points, since
-one correct `process::exit` on such a rule held reliability at 75. The ranking
-discounts a measured rule once. A lone direct duplicate major scores 72, under
-the 75 of the P2 ceiling since the corpus publishes no rate for the rule, and a
-transitive-only one publishes at `Info` and weighs nothing. Versions compare
-by Cargo compatibility class, inline `#[cfg(test)]` items leave the
-denominator, and schema 24 publishes `audit.score.ceilings[]` and
+one correct `process::exit` on such a rule held reliability at 75. Since
+core-v7 such a rule also publishes at `Info` unless the request sets its
+level, and a duplicate major warns only when members alone require one of its
+versions, so a member manifest can remove it. Versions compare by Cargo
+compatibility class, inline `#[cfg(test)]` items leave the denominator, and
+schema 24 publishes `audit.score.ceilings[]` and
 `audit.categories[].production`.
 
 One climb for what to repair first. `RuleAggregation::projection` fills its

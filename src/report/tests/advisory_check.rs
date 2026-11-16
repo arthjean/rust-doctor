@@ -41,6 +41,9 @@ fn with_advisory_rules(reason: Option<NotEvaluated>) -> InspectReport {
     let mut report = report_with_diagnostics(Vec::new());
     report.policy = Some(PolicyReport::from_plan(&PolicyPlan::default(), &reasons));
     report
+        .audit
+        .publish_unverified(super::super::assembly::unverified_checks(Some(&PolicyPlan::default()), &reasons));
+    report
 }
 
 fn linear(report: &InspectReport) -> String {

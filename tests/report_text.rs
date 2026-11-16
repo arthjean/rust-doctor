@@ -51,10 +51,22 @@ fn position(text: &str, needle: &str) -> usize {
     found.unwrap()
 }
 
+const KEEP_WARNING: [&str; 2] = ["--rule", "clippy::unwrap_used=warn"];
+
+#[test]
+fn a_distrusted_rule_publishes_at_info_unless_the_request_keeps_its_warning() {
+    let root = workspace();
+    let text = stdout(&scan(&root, &[], &[]));
+    position(&text, "P3 info  Unwrap used  x0 (+1 info)");
+    assert!(!text.contains("Reported, but found wrong"), "{text}");
+    assert!(!text.contains("Left out of what to fix first"), "{text}");
+}
+
 #[test]
 fn every_rule_header_names_its_tier_severity_and_what_each_count_counts() {
     let root = workspace();
-    for arguments in [&[][..], &["--verbose"]] {
+    let verbose = [KEEP_WARNING[0], KEEP_WARNING[1], "--verbose"];
+    for arguments in [&KEEP_WARNING[..], &verbose[..]] {
         let text = stdout(&scan(&root, arguments, &[]));
         let measured = position(&text, "P3 warning  Rc buffer  x1");
         let heading = position(&text, "Reported, but found wrong on most reviewed sites\n");
@@ -72,7 +84,7 @@ fn every_rule_header_names_its_tier_severity_and_what_each_count_counts() {
 #[test]
 fn the_tallies_use_the_dimension_names_the_score_line_uses() {
     let root = workspace();
-    let text = stdout(&scan(&root, &[], &[]));
+    let text = stdout(&scan(&root, &KEEP_WARNING, &[]));
     let reliability = position(&text, "\nReliability: 1 warning (1 from Unwrap used)\n");
     let performance = position(&text, "\nPerformance: 1 warning (1 from Rc buffer)\n");
     assert!(reliability < performance, "{text}");
@@ -91,8 +103,9 @@ fn the_tallies_use_the_dimension_names_the_score_line_uses() {
 #[test]
 fn the_footer_says_what_to_fix_what_the_corpus_distrusts_and_what_its_terms_mean() {
     let root = workspace();
-    let text = stdout(&scan(&root, &[], &[]));
-    let report: Value = serde_json::from_slice(&scan(&root, &["--json"], &[]).stdout).unwrap();
+    let text = stdout(&scan(&root, &KEEP_WARNING, &[]));
+    let json = [KEEP_WARNING[0], KEEP_WARNING[1], "--json"];
+    let report: Value = serde_json::from_slice(&scan(&root, &json, &[]).stdout).unwrap();
     let production = |severity: &str| -> u64 {
         report["audit"]["categories"]
             .as_array()
@@ -128,7 +141,7 @@ fn the_footer_says_what_to_fix_what_the_corpus_distrusts_and_what_its_terms_mean
         flat.matches(
             "P0 to P3 rank a rule's severity. Noise is the share of reviewed sites where the \
              corpus (pinned public repositories) found the rule wrong; unmeasured means no site \
-             was reviewed."
+             was reviewed, and the score charges such a rule at half."
         )
         .count(),
         1,

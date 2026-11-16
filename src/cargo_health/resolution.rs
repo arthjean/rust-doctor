@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -98,14 +98,20 @@ pub(super) fn inspect_resolution(
                     .map(|package| package.name.to_string())
                     .collect();
                 for duplicate in duplicate_major_versions(&packages, &members) {
+                    let manifest = duplicate
+                        .removable_by()
+                        .and_then(|member| {
+                            workspace_packages(metadata).find(|package| package.name.as_str() == member)
+                        })
+                        .and_then(|package| workspace_manifest(package, metadata));
                     scan.candidates.push(Candidate {
                         definition: &CARGO_DUPLICATE_MAJOR_VERSIONS,
                         message: duplicate.message(),
                         package: owner.clone(),
-                        manifest_path: Some(LOCKFILE.to_owned()),
+                        manifest_path: Some(manifest.unwrap_or_else(|| LOCKFILE.to_owned())),
                         span: None,
                         key: None,
-                        informational: duplicate.is_transitive_only(),
+                        informational: duplicate.removable_by().is_none(),
                     });
                 }
             }
@@ -193,26 +199,40 @@ fn read_resolution(workspace_root: &Path) -> Resolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Requirement {
-    Direct(String),
+    Direct(Vec<String>),
     Through(String),
     Unreached,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ResolvedVersion {
+    pub(super) version: String,
+    pub(super) requirement: Requirement,
+    pub(super) members_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct DuplicateMajor {
     pub(super) name: String,
-    pub(super) versions: Vec<(String, Requirement)>,
+    pub(super) versions: Vec<ResolvedVersion>,
 }
+
+const NAMED_MEMBERS: usize = 3;
 
 impl DuplicateMajor {
     pub(super) fn message(&self) -> String {
         let versions: Vec<String> = self
             .versions
             .iter()
-            .map(|(version, requirement)| match requirement {
-                Requirement::Direct(member) => format!("{version} (required by {member})"),
-                Requirement::Through(dependency) => format!("{version} (through {dependency})"),
-                Requirement::Unreached => version.clone(),
+            .map(|resolved| {
+                let version = &resolved.version;
+                match &resolved.requirement {
+                    Requirement::Direct(members) => {
+                        format!("{version} (required by {})", named_members(members))
+                    }
+                    Requirement::Through(dependency) => format!("{version} (through {dependency})"),
+                    Requirement::Unreached => version.clone(),
+                }
             })
             .collect();
         format!(
@@ -222,11 +242,42 @@ impl DuplicateMajor {
         )
     }
 
-    pub(super) fn is_transitive_only(&self) -> bool {
+    pub(super) fn removable_by(&self) -> Option<&str> {
         self.versions
             .iter()
-            .all(|(_, requirement)| matches!(requirement, Requirement::Through(_)))
+            .filter(|resolved| resolved.members_only)
+            .find_map(|resolved| match &resolved.requirement {
+                Requirement::Direct(members) => members.first().map(String::as_str),
+                Requirement::Through(_) | Requirement::Unreached => None,
+            })
     }
+}
+
+fn named_members(members: &[String]) -> String {
+    let named = members
+        .iter()
+        .take(NAMED_MEMBERS)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    match members.len().saturating_sub(NAMED_MEMBERS) {
+        0 => named,
+        more => format!("{named} +{more} more"),
+    }
+}
+
+fn semver_key(version: &str) -> (Vec<u64>, bool, &str) {
+    let release = version.split('+').next().unwrap_or(version);
+    let (core, pre) = release.split_once('-').unwrap_or((release, ""));
+    let numbers = core
+        .split('.')
+        .map(|component| component.parse().unwrap_or(u64::MAX))
+        .collect();
+    (numbers, pre.is_empty(), pre)
+}
+
+fn semver_order(left: &str, right: &str) -> std::cmp::Ordering {
+    semver_key(left).cmp(&semver_key(right)).then_with(|| left.cmp(right))
 }
 
 pub(super) fn duplicate_major_versions(
@@ -245,7 +296,7 @@ pub(super) fn duplicate_major_versions(
     majors
         .into_iter()
         .filter_map(|(name, mut versions)| {
-            versions.sort_unstable();
+            versions.sort_unstable_by(|left, right| semver_order(left, right));
             let mut unique: Vec<_> = versions
                 .iter()
                 .filter_map(|version| compatibility_class(version))
@@ -256,11 +307,10 @@ pub(super) fn duplicate_major_versions(
                 name: name.to_owned(),
                 versions: versions
                     .into_iter()
-                    .map(|version| {
-                        (
-                            version.to_owned(),
-                            graph.requirement(members, name, version),
-                        )
+                    .map(|version| ResolvedVersion {
+                        version: version.to_owned(),
+                        requirement: graph.requirement(members, name, version),
+                        members_only: graph.required_only_by(members, (name, version)),
                     })
                     .collect(),
             })
@@ -315,28 +365,69 @@ impl<'a> Graph<'a> {
         }
     }
 
+    fn member_nodes(&self, members: &BTreeSet<String>) -> Vec<(&'a str, &'a str)> {
+        self.edges
+            .keys()
+            .filter(|(name, version)| members.contains(*name) && *version == self.first_version(name))
+            .copied()
+            .collect()
+    }
+
     fn requirement(&self, members: &BTreeSet<String>, name: &str, version: &str) -> Requirement {
         let target = (name, version);
-        let mut through: Option<&str> = None;
-        for member in members {
-            let Some(direct) = self.edges.get(&(member.as_str(), self.first_version(member))) else {
-                continue;
-            };
-            if direct.contains(&target) {
-                return Requirement::Direct(member.clone());
-            }
-            for dependency in direct {
-                if through.is_some_and(|known| known <= dependency.0) {
-                    continue;
-                }
-                if self.reaches(*dependency, target) {
-                    through = Some(dependency.0);
-                }
-            }
+        let direct: Vec<String> = self
+            .member_nodes(members)
+            .into_iter()
+            .filter(|node| self.edges.get(node).is_some_and(|next| next.contains(&target)))
+            .map(|(member, _)| member.to_owned())
+            .collect();
+        if !direct.is_empty() {
+            return Requirement::Direct(direct);
         }
-        through.map_or(Requirement::Unreached, |dependency| {
-            Requirement::Through(dependency.to_owned())
-        })
+        self.carrier(members, target)
+            .map_or(Requirement::Unreached, |carrier| Requirement::Through(carrier.to_owned()))
+    }
+
+    fn required_only_by(&self, members: &BTreeSet<String>, target: (&str, &str)) -> bool {
+        let mut requirers = self
+            .edges
+            .iter()
+            .filter(|(_, next)| next.contains(&target))
+            .map(|((name, _), _)| *name)
+            .peekable();
+        requirers.peek().is_some() && requirers.all(|name| members.contains(name))
+    }
+
+    fn carrier(&self, members: &BTreeSet<String>, target: (&str, &str)) -> Option<&'a str> {
+        let mut carriers: BTreeMap<(&'a str, &'a str), Option<&'a str>> =
+            self.member_nodes(members).into_iter().map(|node| (node, None)).collect();
+        let mut layer: Vec<(&'a str, &'a str)> = carriers.keys().copied().collect();
+        while !layer.is_empty() {
+            let mut next = BTreeMap::<(&'a str, &'a str), Option<&'a str>>::new();
+            for node in &layer {
+                let carried = carriers.get(node).copied().flatten();
+                for successor in self.edges.get(node).into_iter().flatten() {
+                    if carriers.contains_key(successor) {
+                        continue;
+                    }
+                    let candidate = carried.or_else(|| {
+                        (!members.contains(successor.0)).then_some(successor.0)
+                    });
+                    let entry = next.entry(*successor).or_insert(candidate);
+                    if let (Some(current), Some(offered)) = (*entry, candidate)
+                        && offered < current
+                    {
+                        *entry = Some(offered);
+                    }
+                }
+            }
+            if let Some(found) = next.get(&target) {
+                return *found;
+            }
+            layer = next.keys().copied().collect();
+            carriers.extend(next);
+        }
+        None
     }
 
     fn first_version(&self, name: &str) -> &'a str {
@@ -346,22 +437,6 @@ impl<'a> Graph<'a> {
             .unwrap_or("")
     }
 
-    fn reaches(&self, from: (&'a str, &'a str), target: (&str, &str)) -> bool {
-        let mut seen = BTreeSet::new();
-        let mut queue = VecDeque::from([from]);
-        while let Some(node) = queue.pop_front() {
-            if node == target {
-                return true;
-            }
-            if !seen.insert(node) {
-                continue;
-            }
-            if let Some(next) = self.edges.get(&node) {
-                queue.extend(next.iter().copied());
-            }
-        }
-        false
-    }
 }
 
 pub(super) fn compatibility_class(version: &str) -> Option<&str> {

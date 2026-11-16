@@ -544,7 +544,14 @@ fn default_report_and_policy_overrides_cover_all_five_rules_without_schema_chang
             "{id}"
         );
         assert_eq!(finding.base_severity, Severity::Warning, "{id}");
-        assert_eq!(finding.severity, Severity::Warning, "{id}");
+        let distrusted = baseline
+            .policy
+            .as_ref()
+            .and_then(|policy| policy.rules.iter().find(|published| published.id == id))
+            .and_then(|published| published.corpus_noise_basis_points)
+            .is_some_and(|noise| noise > 5000);
+        let published = if distrusted { Severity::Info } else { Severity::Warning };
+        assert_eq!(finding.severity, published, "{id}");
         assert_eq!(finding.help.as_deref(), Some(rule.help.as_str()), "{id}");
         assert_eq!(finding.message, rule.message, "{id}");
         assert_eq!(finding.path.as_deref(), Some("src/lib.rs"), "{id}");

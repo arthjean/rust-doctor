@@ -20,6 +20,7 @@
   "frozen": [
     "docs/agent-population-precision-2026-08.md",
     "docs/contextual-scope-2026-10.md",
+    "docs/core-v7-calibration-2026-11.md",
     "docs/correctness-group-2026-09.md",
     "docs/delta-pairing-2026-10.md",
     "docs/native-rules-remeasure-2026-10.md",

@@ -11,6 +11,7 @@ pub(crate) static CLIPPY_ARC_WITH_NON_SEND_SYNC: RuleDefinition = RuleDefinition
     title: "Arc around a type lacking Send or Sync",
     not_a_defect_when: "The value never leaves one thread and an API it is handed to demands an Arc, such as a library callback signature or a single-threaded runtime's handle, so Rc is not an option.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_AWAIT_HOLDING_LOCK: RuleDefinition = RuleDefinition {
     id: "clippy::await_holding_lock",
@@ -23,6 +24,7 @@ pub(crate) static CLIPPY_AWAIT_HOLDING_LOCK: RuleDefinition = RuleDefinition {
     title: "Mutex guard held across an await point",
     not_a_defect_when: "No other task can lock the mutex while the future is suspended, such as a mutex created inside the future and never shared, so holding the guard across the await cannot deadlock.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_AWAIT_HOLDING_REFCELL_REF: RuleDefinition = RuleDefinition {
     id: "clippy::await_holding_refcell_ref",
@@ -35,6 +37,7 @@ pub(crate) static CLIPPY_AWAIT_HOLDING_REFCELL_REF: RuleDefinition = RuleDefinit
     title: "RefCell borrow held across an await point",
     not_a_defect_when: "No other task can borrow the RefCell while the future is suspended, such as a cell created inside the future and never shared, so the borrow cannot conflict across the await.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_CROSSPOINTER_TRANSMUTE: RuleDefinition = RuleDefinition {
     id: "clippy::crosspointer_transmute",
@@ -47,6 +50,7 @@ pub(crate) static CLIPPY_CROSSPOINTER_TRANSMUTE: RuleDefinition = RuleDefinition
     title: "Transmute between a type and its pointer",
     not_a_defect_when: "The value is an opaque handle that a C API documents as interchangeable with a pointer to its own type, and the transmute mirrors that documented representation in FFI glue.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_DBG_MACRO: RuleDefinition = RuleDefinition {
     id: "clippy::dbg_macro",
@@ -59,6 +63,7 @@ pub(crate) static CLIPPY_DBG_MACRO: RuleDefinition = RuleDefinition {
     title: "Leftover dbg! debugging macro",
     not_a_defect_when: "The dbg! sits in test code or a throwaway example where printing intermediate values to stderr is the point, and it never reaches library or shipped binary code.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_EXIT: RuleDefinition = RuleDefinition {
     id: "clippy::exit",
@@ -71,6 +76,7 @@ pub(crate) static CLIPPY_EXIT: RuleDefinition = RuleDefinition {
     title: "process::exit called outside main",
     not_a_defect_when: "The call sits in a CLI's top-level run or fatal-error function that only main reaches and that flushes output first, so no destructor or caller needs to run afterward.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_EXPECT_USED: RuleDefinition = RuleDefinition {
     id: "clippy::expect_used",
@@ -83,6 +89,7 @@ pub(crate) static CLIPPY_EXPECT_USED: RuleDefinition = RuleDefinition {
     title: "Panicking expect on a Result or Option",
     not_a_defect_when: "The value is guaranteed by an invariant the message states (a constant regex, an index checked just above, a static string that always parses), or the call is in test code.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_FORMAT_COLLECT: RuleDefinition = RuleDefinition {
     id: "clippy::format_collect",
@@ -95,6 +102,7 @@ pub(crate) static CLIPPY_FORMAT_COLLECT: RuleDefinition = RuleDefinition {
     title: "format! per element collected into a String",
     not_a_defect_when: "The collection is small and formatted once outside any hot path, such as building a short error message, where one allocation per item is irrelevant.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_INDEXING_SLICING: RuleDefinition = RuleDefinition {
     id: "clippy::indexing_slicing",
@@ -107,6 +115,7 @@ pub(crate) static CLIPPY_INDEXING_SLICING: RuleDefinition = RuleDefinition {
     title: "Indexing or slicing that can panic",
     not_a_defect_when: "The index is provably in bounds from a length check or loop range just above, such as iterating 0..v.len(), and a panic there would signal a bug rather than bad input.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_LARGE_TYPES_PASSED_BY_VALUE: RuleDefinition = RuleDefinition {
     id: "clippy::large_types_passed_by_value",
@@ -119,6 +128,7 @@ pub(crate) static CLIPPY_LARGE_TYPES_PASSED_BY_VALUE: RuleDefinition = RuleDefin
     title: "Large value passed by value to a function",
     not_a_defect_when: "The function consumes the value by moving it into a struct, a collection or another thread, so taking a reference would only force a clone at the call site.",
     requires: &[],
+    cause: Some(crate::policy::CauseKey::TypeAndSize),
 };
 pub(crate) static CLIPPY_MANUAL_MEMCPY: RuleDefinition = RuleDefinition {
     id: "clippy::manual_memcpy",
@@ -131,6 +141,7 @@ pub(crate) static CLIPPY_MANUAL_MEMCPY: RuleDefinition = RuleDefinition {
     title: "Element-by-element loop copying between slices",
     not_a_defect_when: "The source and destination ranges overlap inside the same buffer, which copy_from_slice cannot express and copy_within must handle instead.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
     id: "clippy::mem_forget",
@@ -143,6 +154,7 @@ pub(crate) static CLIPPY_MEM_FORGET: RuleDefinition = RuleDefinition {
     title: "mem::forget on a value with drop semantics",
     not_a_defect_when: "Ownership of the resource was handed elsewhere, such as a raw handle or pointer passed to C code or a value already moved out with ptr::read, so running its destructor would double-free.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_MISSING_SAFETY_DOC: RuleDefinition = RuleDefinition {
     id: "clippy::missing_safety_doc",
@@ -155,6 +167,7 @@ pub(crate) static CLIPPY_MISSING_SAFETY_DOC: RuleDefinition = RuleDefinition {
     title: "Public unsafe fn without a Safety section",
     not_a_defect_when: "The function is doc(hidden) and exported only for the crate's own macros, and its safety contract is documented on the macro that emits the call.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_MISSING_TRANSMUTE_ANNOTATIONS: RuleDefinition = RuleDefinition {
     id: "clippy::missing_transmute_annotations",
@@ -167,6 +180,7 @@ pub(crate) static CLIPPY_MISSING_TRANSMUTE_ANNOTATIONS: RuleDefinition = RuleDef
     title: "Transmute without explicit source and target types",
     not_a_defect_when: "The transmute is passed straight to a function whose parameter type is fixed by a stable signature, and its input is a typed parameter one line above, so both types stay in plain sight.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_MUT_MUTEX_LOCK: RuleDefinition = RuleDefinition {
     id: "clippy::mut_mutex_lock",
@@ -179,6 +193,7 @@ pub(crate) static CLIPPY_MUT_MUTEX_LOCK: RuleDefinition = RuleDefinition {
     title: "Locking a Mutex already borrowed mutably",
     not_a_defect_when: "The extra lock is uncontended and harmless here, for instance in code kept uniform with sibling paths that only hold a shared reference, since the exclusive borrow already rules out another holder.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefinition {
     id: "clippy::non_send_fields_in_send_ty",
@@ -191,6 +206,7 @@ pub(crate) static CLIPPY_NON_SEND_FIELDS_IN_SEND_TY: RuleDefinition = RuleDefini
     title: "Manual Send impl with non-Send fields",
     not_a_defect_when: "The non-Send field is a raw pointer to memory the struct owns exclusively or guards with its own synchronization, and the unsafe impl's SAFETY comment states that invariant.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_PANIC: RuleDefinition = RuleDefinition {
     id: "clippy::panic",
@@ -203,6 +219,7 @@ pub(crate) static CLIPPY_PANIC: RuleDefinition = RuleDefinition {
     title: "Explicit panic! call",
     not_a_defect_when: "The panic guards an internal invariant no caller input can reach, or sits in test code, a build script or a binary's startup where aborting is the intended response.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_PANIC_IN_RESULT_FN: RuleDefinition = RuleDefinition {
     id: "clippy::panic_in_result_fn",
@@ -215,6 +232,7 @@ pub(crate) static CLIPPY_PANIC_IN_RESULT_FN: RuleDefinition = RuleDefinition {
     title: "Panic or assertion inside a Result-returning function",
     not_a_defect_when: "The panic or assert checks an internal invariant rather than a recoverable input, such as an assert on a computed index, where returning Err would misreport a bug as a runtime failure.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDefinition {
     id: "clippy::permissions_set_readonly_false",
@@ -227,6 +245,7 @@ pub(crate) static CLIPPY_PERMISSIONS_SET_READONLY_FALSE: RuleDefinition = RuleDe
     title: "Clearing readonly, which makes files world-writable on Unix",
     not_a_defect_when: "The code only compiles for Windows under cfg(windows), where set_readonly(false) clears the read-only attribute without granting write access to other users.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_PRINT_STDERR: RuleDefinition = RuleDefinition {
     id: "clippy::print_stderr",
@@ -239,6 +258,7 @@ pub(crate) static CLIPPY_PRINT_STDERR: RuleDefinition = RuleDefinition {
     title: "Direct printing to stderr",
     not_a_defect_when: "The code is a binary's main or CLI front end whose job is to write diagnostics to the terminal, not library code that callers embed.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_PRINT_STDOUT: RuleDefinition = RuleDefinition {
     id: "clippy::print_stdout",
@@ -251,6 +271,7 @@ pub(crate) static CLIPPY_PRINT_STDOUT: RuleDefinition = RuleDefinition {
     title: "Direct printing to stdout",
     not_a_defect_when: "The code is a binary's CLI output layer, an example or a test where stdout is the intended destination, not library code that callers embed.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_PTR_ARG: RuleDefinition = RuleDefinition {
     id: "clippy::ptr_arg",
@@ -263,6 +284,7 @@ pub(crate) static CLIPPY_PTR_ARG: RuleDefinition = RuleDefinition {
     title: "Parameter typed &Vec or &String instead of slice",
     not_a_defect_when: "The signature is fixed by a trait, a callback type or a function pointer it must match, or the body needs a Vec- or String-only method such as capacity().",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_RC_BUFFER: RuleDefinition = RuleDefinition {
     id: "clippy::rc_buffer",
@@ -275,6 +297,7 @@ pub(crate) static CLIPPY_RC_BUFFER: RuleDefinition = RuleDefinition {
     title: "Rc or Arc wrapping an owned buffer",
     not_a_defect_when: "The shared buffer is later mutated in place through Rc::make_mut or Arc::make_mut, which needs the owned String or Vec inside.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_RC_MUTEX: RuleDefinition = RuleDefinition {
     id: "clippy::rc_mutex",
@@ -287,6 +310,7 @@ pub(crate) static CLIPPY_RC_MUTEX: RuleDefinition = RuleDefinition {
     title: "Mutex inside Rc where RefCell suffices",
     not_a_defect_when: "An API the value is handed to requires a Mutex, such as a trait or callback signature taking a Mutex reference, while the program itself stays single-threaded.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_REDUNDANT_ALLOCATION: RuleDefinition = RuleDefinition {
     id: "clippy::redundant_allocation",
@@ -299,6 +323,7 @@ pub(crate) static CLIPPY_REDUNDANT_ALLOCATION: RuleDefinition = RuleDefinition {
     title: "Redundant nested heap allocation like Box<Rc<T>>",
     not_a_defect_when: "The outer pointer turns a fat pointer into a thin one, such as Box<Box<dyn Trait>> passed through a C void pointer, where one indirection is not enough.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_STABLE_SORT_PRIMITIVE: RuleDefinition = RuleDefinition {
     id: "clippy::stable_sort_primitive",
@@ -311,6 +336,7 @@ pub(crate) static CLIPPY_STABLE_SORT_PRIMITIVE: RuleDefinition = RuleDefinition 
     title: "Stable sort on primitives where unstable suffices",
     not_a_defect_when: "The slice is short or nearly sorted and is sorted once outside any hot path, where the stable sort's extra allocation and time are negligible.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_STRING_SLICE: RuleDefinition = RuleDefinition {
     id: "clippy::string_slice",
@@ -323,6 +349,7 @@ pub(crate) static CLIPPY_STRING_SLICE: RuleDefinition = RuleDefinition {
     title: "String slicing that can split a character",
     not_a_defect_when: "The byte offsets come from char_indices, find or another str method that returns character boundaries, or the string is known to be ASCII-only.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefinition {
     id: "clippy::suspicious_command_arg_space",
@@ -335,6 +362,7 @@ pub(crate) static CLIPPY_SUSPICIOUS_COMMAND_ARG_SPACE: RuleDefinition = RuleDefi
     title: "Command argument with spaces meant as several",
     not_a_defect_when: "The argument is one value that legitimately contains a space, such as a file path, a commit message or a search phrase.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_TODO: RuleDefinition = RuleDefinition {
     id: "clippy::todo",
@@ -347,6 +375,7 @@ pub(crate) static CLIPPY_TODO: RuleDefinition = RuleDefinition {
     title: "Leftover todo! placeholder",
     not_a_defect_when: "The todo! sits on a path shipped builds cannot reach, such as a stub behind an unreleased feature flag or in a test helper, and a tracking issue is referenced next to it.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_TOO_MANY_ARGUMENTS: RuleDefinition = RuleDefinition {
     id: "clippy::too_many_arguments",
@@ -359,6 +388,7 @@ pub(crate) static CLIPPY_TOO_MANY_ARGUMENTS: RuleDefinition = RuleDefinition {
     title: "Function taking too many parameters",
     not_a_defect_when: "The signature mirrors an interface it cannot reshape, such as an extern C function, a trait method or generated bindings, or the parameters are unrelated and a struct would only rename them.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_TYPE_COMPLEXITY: RuleDefinition = RuleDefinition {
     id: "clippy::type_complexity",
@@ -371,6 +401,7 @@ pub(crate) static CLIPPY_TYPE_COMPLEXITY: RuleDefinition = RuleDefinition {
     title: "Overly complex type in a signature",
     not_a_defect_when: "The type appears once, in a private or generated item, and naming it would add an alias no other code reads.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_UNDOCUMENTED_UNSAFE_BLOCKS: RuleDefinition = RuleDefinition {
     id: "clippy::undocumented_unsafe_blocks",
@@ -383,6 +414,7 @@ pub(crate) static CLIPPY_UNDOCUMENTED_UNSAFE_BLOCKS: RuleDefinition = RuleDefini
     title: "Unsafe block without a SAFETY comment",
     not_a_defect_when: "The block is in generated FFI bindings or macro output nobody edits by hand, and the safety argument is documented once on the generator or the enclosing module.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     id: "clippy::unimplemented",
@@ -395,6 +427,7 @@ pub(crate) static CLIPPY_UNIMPLEMENTED: RuleDefinition = RuleDefinition {
     title: "Leftover unimplemented! placeholder",
     not_a_defect_when: "The unimplemented! marks a trait method the type deliberately does not support, such as an optional method in a test double, and callers are documented never to reach it.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_UNNECESSARY_TO_OWNED: RuleDefinition = RuleDefinition {
     id: "clippy::unnecessary_to_owned",
@@ -407,6 +440,7 @@ pub(crate) static CLIPPY_UNNECESSARY_TO_OWNED: RuleDefinition = RuleDefinition {
     title: "Needless to_owned or clone before borrowing",
     not_a_defect_when: "The owned copy is needed to end a borrow early, such as cloning a key so the same map can be mutated while the value is still in use.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_UNREACHABLE: RuleDefinition = RuleDefinition {
     id: "clippy::unreachable",
@@ -419,6 +453,7 @@ pub(crate) static CLIPPY_UNREACHABLE: RuleDefinition = RuleDefinition {
     title: "unreachable! that panics if reached",
     not_a_defect_when: "The branch is provably impossible from a local invariant the type system cannot express, such as a match on a value filtered just above, and the message states that invariant.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_UNUSED_ASYNC: RuleDefinition = RuleDefinition {
     id: "clippy::unused_async",
@@ -431,6 +466,7 @@ pub(crate) static CLIPPY_UNUSED_ASYNC: RuleDefinition = RuleDefinition {
     title: "Async function that never awaits",
     not_a_defect_when: "The function must be async to satisfy an interface, such as a web framework handler, a callback expecting a future or a function pointer type.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_UNWRAP_USED: RuleDefinition = RuleDefinition {
     id: "clippy::unwrap_used",
@@ -443,6 +479,7 @@ pub(crate) static CLIPPY_UNWRAP_USED: RuleDefinition = RuleDefinition {
     title: "Panicking unwrap on a Result or Option",
     not_a_defect_when: "The value is guaranteed by an invariant established just above (a constant regex, a checked index, a static string that always parses), or the call is in test code where a panic is the failure report.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_USELESS_VEC: RuleDefinition = RuleDefinition {
     id: "clippy::useless_vec",
@@ -455,6 +492,7 @@ pub(crate) static CLIPPY_USELESS_VEC: RuleDefinition = RuleDefinition {
     title: "Heap vec! where an array would do",
     not_a_defect_when: "The value is later handed to an API taking Vec<T> by value or grown with push behind a cfg branch the lint does not see.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_VEC_INIT_THEN_PUSH: RuleDefinition = RuleDefinition {
     id: "clippy::vec_init_then_push",
@@ -467,6 +505,7 @@ pub(crate) static CLIPPY_VEC_INIT_THEN_PUSH: RuleDefinition = RuleDefinition {
     title: "Vec created then immediately filled with pushes",
     not_a_defect_when: "The pushes are interleaved with cfg attributes or conditions that vec! cannot express, or the vector is preallocated with with_capacity for growth beyond these elements.",
     requires: &[],
+    cause: None,
 };
 pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
     id: "clippy::zombie_processes",
@@ -479,4 +518,5 @@ pub(crate) static CLIPPY_ZOMBIE_PROCESSES: RuleDefinition = RuleDefinition {
     title: "Spawned child process never waited on",
     not_a_defect_when: "The child is intentionally detached to outlive the parent, such as a daemon or background helper, and the parent exits right after so init adopts and reaps it.",
     requires: &[],
+    cause: None,
 };

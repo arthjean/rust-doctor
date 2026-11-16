@@ -48,9 +48,12 @@ impl InspectReport {
     pub fn unchecked_advisories(&self) -> Option<UncheckedAdvisories> {
         let unreadable = self.errors.iter().any(|error| error.code == UNREADABLE);
         let missing = !unreadable
-            && self.policy.as_ref()?.rules.iter().any(|rule| {
-                rule.not_evaluated == Some(NotEvaluated::AdvisoryDbMissing)
-            });
+            && self
+                .audit
+                .score
+                .as_ref()?
+                .unverified
+                .contains(&crate::audit::Unverified::Advisories);
         missing.then(|| {
             if self.scan.advisory_check == AdvisoryCheck::TurnedOff {
                 UncheckedAdvisories::TurnedOff

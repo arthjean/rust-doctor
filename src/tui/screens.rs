@@ -196,6 +196,7 @@ mod tests {
             label,
             authoritative: true,
             reasons: Vec::new(),
+            unverified: Vec::new(),
             dimensions: ScoreDimensions {
                 security: 100,
                 reliability: 100,

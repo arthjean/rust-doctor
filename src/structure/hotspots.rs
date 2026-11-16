@@ -115,7 +115,7 @@ fn complex(
 ) -> Option<Observation> {
     let metrics = metrics_of(&function.body()?);
     if metrics.cyclomatic < settings.cyclomatic_threshold
-        && metrics.cognitive < settings.cognitive_threshold
+        || metrics.cognitive < settings.cognitive_threshold
     {
         return None;
     }
@@ -355,6 +355,24 @@ mod tests {
         let with_closure = measured("let probe = |x| if x { 1 } else { 2 };");
         assert_eq!(with_closure.cyclomatic, 2);
         assert_eq!(with_closure.cognitive, 3);
+    }
+
+    #[test]
+    fn a_function_over_one_threshold_alone_is_not_observed() {
+        let arms: String = (0..33).map(|arm| format!("{arm} => {},\n", arm + 1)).collect();
+        let flat = format!("fn flat(value: u32) -> u32 {{\nmatch value {{\n{arms}_ => 0,\n}}\n}}\n");
+        let figures = {
+            let parsed = unit(&flat);
+            let function = parsed.inventory.functions.first().expect("the probe parses").clone();
+            metrics_of(&function.body().expect("the probe has a body"))
+        };
+        assert_eq!((figures.cyclomatic, figures.cognitive), (35, 1));
+        assert!(observe(&unit(&flat), &StructureSettings::default(), &complexity_only()).is_empty());
+
+        let nested = format!("fn nested() {{ {}b();{} }}", "if a { ".repeat(7), " }".repeat(7));
+        let deep = measured(&format!("{}b();{}", "if a { ".repeat(7), " }".repeat(7)));
+        assert!(deep.cyclomatic < 20 && deep.cognitive >= 25, "{deep:?}");
+        assert!(observe(&unit(&nested), &StructureSettings::default(), &complexity_only()).is_empty());
     }
 
     #[test]

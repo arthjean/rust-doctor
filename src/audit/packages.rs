@@ -113,6 +113,7 @@ mod tests {
             }),
             related: Vec::new(),
             similarity_basis_points: None,
+            cause: None,
             complexity: None,
             suggestion: None,
             occurrences: 1,
@@ -176,11 +177,10 @@ mod tests {
             complete: true,
         };
         let members = || vec![("alpha".to_owned(), inventory), ("beta".to_owned(), inventory)];
-        let claimed = [
-            unused_dependency(Some("alpha"), 0),
-            unused_dependency(Some("alpha"), 1),
-            unused_dependency(Some("beta"), 0),
-        ];
+        let claimed: Vec<Diagnostic> = (0..6)
+            .map(|index| unused_dependency(Some("alpha"), index))
+            .chain([unused_dependency(Some("beta"), 0)])
+            .collect();
         let build = |diagnostics: &[Diagnostic]| {
             Audit::build_from_inventory(
                 inventory,

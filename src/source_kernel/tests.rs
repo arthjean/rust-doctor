@@ -99,6 +99,7 @@ static SILENT_RULE: RuleDefinition = RuleDefinition {
     title: "",
     not_a_defect_when: "",
     requires: &[],
+    cause: None,
 };
 
 static SILENT: Detector = Detector {

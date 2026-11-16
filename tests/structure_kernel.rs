@@ -156,7 +156,10 @@ fn the_structural_pass_publishes_one_diagnostic_per_family() {
         "#![allow(dead_code)] switches a lint off without a stated reason."
     );
 
-    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 72);
+    assert_eq!(
+        report["audit"]["score"]["dimensions"]["maintainability"], 85,
+        "the allow rules nobody measured are charged at half"
+    );
     let maintainability = report["audit"]["categories"]
         .as_array()
         .expect("categories should be an array")
@@ -460,6 +463,8 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     let near = rule_findings(&report, NEAR_DUPLICATE);
     assert_eq!(near.len(), 1, "{near:#?}");
     assert_eq!(near[0]["occurrences"], 2);
+    assert_eq!(near[0]["severity"], "info");
+    assert_eq!(near[0]["base_severity"], "warning");
     let similarity = near[0]["similarity_basis_points"]
         .as_u64()
         .expect("a near family publishes its score in --json");
@@ -475,7 +480,10 @@ fn the_duplication_pass_publishes_one_family_per_shape() {
     assert_eq!(report["audit"]["categories"][0]["distinct"]["total"], 4);
     assert_eq!(report["audit"]["categories"][0]["occurrences"]["total"], 8);
     assert_eq!(report["audit"]["score"]["value"], 98);
-    assert_eq!(report["audit"]["score"]["dimensions"]["maintainability"], 84);
+    assert_eq!(
+        report["audit"]["score"]["dimensions"]["maintainability"], 90,
+        "the near family's rule is distrusted, so it publishes at info and weighs nothing"
+    );
 
     let rendered = serde_json::to_string(&report).unwrap();
     assert!(!rendered.contains(repository().to_str().unwrap()));
@@ -588,19 +596,23 @@ fn the_complexity_pass_names_the_functions_too_tangled_to_review() {
     assert_eq!(findings.len(), 1, "{findings:#?}");
     let hotspot = findings[0];
     assert_eq!(hotspot["source"], "rust-doctor");
-    assert_eq!(hotspot["severity"], "warning");
+    assert_eq!(
+        hotspot["severity"], "info",
+        "the corpus distrusts the rule, so it publishes at info"
+    );
+    assert_eq!(hotspot["base_severity"], "warning");
     assert_eq!(hotspot["occurrences"], 1);
     assert!(hotspot.get("related").is_none());
 
     assert_eq!(
         hotspot["complexity"],
-        serde_json::json!({ "cyclomatic": 11, "cognitive": 30 })
+        serde_json::json!({ "cyclomatic": 20, "cognitive": 39 })
     );
     let message = hotspot["message"].as_str().expect("a hotspot says what it measured");
     assert!(
         message.contains("schedule")
-            && message.contains("cyclomatic complexity 11")
-            && message.contains("cognitive complexity 30"),
+            && message.contains("cyclomatic complexity 20")
+            && message.contains("cognitive complexity 39"),
         "{message}"
     );
 
@@ -619,7 +631,7 @@ fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
 
     fs::write(
         project.join("rust-doctor.toml"),
-        "[structure]\ncyclomatic-threshold = 12\ncognitive-threshold = 31\n",
+        "[structure]\ncyclomatic-threshold = 21\ncognitive-threshold = 40\n",
     )
     .unwrap();
     let raised = published(InspectRequest::new(&project));
@@ -627,7 +639,7 @@ fn the_complexity_thresholds_are_read_from_the_workspace_configuration() {
 
     fs::write(
         project.join("rust-doctor.toml"),
-        "[structure]\ncognitive-threshold = 2\n",
+        "[structure]\ncyclomatic-threshold = 1\ncognitive-threshold = 2\n",
     )
     .unwrap();
     let lowered = published(InspectRequest::new(&project));

@@ -20,6 +20,7 @@ static SYNTHETIC_CLIPPY_RULE: RuleDefinition = RuleDefinition {
     title: "Synthetic authoring proof",
     not_a_defect_when: "It never fires outside this test.",
     requires: &[],
+    cause: None,
 };
 
 fn synthetic_catalog() -> [&'static RuleDefinition; CATALOG.len() + 1] {
@@ -147,6 +148,7 @@ fn malformed_synthetic_catalogs_fail_deterministically() {
     };
     static BAD_GATE: RuleDefinition = RuleDefinition {
         requires: &[super::CrateGate { krate: "tokio", versions: "one or two" }],
+        cause: None,
         ..CLIPPY_ABSURD_EXTREME_COMPARISONS
     };
     for (definition, expected) in [
@@ -384,4 +386,19 @@ fn the_policy_holds_the_size_bound_the_catalog_publishes_for() {
             crate::structure::FILE_LINES
         );
     }
+}
+
+#[test]
+fn only_two_rules_declare_a_cause_in_this_release() {
+    let declared: Vec<(&str, crate::policy::CauseKey)> = CATALOG
+        .iter()
+        .filter_map(|definition| definition.cause.map(|cause| (definition.id, cause)))
+        .collect();
+    assert_eq!(
+        declared,
+        [
+            ("clippy::large_types_passed_by_value", crate::policy::CauseKey::TypeAndSize),
+            ("rust_doctor::repo::secret_in_build_step", crate::policy::CauseKey::StepVariable),
+        ]
+    );
 }

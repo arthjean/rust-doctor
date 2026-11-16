@@ -11,6 +11,12 @@ pub enum ScoreReason {
     RulesNotEvaluated,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Unverified {
+    Advisories,
+}
+
 impl ScoreReason {
     pub(crate) fn of_error(code: &str) -> Option<Self> {
         match code {
