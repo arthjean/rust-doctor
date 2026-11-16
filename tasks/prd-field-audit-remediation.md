@@ -6,6 +6,8 @@
 | Version | Date | Author | Summary |
 |---------|------|--------|---------|
 | 1.0 | 2026-11-15 | Arthur Jean | Initial draft from the 0.10.0 field audit (`bunx -y rust-doctor@latest .` on an 18-crate, 185,626-line desktop application, Windows 11, score 36, core-v6, schema 24) |
+| 1.1 | 2026-11-16 | Arthur Jean | EP-007 gathers every Linux gate and criterion of release 0.12.0 into one run per epic on a Fedora machine; Windows sessions certify what Windows observes |
+| 1.2 | 2026-11-16 | Arthur Jean | No epic before EP-007 runs a Linux gate, in WSL or anywhere else; A2 on Linux moves to US-035 |
 
 ## Problem Statement
 
@@ -51,7 +53,7 @@ The plan ships in three releases, each useful alone.
 
 **Release 0.11.0 (EP-003)** changes text only. The rule list is ordered by a key it prints, every count says what it counts, one vocabulary names the dimensions, the footer separates what to fix from what the corpus distrusts, and every option has a description that a test enforces.
 
-**Release 0.12.0 (EP-004, EP-005, EP-006)** changes what is reported and how it is scored, measured by one corpus replay.
+**Release 0.12.0 (EP-004 to EP-007)** changes what is reported and how it is scored, measured by one corpus replay. EP-007 runs every Linux gate of the release on a Fedora machine, one run per epic.
 - The module walk follows modules declared through a local `macro_rules!`, and the compiled file set from Cargo's dep-info vetoes any orphan finding on a file that was compiled.
 - Offloading is recognized outside tokio, a feature read by a build script counts as read, and a value the build embeds is reported at Info with its own message.
 - Score model core-v7 charges causes with diminishing returns: `1 + ln(n)` sites within a cause, and the same curve across the causes of a workspace-scope rule. λ and the dimension weights stay frozen.
@@ -91,7 +93,7 @@ Key decisions, with their evidence in the story that carries them:
 - **Success looks like:** Every warning it is pointed at is true, and its help can be applied at that site.
 
 ### Maintainer of rust-doctor
-- **Role:** Arthur, sole maintainer, developing on Windows with CI on Linux and macOS.
+- **Role:** Arthur, sole maintainer, developing on Windows with CI on Linux and macOS, and validating Linux on a Fedora machine.
 - **Behaviors:** Calibrates on the pinned corpus, gates on CI, releases through the release skill.
 - **Pain points:** 103 tests fail locally at HEAD, so a red run says nothing; Windows defects ship unseen; 120 rules have no precision rate.
 - **Current workaround:** Diffs failing tests against a HEAD worktree and replays CI in WSL.
@@ -121,7 +123,7 @@ Key findings that informed this PRD:
 
 ### Assumptions (to validate)
 - **A1:** Stripping the verbatim prefix is safe whenever the plain form is under 260 characters and names no reserved device. Longer or reserved paths keep the verbatim form, and comparisons normalize both sides. US-001 pins both branches.
-- **A2:** Cargo's dep-info lists a module declared through `macro_rules!` on every platform. Confirmed on Windows by the audit (38 files in dep-info against 10 walked). US-018's fixture confirms it on Linux and macOS.
+- **A2:** Cargo's dep-info lists a module declared through `macro_rules!` on every platform. Confirmed on Windows by the audit (38 files in dep-info against 10 walked). US-018's fixture confirms it on Windows, US-035 on Linux and CI on macOS.
 - **A3:** Charging causes with `1 + ln(n)` and charging unmeasured rules at the 5000 bp prior keeps the corpus distribution gate (spread of at least 20, distinct bands, healthy median above the agent median). US-023 validates this before US-025 and US-026 ship.
 - **A4:** An unmeasured P0 or P1 rule charged at half still reads as severe, because the tier ceilings apply at the full tier (`src/audit/ceilings.rs:55-79`). US-026 adds a test for it.
 - **A5:** Most of the 103 Windows failures share the path-form defect; the local notes list `path-outside-workspace` rejections as the main class. US-008 measures it.
@@ -187,7 +189,9 @@ These commands must pass for every user story:
 - `cd tests/e2e && bun install --frozen-lockfile && bun test` - end-to-end suite against the release build
 - `cd tests/e2e && bun run typecheck` - e2e TypeScript type check
 
-Every command runs under toolchain 1.99.1 (`RUSTUP_TOOLCHAIN=1.99.1`), on Linux, macOS or WSL.
+Every command runs under toolchain 1.99.1 (`RUSTUP_TOOLCHAIN=1.99.1`), on Linux or macOS, never in WSL.
+
+From EP-004 on, a story is certified on Windows by Clippy, the documentation gates, the Windows gate and its own acceptance tests. No epic before EP-007 runs a Linux gate, in WSL or anywhere else, and a Linux criterion of an earlier story is certified by the EP-007 story that validates its epic. Every gate that needs Linux (`cargo test --locked` on Unix, the release build, the e2e suite and its type check, the launcher tests and the packed smoke) runs once per epic on Arthur's Fedora machine, through EP-007. macOS stays with CI's `Tests (macos-latest)`.
 
 Three stories add gates:
 - **US-007 and later:** `bash scripts/windows-test-gate.sh` on a Windows host, which CI runs in the `windows` job.
@@ -196,13 +200,13 @@ Three stories add gates:
 
 ## Epics & User Stories
 
-The plan is phased because it holds 33 stories. Each phase stays under 20 stories and ships as one version.
+The plan is phased because it holds 37 stories. Each phase stays under 22 stories and ships as one version.
 
 | Release | Version | Epics | Stories | Priority |
 |---|---|---|---|---|
 | 1 | 0.10.1 | EP-001, EP-002 | 9 | P0 and P1, no model or schema change |
 | 2 | 0.11.0 | EP-003 | 7 | P1, text only |
-| 3 | 0.12.0 | EP-004, EP-005, EP-006 | 17 | P0 to P2, one corpus replay, `core-v7`, schema 25 |
+| 3 | 0.12.0 | EP-004 to EP-007 | 21 | P0 to P2, one corpus replay, `core-v7`, schema 25, Linux validation on Fedora |
 
 ### EP-001: The scan is right on Windows and honest about advisories
 
@@ -799,6 +803,76 @@ Release 0.12.0. Help texts can be applied where they are printed, the corpus mea
 - [ ] Given a share link carrying `m=core-v6`, when the site renders it, then the card says the number comes from a model Rust Doctor has retired.
 - [ ] `.claude/skills/release/references/site.md` names core-v7 in its model step.
 - [ ] Given the site, when `bun run build:verified` runs, then it passes.
+
+### EP-007: Linux validation on Fedora
+
+Release 0.12.0. Every gate and criterion that needs Linux runs on Arthur's Fedora machine, once per epic, so a Windows session certifies what Windows observes and no Linux verdict depends on WSL.
+
+**Definition of Done:**
+- EP-004 and EP-005 each have one recorded Fedora run on the tree they were certified at, with every Quality Gate green.
+- The 0.12.0 release candidate, which carries EP-006, passes every Linux job of `ci.yml` on Fedora, then in CI.
+- A failure that Fedora and CI disagree on is recorded as an environment difference, never as a pass.
+
+#### US-034: Replay CI's Linux jobs on Fedora
+**Description:** As the maintainer, I want one documented way to run CI's Linux jobs on my Fedora machine against a given tree, so that a Linux verdict there means what a CI run means.
+
+**Priority:** P0
+**Size:** S (2 pts)
+**Dependencies:** None
+
+**Acceptance Criteria:**
+- [ ] The recipe lives in `docs/testing.md` within its word ceiling, or in a new document linked from AGENTS.md with a ceiling in `docs/doc-budgets.json`.
+- [ ] It installs toolchain 1.99.1 with clippy and the `x86_64-pc-windows-msvc` target, which the `Tests` job adds, toolchain 1.95 for the MSRV check, and `stable` with clippy, which the baseline fixture's `rust-toolchain.toml` pins.
+- [ ] It runs with `CARGO_TARGET_DIR` unset and no `target-dir` in any `config.toml` Cargo reads from the checkout or from `CARGO_HOME`, so each fixture builds into its own `target/`.
+- [ ] It installs tmux, strace and jq under `/usr/bin`, bun at the version `tests/e2e/package.json` names for the e2e suite and bun 1.3.14 for the launcher jobs, and allows unprivileged user namespaces so `E2E_REQUIRE_NETNS=1` holds.
+- [ ] It sets CI's environment: `RUST_DOCTOR_BENCHMARK_ALLOWANCE=3` for every test run, and `E2E_REQUIRE_TMUX=1`, `E2E_REQUIRE_NETNS=1` and `RUST_DOCTOR_E2E_BIN` for the e2e suite, which runs through `bash ci-run-files.sh` on the files `bun ci-shards.ts` plans.
+- [ ] Every test run passes `--locked` after one `cargo fetch --locked`.
+- [ ] Given a tree under review, when it is replayed, then the checkout's `git write-tree` prints the reviewed tree id, and the record names it.
+- [ ] Given a failure on the reviewed tree, when it is judged, then the same test runs alone on the tree's parent commit in the same environment, and a failure both share is recorded as pre-existing, not as a pass.
+- [ ] Given a test that passes on Fedora and fails in CI, or the reverse, when it is recorded, then it is named an environment difference: Fedora ships GNU coreutils, while CI's ubuntu-26.04 image ships uutils.
+
+#### US-035: Validate EP-004 on Linux
+**Description:** As the maintainer, I want EP-004's tree run through every Linux gate, so that its detector changes are proven where CI and most users run them.
+
+**Priority:** P0
+**Size:** S (2 pts)
+**Dependencies:** Blocked by US-034, US-017, US-018, US-019, US-020, US-021, US-022
+
+**Acceptance Criteria:**
+- [ ] On the tree EP-004 was certified at, or the commit that lands it, every Quality Gate passes on Fedora.
+- [ ] `cargo test --locked` passes `scan_failures`, `score_credibility_packs` and `source_kernel_cli`, whose ledger-listed tests no platform observed for EP-004 on 2026-11-16.
+- [ ] `tests/detector_false_positives.rs` passes, which confirms assumption A2 on Linux: dep-info lists the files another member's macro declares.
+- [ ] The e2e suite passes `known-bugs.test.ts`, `cli-surface.test.ts` and `output-streams.test.ts`, the files EP-004 edited.
+- [ ] Given a failure of a wall-clock budget (`source_kernel::tests::benchmark`, `structure::benchmark`, `presentation_nfr`), when it is judged, then it is rerun alone on the tree and on its parent, as US-034 states, before it counts.
+- [ ] The run is recorded in the `notes.linux` of US-017 to US-022 with the tree id, the toolchain and the pass counts.
+- [ ] Given a Linux failure EP-004 caused, when it is found, then the story it traces to returns to IN_REVIEW and its fix is certified through `/review-epic`.
+
+#### US-036: Validate EP-005 on Linux
+**Description:** As the maintainer, I want core-v7 run through every Linux gate, so that the score a Linux user sees is the one Windows certified.
+
+**Priority:** P0
+**Size:** S (2 pts)
+**Dependencies:** Blocked by US-034, US-023, US-024, US-025, US-026, US-027, US-028, US-029
+
+**Acceptance Criteria:**
+- [ ] On the tree EP-005 was certified at, every Quality Gate passes on Fedora.
+- [ ] `tests/audit_contract.rs`, `tests/score_credibility_kernel.rs` and `src/audit/tests.rs` pass on Fedora with the exact scores they assert on Windows, which settles the floating-point question that Technical Considerations raises for `1 + ln(n)`.
+- [ ] `src/audit/tests/lambda_freeze.rs` passes untouched.
+- [ ] US-023's harness reproduces its committed record byte for byte on Fedora.
+- [ ] The run is recorded in the `notes.linux` of US-023 to US-029.
+
+#### US-037: Validate the 0.12.0 release candidate on Linux
+**Description:** As the maintainer, I want the release candidate to pass every Linux job before the tag, so that 0.12.0 ships nothing only Windows has seen.
+
+**Priority:** P0
+**Size:** M (3 pts)
+**Dependencies:** Blocked by US-035, US-036, US-030, US-032, US-033
+
+**Acceptance Criteria:**
+- [ ] On the release candidate commit, every Quality Gate passes on Fedora, together with the Node launcher tests (`cd npm/rust-doctor && bun test tests`), the packed smoke (`bun run smoke:packed` against the release binary) and `cargo check --locked --all-targets` under toolchain 1.95.
+- [ ] The corpus test `corpus_precision` passes on Fedora from the clone cache against US-032's record.
+- [ ] The CI run of the candidate's push is green on ubuntu and macOS before the tag; the Fedora run does not replace it.
+- [ ] Given a candidate that fails any of these gates, when the run completes, then the release does not proceed and the failing gate is listed in this story's notes.
 
 ---
 

@@ -33,7 +33,7 @@
     {
       "id": "EP-004",
       "title": "Detectors stop flagging what compiles and runs",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "stories_total": 6,
       "stories_done": 0
@@ -49,6 +49,14 @@
     {
       "id": "EP-006",
       "title": "Rule texts, re-baseline and public claims",
+      "status": "TODO",
+      "priority": "P0",
+      "stories_total": 4,
+      "stories_done": 0
+    },
+    {
+      "id": "EP-007",
+      "title": "Linux validation on Fedora",
       "status": "TODO",
       "priority": "P0",
       "stories_total": 4,
@@ -292,11 +300,11 @@
       "id": "US-017",
       "title": "Follow modules declared through a local macro",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "L",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-11-15",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -304,13 +312,13 @@
       "id": "US-018",
       "title": "Never call a compiled file an orphan",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
         "US-017"
       ],
-      "started_at": null,
+      "started_at": "2026-11-15",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -318,11 +326,11 @@
       "id": "US-019",
       "title": "Recognize offloading outside tokio",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-11-15",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -330,11 +338,11 @@
       "id": "US-020",
       "title": "Count a feature the build script reads as referenced",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-11-15",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -342,11 +350,11 @@
       "id": "US-021",
       "title": "Report a value the build embeds apart from a secret in a build step",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-11-15",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -354,11 +362,11 @@
       "id": "US-022",
       "title": "Classify a file by its production routes",
       "epic": "EP-004",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-11-15",
       "completed_at": null,
       "reviewed_at": null
     },
@@ -518,6 +526,77 @@
       "size": "M",
       "blocked_by": [
         "US-032"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-034",
+      "title": "Replay CI's Linux jobs on Fedora",
+      "epic": "EP-007",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-035",
+      "title": "Validate EP-004 on Linux",
+      "epic": "EP-007",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [
+        "US-034",
+        "US-017",
+        "US-018",
+        "US-019",
+        "US-020",
+        "US-021",
+        "US-022"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-036",
+      "title": "Validate EP-005 on Linux",
+      "epic": "EP-007",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "S",
+      "blocked_by": [
+        "US-034",
+        "US-023",
+        "US-024",
+        "US-025",
+        "US-026",
+        "US-027",
+        "US-028",
+        "US-029"
+      ],
+      "started_at": null,
+      "completed_at": null,
+      "reviewed_at": null
+    },
+    {
+      "id": "US-037",
+      "title": "Validate the 0.12.0 release candidate on Linux",
+      "epic": "EP-007",
+      "status": "TODO",
+      "priority": "P0",
+      "size": "M",
+      "blocked_by": [
+        "US-035",
+        "US-036",
+        "US-030",
+        "US-032",
+        "US-033"
       ],
       "started_at": null,
       "completed_at": null,
