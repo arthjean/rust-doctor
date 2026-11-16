@@ -50,6 +50,7 @@ and no user data.
 | Node launcher tests | `cd npm/rust-doctor && bun test tests` |
 | Packed launcher smoke | `cd npm/rust-doctor && bun run smoke:packed` |
 | Windows tests against the ledger, on Windows | `bash scripts/windows-test-gate.sh` |
+| CI's Linux jobs, on Fedora | `bash scripts/linux-ci-replay.sh <commit>`, [docs/linux-replay.md](docs/linux-replay.md) |
 | Documentation budgets | `bash scripts/verify-doc-budgets.sh` |
 | Documentation references | `bash scripts/verify-doc-refs.sh` |
 | End-to-end suite, after a release build | `cd tests/e2e && bun install --frozen-lockfile && bun test` |
