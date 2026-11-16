@@ -49,15 +49,15 @@
     {
       "id": "EP-006",
       "title": "Rule texts, re-baseline and public claims",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 4,
-      "stories_done": 0
+      "stories_done": 3
     },
     {
       "id": "EP-007",
       "title": "Linux validation on Fedora",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P0",
       "stories_total": 5,
       "stories_done": 0
@@ -506,7 +506,7 @@
       "id": "US-030",
       "title": "Correct the rule texts that misdirect",
       "epic": "EP-006",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
@@ -515,11 +515,12 @@
         "US-021"
       ],
       "started_at": "2026-11-16",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
       "notes": {
         "implementation": "Implemented 2026-11-16 on 01983c1 (replayed as tree 6fd1679). Help and title of undocumented_unsafe_blocks, help of orphan_module_file and blocking_call_in_async in src/policy/catalog; unreferenced_feature message in src/structure/manifest.rs; permissive_lint_table states the distinct sites src/execution/manifest_allows.rs drops, joined in src/execution.rs after Clippy (no count when Clippy did not lint every member the entry covers, e.g. under --package); inherited dependency keys anchor on the member line in src/cargo_health/keys.rs. Proof from the binary: tests/rule_texts.rs (6 tests). Windows: Clippy clean on 1.99.1, doc gates green, Windows gate green in a CRLF worktree (34 failures, all in the ledger). Linux gates go to US-037.",
-        "release_note": "Messages that change finding ids, for .github/releases/v0.12.0.md (US-032): unreferenced_feature 'which no cfg reads' becomes 'which no cfg and no build script reads'; permissive_lint_table appends ', which hides N findings in this package.' (or 'in the packages that inherit it', 'no finding', '1 finding'). Help and title changes do not change ids. Inherited dependency findings gain a span: ids unchanged, --scope lines now keeps them only when their key line changes, and a baseline without the span still pairs through the fallback key."
+        "release_note": "Messages that change finding ids, for .github/releases/v0.12.0.md (US-032): unreferenced_feature 'which no cfg reads' becomes 'which no cfg and no build script reads'; permissive_lint_table appends ', which hides N findings in this package.' (or 'in the packages that inherit it', 'no finding', '1 finding'). Help and title changes do not change ids. Inherited dependency findings gain a span: ids unchanged, --scope lines now keeps them only when their key line changes, and a baseline without the span still pairs through the fallback key.",
+        "review": "Certified 2026-11-16 against tree 24f7a6b922e5b158d4a72a2c32029e5ad656e9a4. Every criterion passes from the CLI (tests/rule_texts.rs, now 7 tests, and rules list --json). Fixed: permissive_lint_table stated 'hides no finding' for a member Clippy never linted because it did not compile or the deadline cut it (src/cargo_health.rs state_hidden_findings now takes scan.unlinted; regression test a_lint_table_entry_claims_no_count_when_a_member_it_covers_did_not_compile, red without the fix). Fedora 45, toolchain 1.99.1, scripts/linux-ci-replay.sh on snapshot 4d73f96 (tree 56f096d8) then fcc8ed8 (tree 24f7a6b9, the final tree, an unreferenced commit object of the uncommitted work on fbf006e): clippy, docs, msrv, launcher (19), release pass; test 1368 passed, 5 failed, the same 5 pre-existing failures US-034 recorded on 01983c1; packed fails 'human progress is not the phase lines' as on fbf006e; e2e 15 distinct failures, the 14 of fbf006e plus harness.test.ts 'verify-doc-refs.sh fails a document that cites a path that does not exist', fixed and replayed green on the final tree (18 pass); corpus_precision under RUST_DOCTOR_CORPUS_DIR 33 passed on the final tree. Landed 2026-11-16 as 0851b5b (gate), 567af0d (lint table) and 2610f6b (replay, tree d5bc0f3c), whose replay of clippy, docs, msrv, launcher and release passes and whose test job keeps the same 5 pre-existing failures (1368 passed), each already failing on 01983c1."
       }
     },
     {
@@ -541,47 +542,55 @@
       "id": "US-032",
       "title": "Replay the corpus once under core-v7 and re-baseline",
       "epic": "EP-006",
-      "status": "TODO",
+      "status": "DONE",
       "priority": "P0",
       "size": "L",
       "blocked_by": [
         "US-038"
       ],
-      "started_at": null,
-      "completed_at": null,
-      "reviewed_at": null,
+      "started_at": "2026-11-16",
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
       "notes": {
-        "plan": "PRD 1.4 (2026-11-16): the Linux run moves to US-038; this story builds the record from US-038's artifacts on Windows (adjudication, recomputation, CORPUS_NOISE, SCORE_MODEL core-v7, v0.12.0 release note)."
+        "plan": "PRD 1.4 (2026-11-16): the Linux run moves to US-038; this story builds the record from US-038's artifacts on Windows (adjudication, recomputation, CORPUS_NOISE, SCORE_MODEL core-v7, v0.12.0 release note).",
+        "implementation": "Built on Fedora 2026-11-16 from US-038's artifacts (tree 1b3ad91), confirmed on the working tree by the cache-gated corpus_precision run (33 passed), whose observations equal US-038's except the model label and the core-v7 densities. Record: observations replaced; 38 complex_function and 8 oversized_unit reviewed sites and 10 pairs left with their findings (complex_function now needs both thresholds, oversized_unit counts no test item); oversized_unit plans redrawn (agent 773 to 738, healthy 46 to 41, target 41); duplicate_major_versions enrolled on the agent population (plan 8 of 8). 23 sites judged by two blind passes (claude-opus-5-5, separate_context, quotes extracted mechanically from the pinned trees): 22 agree, 1 escalated to Arthur (vibesql crates/vibesql-executor/src/select/scan/reorder/optimizer.rs:659, oversized_unit, pass A false_positive, pass B true_positive). precision, agent precision, gate (unchanged), score_distribution, coefficients, rate_comparison, measured_rules (8), structural_density and escalations_open (18) recomputed with the suite's helpers; position_proof copied unedited from the gated run (751 sites, digest f56a320f). CORPUS_NOISE: complex_function 7/11 (6363 bp, still withheld), oversized_unit 9/34 (2647 bp). SCORE_MODEL core-v7; audit-core-v6.json renamed audit-core-v7.json with its references; AGENTS.md, docs/subsystems/audit.md and skills/rust-doctor/SKILL.md state core-v7; schema 25 already stated everywhere. Scope corrections: tests/support/corpus.rs now charges core-v7 densities (causes, 1 + ln, workspace saturation, the 5000 bp prior), without which lambda_freeze.rs (untouched, green) rejected the record; a site without a line is covered by any citation of its file; verify-doc-refs.sh no longer reads .mdx pages, code-span links or corpus quotes as citations. Record-pinned tests in corpus_agreement, corpus_deepening, corpus_statistics, corpus_position and src/audit/tests.rs moved to the measured values. delta_pairing: 0 new candidates. Distribution gate holds, but the healthy-agent median separation fell from 800 to 450 centipoints. Only syncvibe moved over 10 points (80 to 91, US-028 and US-027), explained in .github/releases/v0.12.0.md, which also lists every reworded message (date and previous_version left unresolved for the release skill).",
+        "review": "Certified 2026-11-16 against tree 24f7a6b922e5b158d4a72a2c32029e5ad656e9a4: the replay commit 2610f6b carries SCORE_MODEL core-v7 with the record. CORPUS_NOISE recomputed from the healthy precision block (docs/catalog-and-corpus.md) and equal to it for all 22 measured rules; score moves recomputed from score_distribution (only syncvibe moves over 10, 80 to 91); no tracked file outside history states core-v6 as current. Fixed: scripts/verify-doc-refs.sh piped its path scan through awk, which the e2e sandbox does not provide, so the gate passed with every citation unchecked (fail-open); rewritten with grep and sed, same 189 references on the repository, red and green again in the sandbox. Release note fixed: 'four rules' became five, secret_in_build_step is rust_doctor::repo::, and the lint table entry claims no count when a member does not compile. Open for Arthur, not gating: the escalated vibesql oversized_unit site (optimizer.rs:659), counted in escalations_open. Fedora 45, toolchain 1.99.1, scripts/linux-ci-replay.sh on snapshot 4d73f96 (tree 56f096d8) then fcc8ed8 (tree 24f7a6b9, the final tree, an unreferenced commit object of the uncommitted work on fbf006e): clippy, docs, msrv, launcher (19), release pass; test 1368 passed, 5 failed, the same 5 pre-existing failures US-034 recorded on 01983c1; packed fails 'human progress is not the phase lines' as on fbf006e; e2e 15 distinct failures, the 14 of fbf006e plus harness.test.ts 'verify-doc-refs.sh fails a document that cites a path that does not exist', fixed and replayed green on the final tree (18 pass); corpus_precision under RUST_DOCTOR_CORPUS_DIR 33 passed on the final tree. Landed 2026-11-16 as 0851b5b (gate), 567af0d (lint table) and 2610f6b (replay, tree d5bc0f3c), whose replay of clippy, docs, msrv, launcher and release passes and whose test job keeps the same 5 pre-existing failures (1368 passed), each already failing on 01983c1."
       }
     },
     {
       "id": "US-033",
       "title": "Bring rust-doctor.com and the release skill in line with core-v7",
       "epic": "EP-006",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "size": "M",
       "blocked_by": [
         "US-032"
       ],
       "started_at": "2026-11-16",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-16",
+      "reviewed_at": "2026-11-16",
       "notes": {
-        "progress": "2026-11-16: rust-doctor-web branch core-v7 (local, unpushed, worktree C:/dev/rdw-lf with LF endings): CURRENT_MODEL core-v7, terminal-data share links, the audit-wcag default, the retired-model checks now cover core-v6, scoring.mdx (cause rule, unmeasured prior, Info for withheld rules and unremovable duplicates, unverified), report.mdx (cause, unverified, unwalked_compiled_files, schema 25), src/lib/data.ts; catalog:sync run from the release binary at 0465c1a; .claude/skills/release/references/site.md names core-v7. catalog:check, oxlint, format:check green. Left: corpus:sync from US-032's record; corpus:check fails until then by design. The main checkout's CRLF endings break public-command-examples.ts, and next build cannot export /rules/clippy::* on Windows (PRD 1.6)."
+        "progress": "2026-11-16: rust-doctor-web branch core-v7 (local, unpushed, worktree C:/dev/rdw-lf with LF endings): CURRENT_MODEL core-v7, terminal-data share links, the audit-wcag default, the retired-model checks now cover core-v6, scoring.mdx (cause rule, unmeasured prior, Info for withheld rules and unremovable duplicates, unverified), report.mdx (cause, unverified, unwalked_compiled_files, schema 25), src/lib/data.ts; catalog:sync run from the release binary at 0465c1a; .claude/skills/release/references/site.md names core-v7. catalog:check, oxlint, format:check green. Left: corpus:sync from US-032's record; corpus:check fails until then by design. The main checkout's CRLF endings break public-command-examples.ts, and next build cannot export /rules/clippy::* on Windows (PRD 1.6).",
+        "implementation": "2026-11-16 on Fedora: worktree ~/dev/rdw-core-v7 on branch core-v7 (from origin/core-v7 349f980). corpus:sync rewrote public/catalog/corpus.json from US-032's record (467 reviewed sites), uncommitted. catalog:check-only, corpus:check, lint, format:check pass; next build passes on Linux, /rules/clippy::* included. build:verified and verify:public stop only on provenance: catalog:sync requires a clean, committed rust-doctor source, and build-provenance.json still names the Windows replay at 0465c1a, so both run in US-037 on the release candidate. A share link naming any model other than CURRENT_MODEL renders as retired (src/app/share/page.tsx), and verify-public-contract.ts covers core-v6.",
+        "review": "Certified 2026-11-16 on Fedora 45 against rust-doctor-web branch core-v7 at e6c49e6 (local, not pushed) and rust-doctor 2610f6b. CURRENT_MODEL, terminal-data.ts, data.ts and scoring.mdx state core-v7 with the cause rule and the unmeasured prior; report.mdx documents cause, unverified and unwalked_compiled_files; site.md names core-v7. catalog:sync and corpus:sync ran from a clean clone of 2610f6b and its release binary (toolchain 1.99.1): rules.json unchanged at 142 descriptors, corpus.json at 467 reviewed sites, build-provenance.json now the Linux replay of 2610f6b. bun run build:verified passes (catalog:check, corpus:check, next build with every /rules/clippy::* page, verify:public: 142 rule pages, 44 measured rules), and verify:public renders a core-v6 share link as a retired model; lint and format:check pass. MANUAL_PROVEN reading of the last criterion: the build was observed on Fedora now, on Arthur's instruction of 2026-11-16, and US-037 reruns it on the release candidate, whose version bump changes the provenance. The Windows clause is moot since PRD 1.6 moved the site build to Fedora."
       }
     },
     {
       "id": "US-034",
       "title": "Replay CI's Linux jobs on Fedora",
       "epic": "EP-007",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
-      "started_at": null,
+      "started_at": "2026-11-16",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "implementation": "Implemented 2026-11-16 on Fedora 45: scripts/linux-ci-replay.sh (setup, then <commit> [job...] [-- args]) and docs/linux-replay.md, linked from AGENTS.md's Commands table, ceiling 492 in docs/doc-budgets.json. The replay checks the commit out as a shared clone (a worktree makes .git a file and the packed smoke reads .git/index), gives the run a private RUSTUP_HOME whose default is 1.99.1 so the machine default (stable, now 1.100.0) is untouched, refuses CARGO_TARGET_DIR and any target-dir, fetches once with --locked, runs tests with --no-fail-fast, and writes <commit>.record with the tree id. Proof: full replay of fbf006e (tree 1b3ad91d1db3f0921b0f09a86b4944073f41eccb), rustc 1.99.1: clippy, msrv, launcher (19), release pass; docs fail (verify-doc-refs.sh read content/docs/*.mdx as docs/*.md and a code-span link as a link, fixed in this run); test 1365 passed, 5 failed; packed fails 'human progress is not the phase lines'; e2e 14 distinct failures. Matches CI's red run 43884329027 job for job. The 5 cargo failures (agent_loop lockfile scope, delta_correspondence build-script, rule_scaling_surfaces pack gate, score_credibility_packs x2: clippy::unwrap_used published at info where warning is asserted) also fail alone on 01983c1 (tree df32f110), so they are pre-existing to EP-006 and belong to US-035/US-036. Environment differences seen: execution::tests::toolchain::a_deadline_spent_waiting_on_the_build_lock_names_the_lock failed once with ETXTBSY in the worktree attempt and passed in the clone run; launcher-packed 'exit 0' fails on Fedora only, its duration normalizer misses 'in 0.1s.' (EP-003 text) when the two runs round differently.",
+        "validation": "2026-11-16, Fedora 45: the final EP-006 tree ed760d79 (tracker excluded) replayed through every CI Linux job in a clean shared clone: clippy, docs, msrv, launcher (19), release pass; test 1367 passed, 5 failed, the same 5 that fail on 01983c1; packed and e2e fail exactly as on HEAD fbf006e (14 distinct e2e tests, CI run 43884329027 agrees). Environment difference found: the main checkout's target/ is a symlink to ~/.cargo-target/rust-doctor, which makes source_kernel::tests::measurement (2 tests) refuse the fixture copy as outside the workspace; the clean clone passes them. That is a product defect (a workspace reached through a symlink loses its native walk: path_form::canonical resolves the root while cargo metadata paths stay lexical) for a later story."
+      }
     },
     {
       "id": "US-035",
@@ -647,7 +656,7 @@
       "id": "US-038",
       "title": "Produce the core-v7 corpus artifacts on Fedora",
       "epic": "EP-007",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
@@ -666,9 +675,12 @@
         "US-029",
         "US-030"
       ],
-      "started_at": null,
+      "started_at": "2026-11-16",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "run": "2026-11-16 on Fedora 45 through scripts/linux-ci-replay.sh (US-034's environment), commit fbf006e027c5a80c439e8b569892e9fb4821910d, tree 1b3ad91d1db3f0921b0f09a86b4944073f41eccb, rustc 1.99.1 (58cf8f9c3 2026-10-13), 18 subjects (10 healthy, 8 agent), every clone at its pinned commit. corpus_precision: 31 passed, 2 failed on the old record, both measured changes for US-032 (the_published_observations_reproduce_the_pinned_corpus_run, the_agent_population_reproduces_from_the_local_cache: complex_function 1643 sites down to 833, oversized_unit units moved to test context, duplicate_major_versions 4 new vibesql sites). Artifacts in ~/.cache/rust-doctor/corpus-artifacts-core-v7: observations.json sha256 090ff022..., agent-replay/agent-observations.json dcf80cad.... delta_pairing (--release --ignored): pass, 128 pairs measured, 2 excluded, 0 unclassified candidates, 186 reports all written by this run. No position-proof.json: the harness writes it only once the record matches the run, so it came from US-032's confirming run on the same machine (see US-032)."
+      }
     }
   ]
 }
