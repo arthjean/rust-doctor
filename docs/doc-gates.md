@@ -35,7 +35,8 @@ on a date, and they are not edited afterwards.
 
 `scripts/verify-doc-refs.sh` fails on any path under `docs/` named anywhere in the
 repository that does not resolve, and on a relative markdown link whose target
-is not on disk. Source, skills, workflows and the documents themselves all cite
+is not on disk. A link inside a code span, a `.mdx` page of the site and a corpus
+quote of third-party code are text, not citations. Source, skills, workflows and the documents themselves all cite
 paths; renaming a document breaks every one of those citations in
 silence, and the reader who follows one opens nothing and falls back to the map.
 

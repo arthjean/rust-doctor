@@ -19,12 +19,18 @@ slugs_of() {
 
 while IFS=: read -r file line ref; do
   [ -n "$ref" ] || continue
+  case "$ref" in *.mdx) continue ;; esac
   checked=$((checked + 1))
   if [ ! -f "$ref" ]; then
     echo "FAIL $file:$line names \`$ref\`, which is not on disk" >&2
     status=1
   fi
-done < <(grep -HnoE 'docs/[A-Za-z0-9._/-]*\.md' -- "${files[@]}" 2>/dev/null | sort -u)
+done < <({
+  printf '%s\n' "${files[@]}" | grep -vE '\.json$' | xargs -r grep -HnoE 'docs/[A-Za-z0-9._/-]*\.mdx?' || true
+  printf '%s\n' "${files[@]}" | grep -E '\.json$' | while read -r json; do
+    sed 's/^[[:space:]]*"quote":.*$//' "$json" | { grep -noE 'docs/[A-Za-z0-9._/-]*\.mdx?' || true; } | sed "s|^|$json:|"
+  done
+} | sort -u)
 
 while IFS=: read -r file line link; do
   link="${link#](}"
@@ -56,8 +62,9 @@ while IFS=: read -r file line link; do
         ;;
     esac
   fi
-done < <(printf '%s\n' "${files[@]}" | grep -E '\.md$' \
-  | xargs grep -HnoE '\]\([^) ]+\)' 2>/dev/null | sort -u)
+done < <(printf '%s\n' "${files[@]}" | grep -E '\.md$' | while read -r markdown; do
+  sed 's/`[^`]*`//g' "$markdown" | { grep -noE '\]\([^) ]+\)' || true; } | sed "s|^|$markdown:|"
+done | sort -u)
 
 echo "ok   $checked documentation references resolve"
 exit "$status"
