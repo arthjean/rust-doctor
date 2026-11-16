@@ -178,7 +178,7 @@
       "score": 8
     }
   ],
-  "model": "core-v6",
+  "model": "core-v7",
   "rule_tiers": {
     "clippy::absurd_extreme_comparisons": "P1",
     "clippy::almost_swapped": "P1",
@@ -475,7 +475,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
@@ -719,7 +719,7 @@
             "security": 50
           },
           "label": "Needs work",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 98,
           "projected_rule_ids": [
             "clippy::permissions_set_readonly_false",
@@ -801,7 +801,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
@@ -1169,7 +1169,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
@@ -1243,7 +1243,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [],
@@ -1326,7 +1326,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "rust_doctor::cargo::missing_lockfile"
@@ -1408,7 +1408,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "rust_doctor::cargo::missing_lockfile"
@@ -1496,7 +1496,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "clippy::mut_mutex_lock"
@@ -1569,7 +1569,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [
@@ -1640,7 +1640,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [
@@ -1711,7 +1711,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [
@@ -1805,7 +1805,7 @@
             "security": 50
           },
           "label": "Needs work",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [
@@ -1895,7 +1895,7 @@
             "security": 50
           },
           "label": "Needs work",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [
@@ -1985,7 +1985,7 @@
             "security": 20
           },
           "label": "Critical",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "rust_doctor::source::dynamic_shell_command"
@@ -2075,7 +2075,7 @@
             "security": 100
           },
           "label": "Needs work",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "clippy::unimplemented"
@@ -2157,7 +2157,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "clippy::todo"
@@ -2230,7 +2230,7 @@
             "security": 100
           },
           "label": "Great",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "clippy::dbg_macro"
@@ -2326,7 +2326,7 @@
             "security": 20
           },
           "label": "Critical",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": 100,
           "projected_rule_ids": [
             "rust_doctor::source::disabled_tls_verification",
@@ -2418,7 +2418,7 @@
             "security": 20
           },
           "label": "Critical",
-          "model": "core-v6",
+          "model": "core-v7",
           "projected_after_top_three": null,
           "projected_rule_ids": [],
           "reasons": [
@@ -2441,7 +2441,7 @@
   "share_cases": [
     {
       "errors": 1,
-      "expected": "https://rust-doctor.com/share?s=52&m=core-v6&e=1&w=13&f=130",
+      "expected": "https://rust-doctor.com/share?s=52&m=core-v7&e=1&w=13&f=130",
       "files": 130,
       "info": 0,
       "score": 52,
@@ -2449,7 +2449,7 @@
     },
     {
       "errors": 0,
-      "expected": "https://rust-doctor.com/share?s=0&m=core-v6",
+      "expected": "https://rust-doctor.com/share?s=0&m=core-v7",
       "files": 0,
       "info": 0,
       "score": 0,
@@ -2457,7 +2457,7 @@
     },
     {
       "errors": 1000000,
-      "expected": "https://rust-doctor.com/share?s=100&m=core-v6&e=1000000&w=1000000&i=1000000&f=1000000",
+      "expected": "https://rust-doctor.com/share?s=100&m=core-v7&e=1000000&w=1000000&i=1000000&f=1000000",
       "files": 1000000,
       "info": 1000000,
       "score": 100,

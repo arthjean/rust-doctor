@@ -2,8 +2,7 @@
 
 `src/audit.rs` is the score and the category tallies: the two severity counts
 the report publishes, the five dimensions and their weights, the tier ceilings
-and what a rule is charged, under report schema 25 and the core-v7 charges,
-still labeled core-v6 until the corpus replay moves the label.
+and what a rule is charged, under report schema 25 and score model core-v7.
 `src/audit/density.rs` is the penalty itself, the severity and tier weights,
 the per-producer denominators, the kiloline floor and the exponential the
 density is read through.

@@ -26,9 +26,8 @@ const CUTOFF: &str = "2026-08-21";
 const EVIDENCE_CUTOFF: &str = "2026-10-14";
 const COMPLEX_FUNCTION: &str = "rust_doctor::structure::complex_function";
 
-const ESCALATED: [(&str, &str, u64); 3] = [
+const ESCALATED: [(&str, &str, u64); 2] = [
     ("ripgrep", "crates/ignore/src/dir.rs", 340),
-    ("thiserror", "impl/src/expand.rs", 31),
     ("thiserror", "impl/src/expand.rs", 221),
 ];
 
@@ -55,10 +54,15 @@ const ESCALATED_AGENT: [(&str, &str, u64); 2] = [
     ),
 ];
 
-const ESCALATED_OVERSIZED_AGENT: [(&str, &str, u64); 2] = [
+const ESCALATED_OVERSIZED_AGENT: [(&str, &str, u64); 1] = [
     ("claudes-c-compiler", "src/backend/x86/codegen/intrinsics.rs", 22),
-    ("vibesql", "crates/vibesql-ast/src/identifier.rs", 1),
 ];
+
+const ESCALATED_CORE_V7: [(&str, &str, u64); 1] = [(
+    "vibesql",
+    "crates/vibesql-executor/src/select/scan/reorder/optimizer.rs",
+    659,
+)];
 
 const ESCALATED_UNSAFE: [(&str, &str, u64); 5] = [
     ("anyhow", "src/error.rs", 478),
@@ -296,7 +300,7 @@ fn the_published_record_of_the_double_pass_carries_no_defect() {
 }
 
 #[test]
-fn the_three_escalations_of_the_double_pass_are_findable_with_both_justifications() {
+fn the_two_escalations_of_the_double_pass_are_findable_with_both_justifications() {
     let artifact = artifact();
     let pairs = &artifact.adjudication.agreement.pairs;
     for (repository, path, line) in ESCALATED {
@@ -425,6 +429,7 @@ fn escalations_open_is_recomputed_from_the_disagreeing_pairs() {
             + ESCALATED_OVERSIZED.len()
             + ESCALATED_AGENT.len()
             + ESCALATED_OVERSIZED_AGENT.len()
+            + ESCALATED_CORE_V7.len()
             + ESCALATED_UNSAFE.len()) as u64
     );
 
@@ -453,6 +458,35 @@ fn the_escalations_of_the_core_v6_replay_are_findable_and_unpublished() {
         for judged in &found.passes {
             assert_eq!(judged.judge, PROTOCOL_JUDGES[1]);
             assert!(!judged.justification.trim().is_empty());
+        }
+        assert!(
+            !artifact.adjudication.reviewed.iter().any(|site| {
+                site.repository == repository && site.path == path && site.line == line
+            }),
+            "{repository}/{path}:{line} is escalated and published"
+        );
+    }
+}
+
+#[test]
+fn the_escalation_of_the_core_v7_replay_is_findable_and_unpublished() {
+    let artifact = artifact();
+    for (repository, path, line) in ESCALATED_CORE_V7 {
+        let found = artifact
+            .adjudication
+            .agreement
+            .pairs
+            .iter()
+            .find(|pair| pair.repository == repository && pair.path == path && pair.line == line);
+        assert!(found.is_some(), "escalation absent: {repository}/{path}:{line}");
+        let Some(found) = found else { continue };
+        assert_eq!(found.rule, "rust_doctor::structure::oversized_unit");
+        assert_eq!(found.population, Population::Agent);
+        assert_eq!(found.adjudicated_on.as_deref(), Some("2026-11-16"));
+        assert_eq!(found.verdict(), None);
+        for judged in &found.passes {
+            assert_eq!(judged.judge, PROTOCOL_JUDGES[1]);
+            assert!(!judged.evidence.is_empty(), "{repository}/{path}:{line}");
         }
         assert!(
             !artifact.adjudication.reviewed.iter().any(|site| {
@@ -511,10 +545,10 @@ fn the_escalation_record_leaves_the_complex_function_rate_untouched() {
         .find(|rule| rule.id == COMPLEX_FUNCTION)
         .expect("complex_function is catalogued");
     assert_eq!(rate.status, PrecisionStatus::Measured);
-    assert_eq!(rate.reviewed, 31);
-    assert_eq!(rate.false_positives, Some(27));
+    assert_eq!(rate.reviewed, 11);
+    assert_eq!(rate.false_positives, Some(7));
     assert_eq!(rate.true_positives, Some(4));
-    assert_eq!(rate.false_positive_rate_basis_points, Some(8709));
+    assert_eq!(rate.false_positive_rate_basis_points, Some(6363));
     assert_eq!(computed, artifact.precision);
 }
 
@@ -586,10 +620,10 @@ fn the_reviewed_site_keeps_the_only_provenance_it_can_prove() {
     for site in &artifact.adjudication.reviewed {
         *counts.entry(site.provenance).or_default() += 1;
     }
-    assert_eq!(counts.get(&Provenance::Agent), Some(&399));
-    assert_eq!(counts.get(&Provenance::Unrecorded), Some(&92));
+    assert_eq!(counts.get(&Provenance::Agent), Some(&378));
+    assert_eq!(counts.get(&Provenance::Unrecorded), Some(&89));
     assert_eq!(counts.get(&Provenance::Human), None);
-    assert_eq!(artifact.adjudication.reviewed.len(), 491);
+    assert_eq!(artifact.adjudication.reviewed.len(), 467);
 }
 
 #[test]

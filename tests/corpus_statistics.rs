@@ -10,7 +10,7 @@ use support::corpus::agreement::{AdjudicatedPair, Agreement, Independence, Pass}
 use support::corpus::coefficients::{
     Coefficient, KappaStatus, coefficient_defects, coefficients,
 };
-use support::corpus::comparison::{RateComparison, comparison_defects};
+use support::corpus::comparison::{ComparisonVerdict, RateComparison, comparison_defects};
 use support::corpus::interval::{Separation, interval_defects, separation, wilson_95};
 use support::corpus::sampling::{PROTOCOL_TARGET, target_floor};
 use support::corpus::{
@@ -403,7 +403,7 @@ fn the_sampling_prose_states_no_agreement_quantity() {
     assert_eq!(
         numbers(&prose),
         BTreeSet::from([
-            "0", "08", "09", "10", "11", "20", "2026", "241", "29", "31", "34", "40", "46", "5", "6"
+            "0", "08", "09", "10", "11", "16", "20", "2026", "241", "29", "31", "34", "40", "41", "5", "6", "7"
         ]),
         "the sampling prose carries a number this field is not allowed to state"
     );
@@ -667,7 +667,7 @@ fn the_two_rates_of_a_rule_are_published_with_the_distance_between_them() {
         Vec::<String>::new()
     );
 
-    assert_eq!(population.measured_rules, 7);
+    assert_eq!(population.measured_rules, 8);
     assert_eq!(
         measured(&population.precision).len() as u64,
         population.measured_rules
@@ -680,7 +680,9 @@ fn the_two_rates_of_a_rule_are_published_with_the_distance_between_them() {
     assert_eq!(compared, COMPARED.to_vec());
 
     for row in &population.rate_comparison {
-        assert!(row.gap_basis_points < 0, "{}", row.rule);
+        if row.verdict == ComparisonVerdict::Separated {
+            assert!(row.gap_basis_points < 0, "{}", row.rule);
+        }
         assert_eq!(
             row.gap_basis_points,
             i64::from(u32::try_from(row.agent_basis_points).unwrap())
@@ -708,6 +710,7 @@ fn a_rule_measured_on_one_population_alone_is_not_compared() {
     assert_eq!(
         one_sided,
         vec![
+            "rust_doctor::cargo::duplicate_major_versions",
             "rust_doctor::cargo::missing_lockfile",
             "rust_doctor::structure::orphan_module_file",
             "rust_doctor::structure::stacked_allow_attribute",
@@ -781,7 +784,6 @@ fn a_rate_the_sample_cannot_place_is_published_indecisive_rather_than_deepened()
     for id in [
         "rust_doctor::structure::duplicate_function_body",
         "rust_doctor::structure::near_duplicate_function_body",
-        "rust_doctor::structure::oversized_unit",
     ] {
         let other = artifact
             .agent_population

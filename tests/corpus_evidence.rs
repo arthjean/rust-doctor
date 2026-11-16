@@ -85,6 +85,16 @@ fn a_citation_off_the_site_line_or_path_is_refused() {
 }
 
 #[test]
+fn a_site_without_a_line_is_covered_by_any_citation_of_its_file_and_by_no_other() {
+    let (mut adjudication, index) = cited();
+    let pair = &mut adjudication.agreement.pairs[index];
+    pair.line = 0;
+    pair.passes[1].evidence[0].path = "src/elsewhere.rs".to_owned();
+    let defects = citation_defects(&adjudication);
+    assert_eq!(naming(&defects, "covers the site line").len(), 1, "{defects:?}");
+}
+
+#[test]
 fn a_reversed_or_empty_citation_and_a_date_before_the_cutoff_are_refused() {
     let (mut adjudication, index) = cited();
     let pair = &mut adjudication.agreement.pairs[index];

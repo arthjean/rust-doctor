@@ -96,7 +96,8 @@ pub(crate) struct ProtocolScope {
     pub(crate) rule: String,
 }
 
-pub(crate) const ENROLLED_SCOPES: [(Population, &str); 7] = [
+pub(crate) const ENROLLED_SCOPES: [(Population, &str); 8] = [
+    (Population::Agent, "rust_doctor::cargo::duplicate_major_versions"),
     (Population::Agent, "rust_doctor::structure::duplicate_function_body"),
     (Population::Agent, "rust_doctor::structure::near_duplicate_function_body"),
     (Population::Agent, "rust_doctor::structure::orphan_module_file"),
@@ -360,7 +361,8 @@ pub(crate) fn citation_defects(adjudication: &Adjudication) -> Vec<String> {
                 }
             }
             let covers = pass.evidence.iter().any(|citation| {
-                citation.path == pair.path && (citation.start_line..=citation.end_line).contains(&pair.line)
+                citation.path == pair.path
+                    && (pair.line == 0 || (citation.start_line..=citation.end_line).contains(&pair.line))
             });
             if !pass.evidence.is_empty() && !covers {
                 defects.push(format!(

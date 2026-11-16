@@ -68,14 +68,14 @@ pub(crate) const CORPUS_NOISE: [CorpusMeasurement; 22] = [
     CorpusMeasurement::new("clippy::unreachable", 4, 5),
     CorpusMeasurement::new("clippy::unwrap_used", 5, 5),
     CorpusMeasurement::new("rust_doctor::cargo::unchecked_release_overflow", 1, 3),
-    CorpusMeasurement::new("rust_doctor::structure::complex_function", 27, 31),
+    CorpusMeasurement::new("rust_doctor::structure::complex_function", 7, 11),
     CorpusMeasurement::new("rust_doctor::structure::duplicate_function_body", 6, 18),
     CorpusMeasurement::new(
         "rust_doctor::structure::near_duplicate_function_body",
         18,
         29,
     ),
-    CorpusMeasurement::new("rust_doctor::structure::oversized_unit", 13, 39),
+    CorpusMeasurement::new("rust_doctor::structure::oversized_unit", 9, 34),
     CorpusMeasurement::new("rust_doctor::structure::unreferenced_feature", 5, 5),
 ];
 

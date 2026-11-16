@@ -13,18 +13,12 @@ use support::corpus::position::{PositionProof, position_defects, published_sites
 use support::corpus::agreement::family_defects;
 use support::corpus::{Population, Provenance, ReviewedSite, SiteContext, Verdict, artifact};
 
-const ESCALATED: [(&str, &str, &str, u64); 3] = [
+const ESCALATED: [(&str, &str, &str, u64); 2] = [
     (
         "rust_doctor::structure::complex_function",
         "ripgrep",
         "crates/ignore/src/dir.rs",
         340,
-    ),
-    (
-        "rust_doctor::structure::complex_function",
-        "thiserror",
-        "impl/src/expand.rs",
-        31,
     ),
     (
         "rust_doctor::structure::complex_function",

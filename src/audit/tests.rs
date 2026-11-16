@@ -288,7 +288,7 @@ struct ShareCase {
 
 fn oracle() -> Oracle {
     serde_json::from_str(include_str!(
-        "../../tests/fixtures/local-cli-experience/audit-core-v6.json"
+        "../../tests/fixtures/local-cli-experience/audit-core-v7.json"
     ))
     .expect("audit oracle should be valid")
 }
@@ -549,7 +549,7 @@ fn the_share_url_carries_the_production_line_count() {
 
     assert_eq!(
         audit.share_url(),
-        Ok("https://rust-doctor.com/share?s=100&m=core-v6&f=3&l=420".to_owned())
+        Ok("https://rust-doctor.com/share?s=100&m=core-v7&f=3&l=420".to_owned())
     );
 }
 
@@ -595,7 +595,7 @@ fn the_catalog_drives_the_score_out_of_its_top_label() {
 
     assert_eq!(score.dimensions.security, 1);
     assert_eq!(score.dimensions.reliability, 29);
-    assert_eq!(score.dimensions.maintainability, 66);
+    assert_eq!(score.dimensions.maintainability, 65);
     assert_eq!(score.dimensions.performance, 75);
     assert_eq!(score.dimensions.dependencies, 7);
     assert!(

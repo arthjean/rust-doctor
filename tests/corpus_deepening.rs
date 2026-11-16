@@ -42,7 +42,7 @@ fn width(rule: &RulePrecision) -> u64 {
 #[test]
 fn the_two_deepened_healthy_scopes_draw_their_whole_production_subpopulation() {
     let artifact = artifact();
-    for (rule, observed) in [(OVERSIZED, 46u64), (NEAR_DUPLICATE, 29)] {
+    for (rule, observed) in [(OVERSIZED, 41u64), (NEAR_DUPLICATE, 29)] {
         let plan = artifact
             .adjudication
             .sampling_plan
@@ -61,7 +61,7 @@ fn the_two_deepened_healthy_scopes_draw_their_whole_production_subpopulation() {
 #[test]
 fn every_drawn_site_is_judged_twice_and_a_disagreement_publishes_no_verdict() {
     let artifact = artifact();
-    for (rule, drawn, reviewed) in [(OVERSIZED, 46u64, 39u64), (NEAR_DUPLICATE, 29, 29)] {
+    for (rule, drawn, reviewed) in [(OVERSIZED, 41u64, 34u64), (NEAR_DUPLICATE, 29, 29)] {
         let measure = healthy(rule);
         assert_eq!(measure.status, PrecisionStatus::Measured, "{rule}");
         assert_eq!(measure.reviewed, reviewed, "{rule}");
@@ -154,8 +154,8 @@ fn the_scope_the_corpus_bounds_says_so_rather_than_asking_for_a_deeper_draw() {
 const KNOWN: [(&str, i64, i64, ComparisonVerdict); 4] = [
     (
         "rust_doctor::structure::complex_function",
-        -3437,
-        282,
+        -2519,
+        3675,
         ComparisonVerdict::Indistinguishable,
     ),
     (
@@ -170,7 +170,7 @@ const KNOWN: [(&str, i64, i64, ComparisonVerdict); 4] = [
         110,
         ComparisonVerdict::Indistinguishable,
     ),
-    (OVERSIZED, -3882, -504, ComparisonVerdict::Separated),
+    (OVERSIZED, -3448, -183, ComparisonVerdict::Separated),
 ];
 
 #[test]

@@ -35,7 +35,7 @@ alone, so a member manifest can remove it; every other one publishes at
 was computed without, such as "advisories" when no RustSec database was read:
 the score keeps its authority, but a clean Dependencies is then unchecked.
 
-Under the ceiling the score is a density, not a tally. The model is `core-v6`,
+Under the ceiling the score is a density, not a tally. The model is `core-v7`,
 published as `audit.score.model`, and each dimension scores
 `round(100 * exp(-D / lambda))`. D counts one distinct site per diagnostic, an
 error weighing two, a warning one and an info nothing, each site weighed by the

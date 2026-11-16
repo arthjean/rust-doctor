@@ -801,20 +801,86 @@ fn noise_basis_points(report: &Value, rule: &str) -> Option<u64> {
         .and_then(|entry| entry["corpus_noise_basis_points"].as_u64())
 }
 
+const UNMEASURED_NOISE_BASIS_POINTS: u64 = 5_000;
+
 fn kept_basis_points(report: &Value, rule: &str) -> u64 {
-    noise_basis_points(report, rule).map_or(10_000, |noise| 10_000u64.saturating_sub(noise))
+    10_000u64.saturating_sub(noise_basis_points(report, rule).unwrap_or(UNMEASURED_NOISE_BASIS_POINTS))
 }
 
 fn is_withheld(report: &Value, rule: &str) -> bool {
     noise_basis_points(report, rule).is_some_and(|noise| noise > 5_000)
 }
 
-fn divisor(rule: &str, shipped: &BTreeMap<&str, RuleTier>, kilolines: f64) -> f64 {
-    let per_kiloline = shipped.contains_key(rule)
+fn per_kiloline(rule: &str, shipped: &BTreeMap<&str, RuleTier>) -> bool {
+    shipped.contains_key(rule)
         && (rule.starts_with("clippy::")
             || rule.starts_with("rust_doctor::source::")
-            || rule.starts_with("rust_doctor::structure::"));
-    if per_kiloline { kilolines } else { 1.0 }
+            || rule.starts_with("rust_doctor::structure::"))
+}
+
+fn cause_weight(sites: f64) -> f64 {
+    if sites >= 1.0 { 1.0 + sites.ln() } else { 0.0 }
+}
+
+fn to_micro(sites: f64) -> u64 {
+    let scaled = (sites * 1_000_000.0).round();
+    if scaled.is_finite() && scaled > 0.0 { scaled as u64 } else { 0 }
+}
+
+#[derive(Default, Clone, Copy)]
+struct CauseSites {
+    findings: u64,
+    weight: u64,
+    owned: u64,
+}
+
+impl CauseSites {
+    fn add(&mut self, weight: u64, owned: bool) {
+        self.findings += 1;
+        self.weight += weight;
+        if owned {
+            self.owned += weight;
+        }
+    }
+
+    fn scaled(self, factor: f64) -> (f64, f64) {
+        (self.weight as f64 * factor, self.owned as f64 * factor)
+    }
+
+    fn per_finding(self) -> f64 {
+        if self.findings == 0 { 0.0 } else { 1.0 / self.findings as f64 }
+    }
+}
+
+struct RuleSites<'a> {
+    dimension: &'static str,
+    tier: Option<RuleTier>,
+    declared: BTreeMap<&'a str, CauseSites>,
+    singles: CauseSites,
+}
+
+impl RuleSites<'_> {
+    fn charged(&self, per_kiloline: bool) -> (u64, u64) {
+        let (singles, singles_owned) = self.singles.scaled(1.0);
+        let (total, owned) = if per_kiloline {
+            self.declared.values().fold((singles, singles_owned), |(total, owned), cause| {
+                let (weight, held) =
+                    cause.scaled(cause_weight(cause.findings as f64) * cause.per_finding());
+                (total + weight, owned + held)
+            })
+        } else {
+            let (once, once_owned) =
+                self.declared.values().fold((singles, singles_owned), |(total, owned), cause| {
+                    let (weight, held) = cause.scaled(cause.per_finding());
+                    (total + weight, owned + held)
+                });
+            let causes = self.declared.len() as f64 + self.singles.findings as f64;
+            let saturation = if causes > 0.0 { cause_weight(causes) / causes } else { 0.0 };
+            (once * saturation, once_owned * saturation)
+        };
+        let total = to_micro(total);
+        (total, to_micro(owned).min(total))
+    }
 }
 
 fn dimension_observations(report: &Value, production_lines: u64) -> Vec<DimensionObservation> {
@@ -826,7 +892,7 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         .map_or(1, Vec::len)
         .max(1) as f64;
 
-    let mut scored: BTreeMap<&str, (&'static str, u64, Option<RuleTier>, u64)> = BTreeMap::new();
+    let mut scored: BTreeMap<&str, RuleSites<'_>> = BTreeMap::new();
     for diagnostic in report["diagnostics"]
         .as_array()
         .map(Vec::as_slice)
@@ -849,12 +915,16 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         if weight == 0 {
             continue;
         }
-        let entry = scored
-            .entry(rule)
-            .or_insert((dimension, 0, shipped.get(rule).copied(), 0));
-        entry.1 = entry.1.saturating_add(weight);
-        if !diagnostic["package"].is_null() {
-            entry.3 = entry.3.saturating_add(weight);
+        let entry = scored.entry(rule).or_insert_with(|| RuleSites {
+            dimension,
+            tier: shipped.get(rule).copied(),
+            declared: BTreeMap::new(),
+            singles: CauseSites::default(),
+        });
+        let owned = !diagnostic["package"].is_null();
+        match diagnostic["cause"].as_str() {
+            Some(cause) => entry.declared.entry(cause).or_default().add(weight, owned),
+            None => entry.singles.add(weight, owned),
         }
     }
 
@@ -864,22 +934,23 @@ fn dimension_observations(report: &Value, production_lines: u64) -> Vec<Dimensio
         .map(|name| {
             let mut density = 0.0;
             let mut worst: Option<RuleTier> = None;
-            for (rule, (dimension, numerator, tier, owned)) in &scored {
-                if *dimension != name {
+            for (rule, sites) in &scored {
+                if sites.dimension != name {
                     continue;
                 }
-                let charge = |sites: u64| {
-                    let weighted = sites.saturating_mul(tier_weight(*tier));
-                    weighted as f64 * kept_basis_points(report, rule) as f64 / 10_000.0
+                let charge = |micro: u64| {
+                    micro as f64 / 1_000_000.0 * tier_weight(sites.tier) as f64
+                        * kept_basis_points(report, rule) as f64
+                        / 10_000.0
                 };
-                let divisor = divisor(rule, &shipped, kilolines);
-                density += if divisor == 1.0 {
-                    let owned = (*owned).min(*numerator);
-                    charge(numerator - owned) + charge(owned) / members
+                let per_kiloline = per_kiloline(rule, &shipped);
+                let (total, owned) = sites.charged(per_kiloline);
+                density += if per_kiloline {
+                    charge(total) / kilolines
                 } else {
-                    charge(*numerator) / divisor
+                    charge(total - owned) + charge(owned) / members
                 };
-                let caps = if is_withheld(report, rule) { None } else { *tier };
+                let caps = if is_withheld(report, rule) { None } else { sites.tier };
                 worst = match (worst, caps) {
                     (Some(current), Some(candidate)) => Some(current.min(candidate)),
                     (current, candidate) => current.or(candidate),
