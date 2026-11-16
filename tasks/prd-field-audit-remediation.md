@@ -8,6 +8,7 @@
 | 1.0 | 2026-11-15 | Arthur Jean | Initial draft from the 0.10.0 field audit (`bunx -y rust-doctor@latest .` on an 18-crate, 185,626-line desktop application, Windows 11, score 36, core-v6, schema 24) |
 | 1.1 | 2026-11-16 | Arthur Jean | EP-007 gathers every Linux gate and criterion of release 0.12.0 into one run per epic on a Fedora machine; Windows sessions certify what Windows observes |
 | 1.2 | 2026-11-16 | Arthur Jean | No epic before EP-007 runs a Linux gate, in WSL or anywhere else; A2 on Linux moves to US-035 |
+| 1.3 | 2026-11-16 | Arthur Jean | `SCORE_MODEL` becomes "core-v7" in US-032, on the corpus replay, since `lambda_freeze.rs` ties the model to the corpus record; a missing database keeps `authoritative` |
 
 ## Problem Statement
 
@@ -606,7 +607,7 @@ Release 0.12.0. The five detectors the audit found wrong on real code report non
 Release 0.12.0. The score counts decisions, not sites, weighs a rule by what is known of its precision, and publishes what it could not verify.
 
 **Definition of Done:**
-- `SCORE_MODEL` is "core-v7" and `SCHEMA_VERSION` is 25, additive.
+- `SCHEMA_VERSION` is 25, additive. The core-v7 charges ship under the "core-v6" label until US-032 replays the corpus and moves `SCORE_MODEL`, since `lambda_freeze.rs` requires every corpus observation to carry the shipped model.
 - On the audited workspace's recorded findings, 303 by-value findings of one type weigh as one cause, and one variable in three workflows weighs once.
 - `src/audit/tests/lambda_freeze.rs` is unchanged and green.
 - US-023's record is committed under `frozen` in `docs/doc-budgets.json`.
@@ -659,7 +660,7 @@ Release 0.12.0. The score counts decisions, not sites, weighs a rule by what is 
 - [ ] Given the same P1 variable in three workflows, when Security is computed, then it equals the value for one finding.
 - [ ] Given 303 findings of one cause and 7 single findings of a P3 per-kiloline rule, when the charge is computed, then the charged sites are `1 + ln(303) + 7`, within 0.001.
 - [ ] `projected_after_top_three` and the ranking use the same charges.
-- [ ] `SCORE_MODEL` becomes "core-v7"; the audit fixture `audit-core-v6.json` and its references move to v7.
+- [ ] ~~`SCORE_MODEL` becomes "core-v7"; the audit fixture `audit-core-v6.json` and its references move to v7.~~ Moved to US-032 (PRD 1.3): the oracle keeps its name and label, and its cases follow the shipped charges.
 - [ ] `src/audit/tests/lambda_freeze.rs` is not edited and passes.
 - [ ] `docs/subsystems/audit.md` and `skills/rust-doctor/SKILL.md` state the two formulas within their limits.
 
@@ -784,6 +785,7 @@ Release 0.12.0. Help texts can be applied where they are printed, the corpus mea
 - [ ] `position_proof` is regenerated, and `precision`, `agent_population.precision`, `gate` and `score_distribution` are recomputed with the existing helpers.
 - [ ] `CORPUS_NOISE` (`src/policy/noise.rs`) matches the record.
 - [ ] `cargo test --release --test delta_pairing -- --ignored --nocapture` is replayed and every new candidate is classified in `tests/fixtures/delta-pairing/verdicts.json`.
+- [ ] `SCORE_MODEL` becomes "core-v7" in the replay commit, and the audit fixture `audit-core-v6.json` and its references move to v7 (moved from US-025, PRD 1.3).
 - [ ] `SCHEMA_VERSION` is 25, and every file that states the model or the schema agrees: `tests/audit_contract.rs`, `tests/score_credibility_kernel.rs`, `src/audit/tests.rs`, `tests/docs_contract.rs`, `tests/e2e/*.ts`, `npm/rust-doctor/scripts/smoke-packed.mjs`, AGENTS.md, `docs/subsystems/audit.md` and `skills/rust-doctor/SKILL.md`.
 - [ ] Given a subject whose score moves by more than 10 points, when the replay completes, then the release note explains the move by the story that caused it.
 - [ ] Given a replay that fails the distribution gate, when it completes, then the release does not proceed and the failing subjects are listed in this story's notes.
@@ -1024,7 +1026,7 @@ Questions for engineering input, not mandates:
 
 ## Open Questions
 
-- **Authoritative with no database.** This PRD keeps `authoritative: true` when no database exists and adds `unverified`. Should a missing database instead drop `authoritative`, as the audit first recommended? Arthur decides before US-029; US-006 and the website copy depend on it.
+- **Authoritative with no database.** This PRD keeps `authoritative: true` when no database exists and adds `unverified`. Should a missing database instead drop `authoritative`, as the audit first recommended? Arthur decides before US-029; US-006 and the website copy depend on it. Decided 2026-11-16: `authoritative` stays true and the missing check is published in `unverified`.
 - **Corpus subject.** Is the audited repository public, and may it be pinned at a revision in `tests/corpus.json`? Arthur answers before US-031 starts; eleven precision rates depend on it.
 - **Naming the audited workspace.** This document does not name it, because `tasks/` is tracked in a public repository. Arthur says whether it may be named, here and in the release note.
 - **Release cadence.** Should 0.10.1 and 0.11.0 ship separately, or as one 0.11.0? Arthur decides before tagging; EP-003 does not need EP-001.
