@@ -5,7 +5,7 @@ import { copyWorkspace, normalizeReport, runDoctor, sandbox, scratchDir, spawnDo
 import { installedLauncher, runLauncher, shellStatus, spawnLauncher } from "./launcher-support";
 
 function stable(run: DoctorRun): { status: number | null; stdout: unknown; stderr: string } {
-  const stdout = run.json !== undefined ? normalizeReport(run.json) : run.stdout.replace(/ in \d+(?:\.\d+)?s(;|$)/m, " in <duration>$1");
+  const stdout = run.json !== undefined ? normalizeReport(run.json) : run.stdout.replace(/ in \d+(?:\.\d+)?s(?=[.;]|$)/m, " in <duration>");
   return { status: shellStatus(run), stdout, stderr: run.stderr };
 }
 

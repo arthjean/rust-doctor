@@ -175,7 +175,10 @@ const SECTIONS = [
   { name: "Scope", match: "Scope: full codebase" },
   { name: "Scored", match: "Scored " },
   { name: "All", match: "All " },
-  { name: "Categories", match: /^(?:Categories: none|\w[\w ]*: \d+ errors, )/mu },
+  {
+    name: "Categories",
+    match: /^(?:Categories: none|(?:Security|Reliability|Maintainability|Performance|Dependencies): (?:0 findings|\d+ (?:errors?|warnings?|info|unknown)))/mu,
+  },
   { name: "Score", match: "┌─────┐" },
   { name: "Share", match: "Share:" },
   { name: "Docs", match: "Docs:" },
@@ -422,10 +425,11 @@ function proveCli(installed) {
   const progress = human.stderr.trim().split("\n");
   assert(
     progress.every((line) =>
-      /^(Compiling dependencies\.\.\.|Linting .+ \(\d+\/\d+\)|Running native passes\.\.\.)$/u.test(line)),
+      /^(Compiling dependencies\.\.\.|Running native passes\.\.\.|Linted \d+ members?\.)$/u.test(line)),
     "human progress is not the phase lines",
   );
   assert(progress.includes("Running native passes..."), "human progress is missing");
+  assert(/^Linted \d+ members?\.$/u.test(progress.at(-1) ?? ""), "human progress does not close on the linted count");
   const sections = sectionOrder(human.stdout);
   const scan = human.stdout.match(/Scored (\d+) production files \(\d+ lines\)(?: of members? [^\n]*?)? in (\d+\.\d)s/u);
   const terminalScore = human.stdout.match(/(\d+) \/ 100 ([A-Za-z ]+)/u);

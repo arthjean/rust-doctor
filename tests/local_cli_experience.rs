@@ -613,6 +613,7 @@ mod tty {
         selection: &[u8],
         capture: &Path,
         workspace: &Path,
+        invocations: &[String],
     ) {
         let mut process = PtyProcess::spawn(command);
         process.wait_for("Hand off to an agent");
@@ -627,8 +628,9 @@ mod tty {
         assert!(payload.len() <= 12 * 1024);
         assert!(String::from_utf8_lossy(&payload).contains("Validate with:"));
         assert!(
-            String::from_utf8_lossy(&payload)
-                .starts_with("The rust-doctor skill is not installed for this agent: run `rust-doctor skill install --agent codex` first.\n"),
+            invocations.iter().any(|invocation| String::from_utf8_lossy(&payload).starts_with(&format!(
+                "The rust-doctor skill is not installed for this agent: run `{invocation} skill install --agent codex` first.\n"
+            ))),
             "{}",
             String::from_utf8_lossy(&payload)
         );
@@ -773,7 +775,13 @@ mod tty {
             .args(["--scope", "full"])
             .env("PATH", path)
             .env("RD_HANDOFF_CAPTURE", &capture);
-        assert_handoff_contract(command, b"\x1b[B\r", &capture, &kernel("todo"));
+        assert_handoff_contract(
+            command,
+            b"\x1b[B\r",
+            &capture,
+            &kernel("todo"),
+            &["rust-doctor".to_owned()],
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -811,6 +819,7 @@ mod tty {
                 env::var_os("RD_PACKED_SCAN_TARGET")
                     .expect("packed TTY proof requires an external Cargo target"),
             );
-        assert_handoff_contract(command, b"\r", &capture, &kernel("todo"));
+        let launched = ["bunx", "npx"].map(|runner| format!("{runner} rust-doctor@{}", env!("CARGO_PKG_VERSION")));
+        assert_handoff_contract(command, b"\r", &capture, &kernel("todo"), &launched);
     }
 }
