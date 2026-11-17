@@ -41,10 +41,10 @@
     {
       "id": "EP-005",
       "title": "Score model core-v7 and report schema 25",
-      "status": "DONE",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "stories_total": 7,
-      "stories_done": 7
+      "stories_done": 5
     },
     {
       "id": "EP-006",
@@ -57,7 +57,7 @@
     {
       "id": "EP-007",
       "title": "Linux validation on Fedora",
-      "status": "IN_PROGRESS",
+      "status": "BLOCKED",
       "priority": "P0",
       "stories_total": 5,
       "stories_done": 0
@@ -308,7 +308,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed."
       }
     },
     {
@@ -325,7 +326,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed."
       }
     },
     {
@@ -340,7 +342,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed."
       }
     },
     {
@@ -355,7 +358,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed."
       }
     },
     {
@@ -370,7 +374,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed."
       }
     },
     {
@@ -385,7 +390,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express."
+        "review": "Certified 2026-11-16 against tree 2e19f41: every acceptance criterion passes from the CLI entry point (tests/detector_false_positives.rs, regression seeds, unit tests); Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger). Linux gates moved to US-035 by Arthur's decision of 2026-11-16 (PRD 1.1); a partial WSL run passed the lib, the bin and every integration binary through rule_scaling_surfaces, apart from wall-clock budgets that also sit at their bound at HEAD. DoD seed clause read as covering the three rules whose fix silences a finding: secret_in_build_step (Info demotion) and oversized_unit (context change) are proven by fixture tests the seed harness cannot express.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed."
       }
     },
     {
@@ -400,7 +406,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). The ignored harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on Windows. The audited-workspace figures come from a rescan (1448 findings, 186759 lines, same score 36, same 23 rules) rather than the 1438 the audit published, since the audit carries no site-level facts; the record says so."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). The ignored harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on Windows. The audited-workspace figures come from a rescan (1448 findings, 186759 lines, same score 36, same 23 rules) rather than the 1438 the audit published, since the audit carries no site-level facts; the record says so.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8."
       }
     },
     {
@@ -417,7 +424,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). tests/cause_kernel.rs drives real Clippy and the repo pass: by-value findings carry 'Big (512 byte)', ids and messages unchanged, the linear report prints the cause line, one variable in three workflows is one cause."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). tests/cause_kernel.rs drives real Clippy and the repo pass: by-value findings carry 'Big (512 byte)', ids and messages unchanged, the linear report prints the cause line, one variable in three workflows is one cause.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8."
       }
     },
     {
@@ -435,7 +443,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). Reading of the lone-duplicate criterion: the curve leaves one finding at its core-v6 charge (weight(1) = 1, a measured lone workspace finding scores its core-v6 value), but with US-026's prior the unmeasured duplicate_major_versions now scores 75 (P2 ceiling), not 72. The literal '72' no longer holds once US-026 ships; Arthur to confirm the PRD wording, and the 72 -> 75 move belongs in the 0.12.0 release note (US-032)."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). Reading of the lone-duplicate criterion: the curve leaves one finding at its core-v6 charge (weight(1) = 1, a measured lone workspace finding scores its core-v6 value), but with US-026's prior the unmeasured duplicate_major_versions now scores 75 (P2 ceiling), not 72. The literal '72' no longer holds once US-026 ships; Arthur to confirm the PRD wording, and the 72 -> 75 move belongs in the 0.12.0 release note (US-032).",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8."
       }
     },
     {
@@ -452,37 +461,42 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1)."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1).",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8."
       }
     },
     {
       "id": "US-027",
       "title": "Publish a distrusted rule at Info, and require both thresholds for complex_function",
       "epic": "EP-005",
-      "status": "DONE",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
       "started_at": "2026-11-16",
       "completed_at": "2026-11-16",
-      "reviewed_at": "2026-11-16",
+      "reviewed_at": null,
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). Distrusted findings now weigh zero, so withheld_rule_ids lists them only under a weighing --rule level; SKILL.md now says so (review fix). Re-adjudicating complex_function's corpus sites is US-032's criterion."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). Distrusted findings now weigh zero, so withheld_rule_ids lists them only under a weighing --rule level; SKILL.md now says so (review fix). Re-adjudicating complex_function's corpus sites is US-032's criterion.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8.",
+        "linux_fix": "Repaired 2026-11-17 on Fedora (EP-007, US-036), proven by the replay of bb4338f (tree a9c920b1, every CI Linux job green). Tests now assert the contract US-027 ships: a distrusted rule at its default level publishes info and keeps base_severity warning (rule_scaling_surfaces, score_credibility_packs reads corpus_noise_basis_points and the level source from policy.rules); where a warning is the subject (delta build-script test, EX-02 to EX-06, EX-14, OW-02 to OW-04, OC-01, OC-10, EN-04, EN-08) the run sets --rule clippy::unwrap_used=warn, criterion 3's path, and OC-10 also checks the default info form; the pack oracles take their measured core-v7 scores, and each pack still moves every dimension it touches below 100 once its rules are set to warn; CF-32 checks 21/2 and 2/40 report nothing, 20/39 reports schedule alone, 2/2 both; INV-08 expects only the nonzero counts the share link carries."
       }
     },
     {
       "id": "US-028",
       "title": "Warn on a duplicate major only when a member can remove it",
       "epic": "EP-005",
-      "status": "DONE",
+      "status": "IN_REVIEW",
       "priority": "P1",
       "size": "M",
       "blocked_by": [],
       "started_at": "2026-11-16",
       "completed_at": "2026-11-16",
-      "reviewed_at": "2026-11-16",
+      "reviewed_at": null,
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). The release-note criterion is carried by US-032, the only story the PRD lets write .github/releases/v0.12.0.md (Technical Considerations). Message changes to list there: 'required by' names up to three members in name order then '+N more'; 'through' names the first non-member on a shortest path, ties by name; versions listed in semver order. Each changes the finding ids of duplicate_major_versions."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1). The release-note criterion is carried by US-032, the only story the PRD lets write .github/releases/v0.12.0.md (Technical Considerations). Message changes to list there: 'required by' names up to three members in name order then '+N more'; 'through' names the first non-member on a shortest path, ties by name; versions listed in semver order. Each changes the finding ids of duplicate_major_versions.",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8.",
+        "linux_fix": "Repaired 2026-11-17 on Fedora (EP-007, US-036), proven by the replay of bb4338f (tree a9c920b1, every CI Linux job green). BUG-25: a removable duplicate is anchored at the member manifest, so a --scope lines run whose only change is Cargo.lock dropped it. src/git_scope.rs includes_reach now keeps a span-less finding of a diff_scope file rule when Cargo.lock changed, in lines and contextual scopes; unit test a_lockfile_rule_anchored_at_a_manifest_stays_when_only_the_lockfile_changed (src/git_scope/tests.rs), entry-point proof tests/agent_loop.rs a_lockfile_deletion_alone_keeps_its_span_less_finding_in_scope (path Cargo.toml, severity warning, red before the fix); docs/subsystems/git-and-scope.md states the rule; ledger row failures/BUG-25 appended."
       }
     },
     {
@@ -499,7 +513,8 @@
       "completed_at": "2026-11-16",
       "reviewed_at": "2026-11-16",
       "notes": {
-        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1)."
+        "review": "Certified 2026-11-16 against tree 0d4c296 (the epic's uncommitted work on 09adad8): every acceptance criterion passes from the CLI or library entry point; Clippy clean on 1.99.1; documentation gates green; Windows gate green in a CRLF replay worktree (34 failures, all in the ledger); lambda_freeze.rs unchanged and green. Linux gates and the cross-platform float check move to US-036 (PRD 1.1).",
+        "linux": "2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8."
       }
     },
     {
@@ -596,7 +611,7 @@
       "id": "US-035",
       "title": "Validate EP-004 on Linux",
       "epic": "EP-007",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
@@ -608,15 +623,18 @@
         "US-021",
         "US-022"
       ],
-      "started_at": null,
+      "started_at": "2026-11-17",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "implementation": "Implemented 2026-11-17: one full replay of EP-004's landing commit, every failure judged on its parent as US-034 states. 2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed. No Linux failure traces to an EP-004 story, so none returns to IN_REVIEW. Records: ~/.cache/rust-doctor/replay/7f6f4d9172bbf111cd7ab19eb6ca7f88b4f3ff2a.record and c64eaa8252a47816d7c1f91b65762e0c8980b7da.record."
+      }
     },
     {
       "id": "US-036",
       "title": "Validate EP-005 on Linux",
       "epic": "EP-007",
-      "status": "TODO",
+      "status": "IN_REVIEW",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
@@ -629,15 +647,18 @@
         "US-028",
         "US-029"
       ],
-      "started_at": null,
+      "started_at": "2026-11-17",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "implementation": "Implemented 2026-11-17. 2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8. US-027 and US-028 return to IN_REVIEW with their fixes (see their linux_fix notes), certified through /review-epic. Records: ~/.cache/rust-doctor/replay/9aef6c7f62eca759615619a8c2d671a44bf3a595.record."
+      }
     },
     {
       "id": "US-037",
       "title": "Validate the 0.12.0 release candidate on Linux",
       "epic": "EP-007",
-      "status": "TODO",
+      "status": "BLOCKED",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
@@ -648,9 +669,12 @@
         "US-033",
         "US-038"
       ],
-      "started_at": null,
+      "started_at": "2026-11-17",
       "completed_at": null,
-      "reviewed_at": null
+      "reviewed_at": null,
+      "notes": {
+        "blocked": "No release candidate commit exists: the 0.12.0 version bump is the release skill's step (Files NOT to Modify), and the CI run of its push needs Arthur's authorization to commit and push. Pre-check on the repaired tree bb4338f (tree a9c920b131f1dd5c4a2c4af99cc4c46ed820dadf, tracker excluded, an unreferenced commit object of the uncommitted work on cadbea3), Fedora 45, rustc 1.99.1: clippy, docs, test (1374 passed, 0 failed, 6 ignored), msrv (1.95 cargo check --all-targets), launcher (19), release, packed smoke and e2e (1291 passed, 0 failed, 20 skipped) all pass, and corpus_precision from the clone cache passes 33 of 33 against US-032's record. Repairs that made the packed smoke and the e2e suite green: EP-003 text in scripts/smoke-packed.mjs (Linted N members., the category line) and tests/local_cli_experience.rs (the launcher's bunx form of the install hint, US-013), and launcher-packed's duration normalizer (US-012's period). Still to run on the candidate: every gate again, bun run build:verified in rust-doctor-web on the branch carrying US-033 (local core-v7 at e6c49e6; the main checkout holds unrelated uncommitted changes), and CI green on ubuntu and macOS before the tag. Failing gates on the candidate: none observed yet."
+      }
     },
     {
       "id": "US-038",
