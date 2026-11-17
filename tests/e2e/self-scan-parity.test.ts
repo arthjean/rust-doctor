@@ -97,14 +97,19 @@ describe("this repository: human, Markdown and JSON parity", () => {
     const scored = (count: number, noun: string) => `${count} scored ${noun}${count === 1 ? "" : "s"}`;
     const errors = production("errors");
     expect(flat).toContain(`${errors > 0 ? `${scored(errors, "error")}, ` : ""}${scored(production("warnings"), "warning")}, ${production("info")} info`);
-    expect(Object.fromEntries(params)).toEqual({
-      s: String(score.value),
-      m: score.model,
-      w: String(production("warnings")),
-      i: String(production("info")),
-      f: String(scan.audit.source_files),
-      l: String(scan.audit.production_lines),
-    });
+    const counted = (entries: Array<[string, number]>) =>
+      entries.filter(([, count]) => count > 0).map(([key, count]) => [key, String(count)]);
+    expect(Object.fromEntries(params)).toEqual(Object.fromEntries([
+      ["s", String(score.value)],
+      ["m", score.model],
+      ...counted([
+        ["e", errors],
+        ["w", production("warnings")],
+        ["i", production("info")],
+        ["f", scan.audit.source_files],
+        ["l", scan.audit.production_lines],
+      ]),
+    ]));
 
     const text = (await scanSelf(clone, ["--verbose"], { target })).stdout;
     const verbose = lines(text);

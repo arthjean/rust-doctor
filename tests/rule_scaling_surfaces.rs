@@ -434,7 +434,7 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         "persisting-error",
     );
     assert_delta(&error, 0, 6, 0);
-    let warning = default
+    let distrusted = default
         .diagnostics
         .iter()
         .find(|diagnostic| diagnostic.code.as_deref() == Some("clippy::mem_forget"))
@@ -444,8 +444,9 @@ fn baseline_delta_policy_and_gate_cover_the_whole_pack() {
         .iter()
         .find(|diagnostic| diagnostic.code.as_deref() == Some("clippy::mem_forget"))
         .unwrap();
-    assert_eq!(warning.id, elevated.id);
-    assert_eq!(warning.severity, Severity::Warning);
+    assert_eq!(distrusted.id, elevated.id);
+    assert_eq!(distrusted.base_severity, Severity::Warning);
+    assert_eq!(distrusted.severity, Severity::Info);
     assert_eq!(elevated.severity, Severity::Error);
     assert_eq!(error.gate.status, GateStatus::Passed);
 

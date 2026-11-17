@@ -55,10 +55,15 @@ fn write(root: &Path, path: &str, contents: &str) {
 }
 
 fn compare(root: &Path, blocking: &str) -> Value {
+    compare_with(root, blocking, &[])
+}
+
+fn compare_with(root: &Path, blocking: &str, arguments: &[&str]) -> Value {
     let output = support::rust_doctor()
         .arg(root)
         .args(["--json", "--yes", "--scope", "baseline", "--base", "HEAD"])
         .args(["--blocking", blocking])
+        .args(arguments)
         .args(support::NO_ADVISORY_DB)
         .env("CARGO_TARGET_DIR", support::scan_target(root))
         .env("CARGO_NET_OFFLINE", "true")
@@ -190,7 +195,7 @@ fn a_finding_added_to_a_build_script_is_introduced_and_does_not_block() {
         "build.rs",
         "fn main() {\n    let _ = std::env::var(\"OUT_DIR\").unwrap();\n}\n",
     );
-    let report = compare(&root, "warning");
+    let report = compare_with(&root, "warning", &["--rule", "clippy::unwrap_used=warn"]);
     assert_eq!(
         introduced(&report),
         [("clippy::unwrap_used".to_owned(), "build.rs".to_owned(), 2)],

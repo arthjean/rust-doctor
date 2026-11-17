@@ -103,6 +103,52 @@ fn expected(cases: &Value) -> Vec<Value> {
         .collect()
 }
 
+const DISTRUSTED_ABOVE_BASIS_POINTS: u64 = 5_000;
+
+fn distrusted(report: &Value) -> BTreeSet<String> {
+    report["policy"]["rules"]
+        .as_array()
+        .expect("policy rules should be an array")
+        .iter()
+        .filter(|rule| {
+            rule["source"] == "default"
+                && rule["corpus_noise_basis_points"]
+                    .as_u64()
+                    .is_some_and(|noise| noise > DISTRUSTED_ABOVE_BASIS_POINTS)
+        })
+        .map(|rule| rule["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn trusting(request: InspectRequest, oracle: &Value) -> InspectRequest {
+    let switched_on: BTreeSet<_> = rust_doctor::catalog()
+        .iter()
+        .filter(|rule| rule.default_level == RuleLevel::Off)
+        .map(|rule| rule.id)
+        .collect();
+    oracle["positive"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|case| !switched_on.contains(case["code"].as_str().unwrap()))
+        .fold(request, |request, case| {
+            request.with_rule_override(RuleOverride::new(
+                case["code"].as_str().unwrap(),
+                RuleLevel::Warn,
+            ))
+        })
+}
+
+fn dimension(category: &str) -> &'static str {
+    match category {
+        "security" => "security",
+        "correctness" | "reliability" => "reliability",
+        "maintainability" => "maintainability",
+        "performance" => "performance",
+        _ => "dependencies",
+    }
+}
+
 fn tiers(report: &Value) -> BTreeMap<String, String> {
     report["policy"]["rules"]
         .as_array()
@@ -124,6 +170,7 @@ fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
         assert_eq!(oracle["story"], story, "{pack}");
         let report = report(pack_request(pack_root(pack)));
         let tiers = tiers(&report);
+        let distrusted = distrusted(&report);
 
         let production: Vec<_> = curated(&report)
             .into_iter()
@@ -165,7 +212,8 @@ fn every_pack_lint_produces_exactly_one_catalogued_diagnostic() {
                     .is_some_and(|help| !help.is_empty()),
                 "{code} publishes no help"
             );
-            assert_eq!(diagnostic["severity"], "warning", "{code}");
+            let published = if distrusted.contains(code) { "info" } else { "warning" };
+            assert_eq!(diagnostic["severity"], published, "{code}");
             assert_eq!(diagnostic["base_severity"], "warning", "{code}");
         }
     }
@@ -344,22 +392,19 @@ fn each_pack_moves_its_own_dimension_below_one_hundred() {
             "{pack}"
         );
 
-        let touched: BTreeSet<_> = oracle["positive"]
-            .as_array()
-            .unwrap()
+        let cases = oracle["positive"].as_array().unwrap();
+        let trusted = judged(inspect(trusting(pack_request(pack_root(pack)), &oracle)));
+        let touched: BTreeSet<_> = cases
             .iter()
-            .map(|case| match case["category"].as_str().unwrap() {
-                "security" => "security",
-                "correctness" | "reliability" => "reliability",
-                "maintainability" => "maintainability",
-                "performance" => "performance",
-                _ => "dependencies",
-            })
+            .map(|case| dimension(case["category"].as_str().unwrap()))
             .collect();
         for dimension in touched {
             assert!(
-                dimensions[dimension].as_u64().unwrap() < 100,
-                "{pack} left {dimension} at 100"
+                trusted["audit"]["score"]["dimensions"][dimension]
+                    .as_u64()
+                    .unwrap()
+                    < 100,
+                "{pack} set to warn left {dimension} at 100"
             );
         }
     }

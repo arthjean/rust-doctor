@@ -40,6 +40,8 @@ function codes(report: Report): string[] {
   return report.errors.map((error) => `${error.stage}/${error.code}`);
 }
 
+const TRUSTED = ["--rule", "clippy::unwrap_used=warn"];
+
 type MatrixRow = [id: string, fixture: string, args: string[], exit: number, check: (run: DoctorRun & { report: Report }) => void];
 
 const matrix: MatrixRow[] = [
@@ -49,21 +51,21 @@ const matrix: MatrixRow[] = [
     expect(report.audit.score).toMatchObject({ value: 100, authoritative: true });
     expect(stderr).toBe("");
   }],
-  ["EX-02", "projects/clippy-warning", [], 0, ({ report }) => {
+  ["EX-02", "projects/clippy-warning", TRUSTED, 0, ({ report }) => {
     expect(report.gate).toMatchObject({ blocking: "error", status: "passed" });
     expect(report.summary.warnings).toBe(1);
   }],
-  ["EX-03", "projects/clippy-warning", ["--blocking", "warning"], 1, ({ report }) => {
+  ["EX-03", "projects/clippy-warning", [...TRUSTED, "--blocking", "warning"], 1, ({ report }) => {
     expect(report.status).toBe("complete");
     expect(report.gate).toEqual({ blocking: "warning", status: "failed", blocking_diagnostics: 1 });
   }],
-  ["EX-04", "projects/clippy-warning", ["--warning-exit-code", "42"], 42, ({ report }) => {
+  ["EX-04", "projects/clippy-warning", [...TRUSTED, "--warning-exit-code", "42"], 42, ({ report }) => {
     expect(report.gate.status).toBe("passed");
   }],
   ["EX-05", "projects/clean", ["--warning-exit-code", "42"], 0, ({ report }) => {
     expect(report.gate.status).toBe("passed");
   }],
-  ["EX-06", "projects/clippy-warning", ["--blocking", "none", "--warning-exit-code", "42"], 0, ({ report }) => {
+  ["EX-06", "projects/clippy-warning", [...TRUSTED, "--blocking", "none", "--warning-exit-code", "42"], 0, ({ report }) => {
     expect(report.gate.blocking).toBe("none");
   }],
   ["EX-07", "projects/compile-error", [], 1, ({ report }) => {
@@ -125,7 +127,7 @@ describe("exit status matrix", () => {
     const box = sandbox("dev-full");
     const before = treeFingerprint(workspace);
     const run = await runCommand(
-      ["bash", "-c", 'exec rust-doctor "$@" >/dev/full', "bash", workspace, "--yes", "--json", "--blocking", "warning", "--advisory-db", "/dev/null"],
+      ["bash", "-c", 'exec rust-doctor "$@" >/dev/full', "bash", workspace, "--yes", "--json", ...TRUSTED, "--blocking", "warning", "--advisory-db", "/dev/null"],
       { sandbox: box, env: { CARGO_TARGET_DIR: join(box.dir, "target") } },
     );
     expect(treeFingerprint(workspace)).toBe(before);

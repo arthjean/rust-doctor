@@ -108,7 +108,7 @@ describe("terminal profile", () => {
     [30, 40],
     [200, 200],
   ] as const)("EN-04 a %i-column terminal wraps at %i, and never cuts a URL line", async (cols, width) => {
-    const run = await onTerminal([workspace, "--yes"], { cols });
+    const run = await onTerminal([workspace, "--yes", "--rule", "clippy::unwrap_used=warn"], { cols });
     expect(run.exitCode).toBe(0);
     const lines = visibleLines(run.output);
     expect(widest(run.output)).toBeLessThanOrEqual(width);
@@ -143,7 +143,7 @@ describe("terminal profile", () => {
   });
 
   test("EN-08 q leaves the interactive report with the code --blocking warning gives the scan", async () => {
-    const run = await scan({}, ["--blocking", "warning"]);
+    const run = await scan({}, ["--rule", "clippy::unwrap_used=warn", "--blocking", "warning"]);
     expect(run.interactive).toBe(true);
     expect(run.exitCode).toBe(1);
   });

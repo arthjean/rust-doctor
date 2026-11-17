@@ -15,7 +15,7 @@ type Report = {
   gate: { blocking: string; status: string; blocking_diagnostics: number | null };
   scan: { ignored: number };
   errors: Array<{ stage: string; code: string; message: string }>;
-  diagnostics: Array<{ code: string; path: string; severity: string; span: { line_start: number } }>;
+  diagnostics: Array<{ code: string; path: string; severity: string; message: string; span: { line_start: number } }>;
 };
 
 const TODO = "clippy::todo";
@@ -416,14 +416,22 @@ describe("rust-doctor.toml", () => {
   test("CF-32 the complexity thresholds decide what complex_function reports", async () => {
     const workspace = copyWorkspace("structure/complex-function");
     const complex = (report: Report) => report.diagnostics.filter((d) => d.code === COMPLEX);
-    writeFileSync(join(workspace, "rust-doctor.toml"), "[structure]\ncyclomatic-threshold = 12\ncognitive-threshold = 31\n");
-    const raised = await scan(workspace);
-    expect(raised.exitCode).toBe(0);
-    expect(complex(raised.report)).toEqual([]);
-    writeFileSync(join(workspace, "rust-doctor.toml"), "[structure]\ncognitive-threshold = 2\n");
-    const lowered = await scan(workspace);
-    expect(lowered.exitCode).toBe(0);
-    expect(complex(lowered.report)).toHaveLength(2);
+    const thresholds = async (cyclomatic: number, cognitive: number) => {
+      writeFileSync(
+        join(workspace, "rust-doctor.toml"),
+        `[structure]\ncyclomatic-threshold = ${cyclomatic}\ncognitive-threshold = ${cognitive}\n`,
+      );
+      const run = await scan(workspace);
+      expect(run.exitCode).toBe(0);
+      return complex(run.report);
+    };
+    expect(await thresholds(21, 2)).toEqual([]);
+    expect(await thresholds(2, 40)).toEqual([]);
+    const both = await thresholds(20, 39);
+    expect(both.map((finding) => finding.message)).toEqual([
+      "Function schedule reaches cyclomatic complexity 20 and cognitive complexity 39.",
+    ]);
+    expect(await thresholds(2, 2)).toHaveLength(2);
   });
 
   test("CF-37 65536 bytes are read, 65537 exit 2 naming the file", async () => {

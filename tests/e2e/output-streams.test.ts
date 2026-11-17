@@ -96,11 +96,13 @@ beforeAll(() => {
   farm = cloneFarm(FARM.modules, FARM.functions);
 });
 
+const TRUSTED = ["--rule", "clippy::unwrap_used=warn"];
+
 describe("output write failures", () => {
   const pipes: Array<[id: string, fixture: string, args: string[], exit: number]> = [
     ["OW-01", "projects/clean", [], 0],
-    ["OW-02", "projects/clippy-warning", ["--blocking", "warning"], 1],
-    ["OW-03", "projects/clippy-warning", ["--warning-exit-code", "7"], 7],
+    ["OW-02", "projects/clippy-warning", [...TRUSTED, "--blocking", "warning"], 1],
+    ["OW-03", "projects/clippy-warning", [...TRUSTED, "--warning-exit-code", "7"], 7],
   ];
   test.each(pipes)("%s --json read by head -c 10 keeps the scan's exit code", async (_id, fixture, args, exit) => {
     const run = await shell(HEAD_10, copyWorkspace(fixture), ["--json", ...args]);
@@ -156,7 +158,7 @@ describe("output contracts", () => {
   test("OC-01 every --json run prints one document on one line ending in one newline", async () => {
     const runs: Array<[string, string[]]> = [
       ["projects/clean", []],
-      ["projects/clippy-warning", ["--blocking", "warning"]],
+      ["projects/clippy-warning", [...TRUSTED, "--blocking", "warning"]],
       ["projects/compile-error", []],
       ["projects/clean", ["--rule", "clippy::does_not_exist=warn"]],
       ["scan-failures/bad-manifest", []],
@@ -249,7 +251,14 @@ describe("output contracts", () => {
   });
 
   test("OC-10 the complete linear report keeps its section order", async () => {
-    const run = await scan(copyWorkspace("projects/clippy-warning"), []);
+    const distrusted = await scan(copyWorkspace("projects/clippy-warning"), []);
+    const quiet = ["No scored issues found.", "P3 info  Unwrap used  x0 (+1 info)  clippy::unwrap_used  src/lib.rs:8:5",
+      "All 1 occurrences across 1 findings; 0 scored warnings, 1 info", "Reliability: 1 info (1 from Unwrap used)", " 100 / 100 Great"]
+      .map((section) => distrusted.stdout.indexOf(section));
+    expect(quiet.every((position) => position >= 0)).toBe(true);
+    expect(quiet).toEqual([...quiet].sort((left, right) => left - right));
+    expect(distrusted.stdout).not.toContain("Reported, but found wrong on most reviewed sites");
+    const run = await scan(copyWorkspace("projects/clippy-warning"), TRUSTED);
     const sections = [
       "Scope: full codebase\n", "Scored 1 production files", "Reported, but found wrong on most reviewed sites",
       "P3 warning  Unwrap used  x1", "Rule ID: clippy::unwrap_used",

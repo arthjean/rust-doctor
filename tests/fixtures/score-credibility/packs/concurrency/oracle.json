@@ -6,8 +6,8 @@
     "value": 65,
     "dimensions": {
       "security": 100,
-      "reliability": 45,
-      "maintainability": 85,
+      "reliability": 50,
+      "maintainability": 92,
       "performance": 100,
       "dependencies": 100
     }
