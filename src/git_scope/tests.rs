@@ -616,6 +616,35 @@ fn a_contextual_scope_widens_only_the_reach_a_rule_declares() {
 }
 
 #[test]
+fn a_lockfile_rule_anchored_at_a_manifest_stays_when_only_the_lockfile_changed() {
+    let pruned = lines::FileChanges {
+        ranges: Vec::new(),
+        deletions: vec![12],
+    };
+    let lockfile = LineRanges::from([("Cargo.lock".to_owned(), pruned)]);
+    let source = LineRanges::from([(
+        "src/lib.rs".to_owned(),
+        lines::FileChanges {
+            ranges: vec![(1, 1)],
+            deletions: Vec::new(),
+        },
+    )]);
+    let none = |_: &str| None;
+    for contextual in [false, true] {
+        let scope =
+            ScopeReport::lines_scope(BASE.to_owned(), lockfile.clone(), Vec::new(), contextual)
+                .unwrap();
+        assert!(scope.includes_reach(Some("Cargo.toml"), None, DiffScope::File, none));
+        assert!(!scope.includes_reach(Some("Cargo.toml"), None, DiffScope::Line, none));
+        assert!(!scope.includes_reach(Some("Cargo.toml"), Some((3, 3)), DiffScope::File, none));
+        let elsewhere =
+            ScopeReport::lines_scope(BASE.to_owned(), source.clone(), Vec::new(), contextual)
+                .unwrap();
+        assert!(!elsewhere.includes_reach(Some("Cargo.toml"), None, DiffScope::File, none));
+    }
+}
+
+#[test]
 fn the_scope_holds_the_size_bound_it_reports_for() {
     for own in [
         include_str!("../git_scope.rs"),

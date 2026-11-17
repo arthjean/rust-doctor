@@ -74,8 +74,8 @@ finding's span with the new-side ranges `git_scope/lines.rs` reads from
 file's backlog without the second compilation baseline pays.
 
 A lines scope keeps what the change caused even where it has no changed line.
-A span-less finding, such as a lockfile entry, is about its file and stays
-when that file changed; `lines.rs` records a pure deletion as a point so a file
+A span-less finding stays when its file changed, a lockfile rule's also when
+`Cargo.lock` did, wherever it is anchored; `lines.rs` records a pure deletion as a point so a file
 only pruned still counts as changed. Dependency declarations carry their key's
 span (`cargo_health/keys.rs`), a member's `workspace = true` key included, though
 the span never enters their identity. A

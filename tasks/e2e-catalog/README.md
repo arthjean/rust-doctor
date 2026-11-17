@@ -71,3 +71,4 @@ row tagged with this identifier, and `tests/e2e/known-bugs.json` mirrors this ta
 | failures/BUG-22 | medium | `unreferenced_feature` asks to delete a feature the build script reads through `CARGO_FEATURE_<NAME>` | US-020 |
 | failures/BUG-23 | medium | `secret_in_build_step` reports a value the binary embeds through `option_env!` as a leaked secret, with help about `cargo publish` and OIDC in jobs that never publish | US-021 |
 | failures/BUG-24 | low | A file reached by a build script and by a `#[cfg(test)]` module is scored as production, and a file-level `oversized_unit` counts test items | US-022 |
+| failures/BUG-25 | medium | A removable `duplicate_major_versions` finding, anchored at the member manifest, leaves a `--scope lines` run whose only change is `Cargo.lock` | US-028 |

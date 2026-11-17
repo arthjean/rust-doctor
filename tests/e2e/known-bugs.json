@@ -501,5 +501,12 @@
     "status": "fixed",
     "fixed_by": "US-022",
     "defect": "A file reached by a build script and by a `#[cfg(test)]` module is scored as production, and a file-level `oversized_unit` counts test items"
+  },
+  {
+    "id": "failures/BUG-25",
+    "severity": "medium",
+    "status": "fixed",
+    "fixed_by": "US-028",
+    "defect": "A removable `duplicate_major_versions` finding, anchored at the member manifest, leaves a `--scope lines` run whose only change is `Cargo.lock`"
   }
 ]

@@ -9,6 +9,8 @@ use crate::execution::RunDeadline;
 use crate::git::{GitCall, GitFailure, OUTPUT_TOO_LARGE, git_arguments, run_git, run_git_with_index};
 use crate::workspace_path;
 
+const RESOLVED_LOCKFILE: &str = "Cargo.lock";
+
 mod base;
 mod items;
 mod lines;
@@ -371,6 +373,12 @@ impl ScopeReport {
         source: impl FnOnce(&str) -> Option<String>,
     ) -> bool {
         if self.includes_span(path, lines) {
+            return true;
+        }
+        if matches!(reach, DiffScope::File)
+            && lines.is_none()
+            && self.includes_span(Some(RESOLVED_LOCKFILE), None)
+        {
             return true;
         }
         let (

@@ -638,7 +638,8 @@ fn a_lockfile_deletion_alone_keeps_its_span_less_finding_in_scope() {
     git(&root, &["add", "Cargo.lock"]);
     let found = duplicates(&root);
     assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0]["path"], "Cargo.lock");
+    assert_eq!(found[0]["path"], "Cargo.toml", "{found:?}");
+    assert_eq!(found[0]["severity"], "warning", "{found:?}");
     assert!(found[0]["span"].is_null(), "{found:?}");
 
     git(&root, &["reset", "--quiet", "--hard"]);

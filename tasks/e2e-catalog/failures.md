@@ -331,6 +331,8 @@ BUG-23 (correctness, medium). `secret_in_build_step` reports a value the binary 
 
 BUG-24 (correctness, low). A file reached by a build script and by a `#[cfg(test)]` module is scored as production, and a file-level `oversized_unit` counts test items. Repro: `src/shared.rs` included by `build.rs` through `#[path]` and by `#[cfg(test)] mod shared;` in `lib.rs`, on a release before 0.12.0: its findings weigh in the score. Fixed by US-022 of `tasks/prd-field-audit-remediation.md`.
 
+BUG-25 (correctness, medium). A removable `duplicate_major_versions` finding, anchored at the member manifest since US-028, leaves a `--scope lines` run whose only change is `Cargo.lock`, so a lockfile edit that brings a duplicate in hides it. Repro: `tests/agent_loop.rs` `a_lockfile_deletion_alone_keeps_its_span_less_finding_in_scope` on 01983c1 under Fedora 45: 0 findings where 1 is expected. Fixed by US-028 of `tasks/prd-field-audit-remediation.md`, through US-036.
+
 OBS-1. `related[]` is unbounded: 120,000 identical function bodies yield one diagnostic with 119,999 related locations, 12.8 MB of JSON.
 
 OBS-2. A workspace that does not compile shows `100 / 100 Core partial` under a smiling face. It is labeled partial, but a reader skimming the block sees a perfect score.
