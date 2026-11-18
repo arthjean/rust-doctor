@@ -57,10 +57,10 @@
     {
       "id": "EP-007",
       "title": "Linux validation on Fedora",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "stories_total": 5,
-      "stories_done": 0
+      "stories_done": 5
     }
   ],
   "stories": [
@@ -602,23 +602,24 @@
       "id": "US-034",
       "title": "Replay CI's Linux jobs on Fedora",
       "epic": "EP-007",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [],
       "started_at": "2026-11-16",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-18",
+      "reviewed_at": "2026-11-18",
       "notes": {
         "implementation": "Implemented 2026-11-16 on Fedora 45: scripts/linux-ci-replay.sh (setup, then <commit> [job...] [-- args]) and docs/linux-replay.md, linked from AGENTS.md's Commands table, ceiling 492 in docs/doc-budgets.json. The replay checks the commit out as a shared clone (a worktree makes .git a file and the packed smoke reads .git/index), gives the run a private RUSTUP_HOME whose default is 1.99.1 so the machine default (stable, now 1.100.0) is untouched, refuses CARGO_TARGET_DIR and any target-dir, fetches once with --locked, runs tests with --no-fail-fast, and writes <commit>.record with the tree id. Proof: full replay of fbf006e (tree 1b3ad91d1db3f0921b0f09a86b4944073f41eccb), rustc 1.99.1: clippy, msrv, launcher (19), release pass; docs fail (verify-doc-refs.sh read content/docs/*.mdx as docs/*.md and a code-span link as a link, fixed in this run); test 1365 passed, 5 failed; packed fails 'human progress is not the phase lines'; e2e 14 distinct failures. Matches CI's red run 43884329027 job for job. The 5 cargo failures (agent_loop lockfile scope, delta_correspondence build-script, rule_scaling_surfaces pack gate, score_credibility_packs x2: clippy::unwrap_used published at info where warning is asserted) also fail alone on 01983c1 (tree df32f110), so they are pre-existing to EP-006 and belong to US-035/US-036. Environment differences seen: execution::tests::toolchain::a_deadline_spent_waiting_on_the_build_lock_names_the_lock failed once with ETXTBSY in the worktree attempt and passed in the clone run; launcher-packed 'exit 0' fails on Fedora only, its duration normalizer misses 'in 0.1s.' (EP-003 text) when the two runs round differently.",
-        "validation": "2026-11-16, Fedora 45: the final EP-006 tree ed760d79 (tracker excluded) replayed through every CI Linux job in a clean shared clone: clippy, docs, msrv, launcher (19), release pass; test 1367 passed, 5 failed, the same 5 that fail on 01983c1; packed and e2e fail exactly as on HEAD fbf006e (14 distinct e2e tests, CI run 43884329027 agrees). Environment difference found: the main checkout's target/ is a symlink to ~/.cargo-target/rust-doctor, which makes source_kernel::tests::measurement (2 tests) refuse the fixture copy as outside the workspace; the clean clone passes them. That is a product defect (a workspace reached through a symlink loses its native walk: path_form::canonical resolves the root while cargo metadata paths stay lexical) for a later story."
+        "validation": "2026-11-16, Fedora 45: the final EP-006 tree ed760d79 (tracker excluded) replayed through every CI Linux job in a clean shared clone: clippy, docs, msrv, launcher (19), release pass; test 1367 passed, 5 failed, the same 5 that fail on 01983c1; packed and e2e fail exactly as on HEAD fbf006e (14 distinct e2e tests, CI run 43884329027 agrees). Environment difference found: the main checkout's target/ is a symlink to ~/.cargo-target/rust-doctor, which makes source_kernel::tests::measurement (2 tests) refuse the fixture copy as outside the workspace; the clean clone passes them. That is a product defect (a workspace reached through a symlink loses its native walk: path_form::canonical resolves the root while cargo metadata paths stay lexical) for a later story.",
+        "review": "Certified 2026-11-18 by /review-epic. Every criterion traced to scripts/linux-ci-replay.sh and docs/linux-replay.md (linked from AGENTS.md, 490 of 492 words) and observed in this review's runs. Two fidelity defects fixed: the replay omitted CI's workflow-level CARGO_TERM_COLOR=always, and it ran the packed smoke and the e2e suite on whatever node the machine resolves first. Here that was a vite-plus shim that downloads a runtime, so launcher-packed failed 44 tests on HEAD 9908a3f ('vp: Failed to resolve Node version', no network in the test sandbox) while CI was green on the same product tree. setup now installs Node 22.13.0 from nodejs.org, checked against SHASUMS256.txt, and preflight refuses a run without it. With the fixes, HEAD 9908a3f (tree 5733fd72) passes every Linux job: clippy, docs, test (1374 passed, 0 failed, 6 ignored), msrv, launcher (19), release, packed, e2e (1291 passed, 0 failed, 20 skipped). The parent rule held twice: packed and launcher-packed 'exit 0' fail alone on c64eaa8 too."
       }
     },
     {
       "id": "US-035",
       "title": "Validate EP-004 on Linux",
       "epic": "EP-007",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
@@ -631,17 +632,18 @@
         "US-022"
       ],
       "started_at": "2026-11-17",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-18",
+      "reviewed_at": "2026-11-18",
       "notes": {
-        "implementation": "Implemented 2026-11-17: one full replay of EP-004's landing commit, every failure judged on its parent as US-034 states. 2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed. No Linux failure traces to an EP-004 story, so none returns to IN_REVIEW. Records: ~/.cache/rust-doctor/replay/7f6f4d9172bbf111cd7ab19eb6ca7f88b4f3ff2a.record and c64eaa8252a47816d7c1f91b65762e0c8980b7da.record. The record files under ~/.cache/rust-doctor/replay/ were removed by a cache cleanup later on 2026-11-17; the figures above were read from them before."
+        "implementation": "Implemented 2026-11-17: one full replay of EP-004's landing commit, every failure judged on its parent as US-034 states. 2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 7f6f4d9 (the commit that lands EP-004), tree 8634581f8024cd2fbefe02303e11f73d6913db07, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test pass, 1333 passed, 0 failed, 5 ignored, scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2 on Linux) included; e2e 1307 passed, 3 failed, 20 skipped. The failures are not EP-004's: the packed smoke ('human progress is not the phase lines') and launcher-packed 'exit 0' (duration normalizer) also fail alone on the parent c64eaa8 (tree fb6541f9), both from EP-003's US-013 and US-012 wording, fixed on HEAD by US-037; tmux-helpers 'the byte log holds every byte' failed once, passed on ci-run-files.sh's retry and alone (11 passed). known-bugs, cli-surface and output-streams pass alone on the tree (71 passed). No wall-clock budget failed. No Linux failure traces to an EP-004 story, so none returns to IN_REVIEW. Records: ~/.cache/rust-doctor/replay/7f6f4d9172bbf111cd7ab19eb6ca7f88b4f3ff2a.record and c64eaa8252a47816d7c1f91b65762e0c8980b7da.record. The record files under ~/.cache/rust-doctor/replay/ were removed by a cache cleanup later on 2026-11-17; the figures above were read from them before.",
+        "review": "Certified 2026-11-18 by /review-epic, which replayed 7f6f4d9 (tree 8634581f) because the 2026-11-17 records had been deleted. Fedora 45, rustc 1.99.1 (58cf8f9c3 2026-10-13), scripts/linux-ci-replay.sh with this review's two fixes (CARGO_TERM_COLOR=always and Node 22.13.0 first on PATH for packed and e2e, as ci.yml sets): clippy, docs, msrv, launcher (19), release pass; test 1333 passed, 0 failed, 5 ignored, with scan_failures, score_credibility_packs, source_kernel_cli and detector_false_positives (A2) included; e2e 1297 passed, 20 skipped, 1 distinct failure (launcher-packed 'exit 0', failed on both attempts), and known-bugs, cli-surface and output-streams pass; packed fails 'human progress is not the phase lines'. Both failures reproduce alone on the parent c64eaa8 (tree fb6541f9, packed fail, launcher-packed 14 passed and the same 1 failed), so they are pre-existing (EP-003 wording), not EP-004's, and green on the candidate after 7f461c7. The first criterion is read under US-034's rule: every gate passes except failures proven pre-existing on the parent. No wall-clock budget failed. The earlier tmux-helpers flake did not recur."
       }
     },
     {
       "id": "US-036",
       "title": "Validate EP-005 on Linux",
       "epic": "EP-007",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
@@ -655,17 +657,18 @@
         "US-029"
       ],
       "started_at": "2026-11-17",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-18",
+      "reviewed_at": "2026-11-18",
       "notes": {
-        "implementation": "Implemented 2026-11-17. 2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8. US-027 and US-028 return to IN_REVIEW with their fixes (see their linux_fix notes), certified through /review-epic. Records: ~/.cache/rust-doctor/replay/9aef6c7f62eca759615619a8c2d671a44bf3a595.record. The record files under ~/.cache/rust-doctor/replay/ were removed by a cache cleanup later on 2026-11-17; the figures above were read from them before."
+        "implementation": "Implemented 2026-11-17. 2026-11-17, Fedora 45, scripts/linux-ci-replay.sh on 9aef6c7 (the commit that lands EP-005), tree 11e5c6a329109abcaf4213c053afd9cbac74b249, rustc 1.99.1 (58cf8f9c3 2026-10-13): clippy, docs, msrv, launcher (19), release pass; test 1359 passed, 5 failed, 6 ignored; packed fails; e2e 1424 passed, 26 failed (13 distinct), 20 skipped. audit_contract (12), score_credibility_kernel (7) and the lib unit tests (681, src/audit/tests.rs included) pass with the exact scores they assert on Windows, so 1 + ln(n) rounds alike on both platforms; lambda_freeze.rs is unchanged since 7991b7a and its 3 tests pass; the US-023 harness (cargo test --lib calibration -- --ignored) reproduces docs/core-v7-calibration-2026-11.md on the LF checkout. The parent ed2a9be differs from 7f6f4d9 in tasks/ only, and 7f6f4d9's replay passes all 18 failing tests, so EP-005 caused them: the 4 cargo tests and 12 e2e tests that assert a warning or a weighing for clippy::unwrap_used or clippy::mem_forget, which US-027 publishes at Info (delta_correspondence, rule_scaling_surfaces, score_credibility_packs x2, EX-02 to EX-04, OW-02 to OW-04, OC-10, EN-04 x3, EN-08, INV-08), CF-32, which still assumed either threshold reports (US-027), and agent_loop's lockfile scope test, a product regression of US-028 (BUG-25). The packed smoke fails on EP-003 text, pre-existing since c64eaa8. US-027 and US-028 return to IN_REVIEW with their fixes (see their linux_fix notes), certified through /review-epic. Records: ~/.cache/rust-doctor/replay/9aef6c7f62eca759615619a8c2d671a44bf3a595.record. The record files under ~/.cache/rust-doctor/replay/ were removed by a cache cleanup later on 2026-11-17; the figures above were read from them before.",
+        "review": "Certified 2026-11-18 by /review-epic. EP-005 was recertified at 013f9eb, whose product tree equals the candidate 2cc5b6c (only tasks/ differs) and HEAD 9908a3f (tasks/ and one release-note line differ). Every gate passes on Fedora there: 2cc5b6c's record and this review's full replay of 9908a3f (test 1374 passed, 0 failed). audit_contract, score_credibility_kernel and src/audit/tests.rs are part of that test job, with their exact scores. lambda_freeze.rs is unchanged since 7991b7a. The US-023 harness was replayed on 9aef6c7 (tree 11e5c6a3) in this review: cargo test --lib calibration -- --ignored passed 1 of 1, byte for byte. It is valid only before the corpus replay of 2610f6b by its own ignore reason. notes.linux are present on US-023 to US-029."
       }
     },
     {
       "id": "US-037",
       "title": "Validate the 0.12.0 release candidate on Linux",
       "epic": "EP-007",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "M",
       "blocked_by": [
@@ -677,17 +680,18 @@
         "US-038"
       ],
       "started_at": "2026-11-17",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-18",
+      "reviewed_at": "2026-11-18",
       "notes": {
-        "implementation": "Implemented 2026-11-17 on the release candidate 2cc5b6c (chore(release): 0.12.0, pushed to main, not tagged), tree b58abf613540ec5fe93d27efc41f9cf9d202736a, Fedora 45, rustc 1.99.1 (58cf8f9c3 2026-10-13), through scripts/linux-ci-replay.sh: clippy, docs, test (1374 passed, 0 failed, 6 ignored), msrv (cargo +1.95 check --locked --all-targets), launcher (bun 1.3.14, 19 passed), release, packed smoke (bun run smoke:packed against the release binary), e2e with its typecheck (1291 passed, 0 failed, 20 skipped) all pass. corpus_precision from the clone cache (RUST_DOCTOR_CORPUS_DIR=~/.cache/rust-doctor/corpus) passes 33 of 33 against US-032's record. rust-doctor-web at core-v7 (e6c49e6, US-033) in a separate worktree: catalog:sync and corpus:sync against the candidate's clean checkout and release binary (requested_ref main, commit 2cc5b6c) change only build-provenance.json (142 descriptors, 467 reviewed sites unchanged), and bun run build:verified passes (catalog:check, corpus:check, next build, verify:public: 142 rule pages, 44 measured rules); that provenance is local, since the release skill regenerates it from the tag. CI on the candidate's push: CI run 44178878960 and Rust Doctor run 44178878846 green on ubuntu-latest and macos-latest. The repairs it needed landed first as 33a269e, a9d283b and 7f461c7, CI 44174855691 green after one rerun of Build (windows), whose detector benchmark took 3.62 s against its 3.30 s bound on the runner (wall clock, passed on rerun). No gate failed on the candidate."
+        "implementation": "Implemented 2026-11-17 on the release candidate 2cc5b6c (chore(release): 0.12.0, pushed to main, not tagged), tree b58abf613540ec5fe93d27efc41f9cf9d202736a, Fedora 45, rustc 1.99.1 (58cf8f9c3 2026-10-13), through scripts/linux-ci-replay.sh: clippy, docs, test (1374 passed, 0 failed, 6 ignored), msrv (cargo +1.95 check --locked --all-targets), launcher (bun 1.3.14, 19 passed), release, packed smoke (bun run smoke:packed against the release binary), e2e with its typecheck (1291 passed, 0 failed, 20 skipped) all pass. corpus_precision from the clone cache (RUST_DOCTOR_CORPUS_DIR=~/.cache/rust-doctor/corpus) passes 33 of 33 against US-032's record. rust-doctor-web at core-v7 (e6c49e6, US-033) in a separate worktree: catalog:sync and corpus:sync against the candidate's clean checkout and release binary (requested_ref main, commit 2cc5b6c) change only build-provenance.json (142 descriptors, 467 reviewed sites unchanged), and bun run build:verified passes (catalog:check, corpus:check, next build, verify:public: 142 rule pages, 44 measured rules); that provenance is local, since the release skill regenerates it from the tag. CI on the candidate's push: CI run 44178878960 and Rust Doctor run 44178878846 green on ubuntu-latest and macos-latest. The repairs it needed landed first as 33a269e, a9d283b and 7f461c7, CI 44174855691 green after one rerun of Build (windows), whose detector benchmark took 3.62 s against its 3.30 s bound on the runner (wall clock, passed on rerun). No gate failed on the candidate.",
+        "review": "Certified 2026-11-18 by /review-epic. The candidate 2cc5b6c's record (tree b58abf61) shows every job passing, corpus_precision 33 of 33 included. This review replayed HEAD 9908a3f (tree 5733fd72), which differs from the candidate only in tasks/ and one release-note line: every job passes, and corpus_precision passes 33 of 33 from ~/.cache/rust-doctor/corpus (18 subjects reproduced, artifacts in ~/.cache/rust-doctor/corpus-artifacts-review). rust-doctor-web core-v7 (worktree rdw-core-v7 at e6c49e6): catalog:sync and corpus:sync against the 9908a3f clean clone change only build-provenance.json, and build:verified passes (142 rule pages, 44 measured rules); that provenance was then reverted. CI on the candidate: CI 44178878960 and Rust Doctor 44178878846 green. CI on HEAD 9908a3f (44351777276) is green on ubuntu and macOS, but red on Build (windows): source_kernel::tests::benchmark took 3.72 s against a 3.30 s bound, the same wall-clock overrun 7f461c7 passed on rerun (3.62 s). That is outside this epic's Linux jobs and must be rerun before the tag."
       }
     },
     {
       "id": "US-038",
       "title": "Produce the core-v7 corpus artifacts on Fedora",
       "epic": "EP-007",
-      "status": "IN_REVIEW",
+      "status": "DONE",
       "priority": "P0",
       "size": "S",
       "blocked_by": [
@@ -707,10 +711,11 @@
         "US-030"
       ],
       "started_at": "2026-11-16",
-      "completed_at": null,
-      "reviewed_at": null,
+      "completed_at": "2026-11-18",
+      "reviewed_at": "2026-11-18",
       "notes": {
-        "run": "2026-11-16 on Fedora 45 through scripts/linux-ci-replay.sh (US-034's environment), commit fbf006e027c5a80c439e8b569892e9fb4821910d, tree 1b3ad91d1db3f0921b0f09a86b4944073f41eccb, rustc 1.99.1 (58cf8f9c3 2026-10-13), 18 subjects (10 healthy, 8 agent), every clone at its pinned commit. corpus_precision: 31 passed, 2 failed on the old record, both measured changes for US-032 (the_published_observations_reproduce_the_pinned_corpus_run, the_agent_population_reproduces_from_the_local_cache: complex_function 1643 sites down to 833, oversized_unit units moved to test context, duplicate_major_versions 4 new vibesql sites). Artifacts in ~/.cache/rust-doctor/corpus-artifacts-core-v7: observations.json sha256 090ff022..., agent-replay/agent-observations.json dcf80cad.... delta_pairing (--release --ignored): pass, 128 pairs measured, 2 excluded, 0 unclassified candidates, 186 reports all written by this run. No position-proof.json: the harness writes it only once the record matches the run, so it came from US-032's confirming run on the same machine (see US-032)."
+        "run": "2026-11-16 on Fedora 45 through scripts/linux-ci-replay.sh (US-034's environment), commit fbf006e027c5a80c439e8b569892e9fb4821910d, tree 1b3ad91d1db3f0921b0f09a86b4944073f41eccb, rustc 1.99.1 (58cf8f9c3 2026-10-13), 18 subjects (10 healthy, 8 agent), every clone at its pinned commit. corpus_precision: 31 passed, 2 failed on the old record, both measured changes for US-032 (the_published_observations_reproduce_the_pinned_corpus_run, the_agent_population_reproduces_from_the_local_cache: complex_function 1643 sites down to 833, oversized_unit units moved to test context, duplicate_major_versions 4 new vibesql sites). Artifacts in ~/.cache/rust-doctor/corpus-artifacts-core-v7: observations.json sha256 090ff022..., agent-replay/agent-observations.json dcf80cad.... delta_pairing (--release --ignored): pass, 128 pairs measured, 2 excluded, 0 unclassified candidates, 186 reports all written by this run. No position-proof.json: the harness writes it only once the record matches the run, so it came from US-032's confirming run on the same machine (see US-032).",
+        "review": "Certified 2026-11-18 by /review-epic. The run on fbf006e carried every blocking story (US-030's 9c11c8b included). The run stops on a missing or moved clone: tests/support/corpus.rs run() returns missing_repositories before any scan, and corpus_precision asserts it. The measured changes were handed to US-032, and the record they produced reproduces today: corpus_precision passes 33 of 33 on 2cc5b6c and on HEAD 9908a3f. Not recoverable: the artifacts under ~/.cache/rust-doctor/corpus-artifacts-core-v7 were deleted by the 2026-11-17 cache cleanup, so the digests stay the 8-hex prefixes recorded above."
       }
     }
   ]
