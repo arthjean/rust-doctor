@@ -12,7 +12,8 @@ toolchain 1.99.1 with clippy and the `x86_64-pc-windows-msvc` target, which the
 `Tests` job adds; toolchain 1.95 for the MSRV check; `stable` with clippy, which
 the baseline fixture's `rust-toolchain.toml` pins; tmux, strace and jq under
 `/usr/bin` through dnf; bun 1.3.14 for the launcher jobs and the version
-`tests/e2e/package.json` names for the end-to-end suite, each from its release
+`tests/e2e/package.json` names for the end-to-end suite, and Node 22.13.0, first
+on `PATH` for the packed smoke and the end-to-end suite, each from its release
 archive checked against the release's `SHASUMS256.txt`. It allows unprivileged
 user namespaces when `unshare` is refused, so `E2E_REQUIRE_NETNS=1` holds.
 
@@ -34,7 +35,8 @@ stays as it is. It refuses `CARGO_TARGET_DIR`, and a `target-dir` in any
 each fixture builds into its own `target/`. It fetches once with
 `cargo fetch --locked`, passes `--locked` to every Cargo command, runs the
 tests with `--no-fail-fast` so one run lists every failure, and sets
-`RUST_DOCTOR_BENCHMARK_ALLOWANCE=3` for every test run. The end-to-end suite runs
+`RUST_DOCTOR_BENCHMARK_ALLOWANCE=3` for every test run and `CARGO_TERM_COLOR=always`
+for every job, as CI does. The end-to-end suite runs
 with `E2E_REQUIRE_TMUX=1`, `E2E_REQUIRE_NETNS=1` and `RUST_DOCTOR_E2E_BIN`,
 through `bash ci-run-files.sh` on the files `bun ci-shards.ts` plans for each of
 the five shards. `TMPDIR` points under the replay root, since `/tmp` is

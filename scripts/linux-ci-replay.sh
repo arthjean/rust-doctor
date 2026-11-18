@@ -5,6 +5,7 @@ replay_root="${RUST_DOCTOR_REPLAY_ROOT:-$HOME/.cache/rust-doctor/replay}"
 pinned=1.99.1
 msrv=1.95
 launcher_bun=1.3.14
+node_version=22.13.0
 all_jobs=(clippy docs test msrv launcher release packed e2e)
 
 fail() {
@@ -37,6 +38,21 @@ install_bun() {
   unzip -q -o "$dir/bun-linux-x64.zip" -d "$dir"
 }
 
+node_dir() {
+  printf '%s/node/%s/node-v%s-linux-x64/bin' "$replay_root" "$node_version" "$node_version"
+}
+
+install_node() {
+  local dir="$replay_root/node/$node_version" archive="node-v$node_version-linux-x64.tar.xz"
+  local release="https://nodejs.org/dist/v$node_version"
+  [ -x "$(node_dir)/node" ] && return 0
+  mkdir -p "$dir"
+  curl -fsSL -o "$dir/$archive" "$release/$archive"
+  curl -fsSL -o "$dir/SHASUMS256.txt" "$release/SHASUMS256.txt"
+  (cd "$dir" && grep " $archive\$" SHASUMS256.txt | sha256sum --check --strict -)
+  tar -xJf "$dir/$archive" -C "$dir"
+}
+
 setup() {
   rustup toolchain install "$pinned" --profile minimal --component clippy --target x86_64-pc-windows-msvc
   rustup toolchain install "$msrv" --profile minimal
@@ -48,6 +64,7 @@ setup() {
   [ "${#missing[@]}" -eq 0 ] || sudo dnf install -y "${missing[@]}"
   install_bun "$launcher_bun"
   install_bun "$(e2e_bun "$repository")"
+  install_node
   unshare --user --map-root-user --net true || sudo sysctl -w user.max_user_namespaces=65536
   echo "replay: setup done"
 }
@@ -94,6 +111,7 @@ preflight() {
   rustup component list --toolchain stable --installed | grep -q '^clippy' || fail "toolchain stable lacks clippy"
   [ -x "$(bun_dir "$launcher_bun")/bun" ] || fail "bun $launcher_bun is missing: bash scripts/linux-ci-replay.sh setup"
   [ -x "$(bun_dir "$(e2e_bun "$checkout")")/bun" ] || fail "bun $(e2e_bun "$checkout") is missing: bash scripts/linux-ci-replay.sh setup"
+  [ "$("$(node_dir)/node" --version 2>/dev/null)" = "v$node_version" ] || fail "node $node_version is missing: bash scripts/linux-ci-replay.sh setup"
   unshare --user --map-root-user --net true || fail "unprivileged user namespaces are refused, and E2E_REQUIRE_NETNS=1 needs them"
 }
 
@@ -151,10 +169,12 @@ job() {
     launcher) cd npm/rust-doctor && with_bun "$launcher_bun" bun test tests ;;
     release) cargo build --release --locked ;;
     packed)
+      export PATH="$(node_dir):$PATH"
       cd npm/rust-doctor || return 1
       RUST_DOCTOR_BINARY="$checkout/target/release/rust-doctor" with_bun "$launcher_bun" bun run smoke:packed
       ;;
     e2e)
+      export PATH="$(node_dir):$PATH"
       RUST_DOCTOR_E2E_BIN="$checkout/target/release/rust-doctor" \
         E2E_REQUIRE_TMUX=1 E2E_REQUIRE_NETNS=1 RUST_DOCTOR_BENCHMARK_ALLOWANCE=3 \
         RUST_DOCTOR_E2E_ROOT="$RUNNER_TEMP/rust-doctor-e2e" \
@@ -195,6 +215,7 @@ replay() {
   preflight "$checkout"
   export RUNNER_TEMP="$replay_root/temp/$commit"
   export TMPDIR="$RUNNER_TEMP/tmp"
+  export CARGO_TERM_COLOR=always
   mkdir -p "$TMPDIR"
   record="$replay_root/$commit.record"
   echo "replay: commit $commit tree $tree"
